@@ -51,7 +51,6 @@ This root's layout is governed by `wiser/standards/plugin-root.md`. That standar
 
 Stood up 2026-09-26 by `wiser/skills/Onboard Plugin Root/`. Each line is owed to a person and names what closes it. Strike a line when its boundary closes; when the last line goes, delete this section.
 
-- Repository: owed (the operator; waits on creating `wisermethod/devops`, setting its remote and choosing its visibility)
-- First commit and push: owed (the operator; waits on the repository)
+- Push: owed (the operator; the repository exists and is committed, and nothing is pushed)
 - A row in the operator's repository roster: owed (the operator; waits on the repository)
 - Descriptions of this root: owed (the operator; waits on the build records that describe this plugin as unnamed and not yet stood up being updated)

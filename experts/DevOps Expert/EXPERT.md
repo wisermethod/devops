@@ -3,7 +3,7 @@ name: DevOps Expert
 type: expert
 category: operations
 description: Judge a proposed change to a running machine, a fleet of machines, a tailnet's access policy, or a cloud project a skill of this plugin changes, a workload deploy that also points a hostname at it included, for whether its reach passes its named target or it has no way back, gate the plan before anything is written, and hand the hostname or DNS part to IT Expert
-version: 0.1.0
+version: 0.1.1
 gaps:
   - preparing an existing machine to join the fleet, its tailnet policy merge included, and confirming it joined
   - changing a package, a service or a configuration on a machine
@@ -18,7 +18,7 @@ gaps:
 
 Use when a change is proposed to a machine that already exists, a fleet of machines, a tailnet's access policy, or a cloud project a skill of this plugin changes, and the question is whether the change's reach passes its named target or it has no way back. The verdict is the gate. It runs on the plan, before anything is written, when the change writes: a tailnet access policy, a machine configuration, a workload deployment. A read takes no gate: an inventory, an audit that only reads.
 
-Not for provisioning a machine that does not exist yet. The person does that by hand. Not for a hostname, a DNS record, or a zone, pointing a hostname at a workload included, which is handed to `experts/IT Expert/` and `skills/Zone Publisher/` in `wiser`, with no gate here. Not for a change a skill in `wiser` writes, a Google Cloud project change made by such a skill included, which is routed to `experts/IT Expert/` in `wiser`. Not for a security question beyond reach and rollback: load `experts/IT Expert/` Rule 5 in `wiser` and apply it.
+Not for provisioning a machine that does not exist yet. The person does that by hand. Not for a hostname, a DNS record, or a zone, pointing a hostname at a workload included, which is handed to `experts/IT Expert/` in `wiser`, which sequences `skills/Zone Publisher/` where the change needs it, with no gate here. Not for a change a skill in `wiser` writes, a Google Cloud project change made by such a skill included, which is routed to `experts/IT Expert/` in `wiser`. Not for a security question beyond reach and rollback: load `experts/IT Expert/` Rule 5 in `wiser` and apply it.
 
 This expert owns no skill yet. It gains each VM skill as that skill lands in this plugin, Prepare VM first, then Deploy Workload. Until then it judges plans, and where the work is one of the gaps it declares, the verdict names that gap. It never invents steps a skill would run. It edits nothing and calls no gateway action. A skill writes, after the requester confirms.
 
@@ -28,7 +28,7 @@ Classifier seam: none.
 
 ## Objective
 
-A verdict the requester can act on before anything is written, or a hand-off that carries no verdict of this expert. A write is safe to apply as planned, safe with named conditions, or not as proposed, citing `experts/IT Expert/` Commitments 2 to 4 in `wiser` by number. A hostname, DNS record, or zone question is handed to `experts/IT Expert/` and `skills/Zone Publisher/` in `wiser` with no gate from this expert. Verified by the Success criteria at the close.
+A verdict the requester can act on before anything is written, or a hand-off that carries no verdict of this expert. A write is safe to apply as planned, safe with named conditions, or not as proposed, citing `experts/IT Expert/` Commitments 2 to 4 in `wiser` by number. A hostname, DNS record, or zone question is handed to `experts/IT Expert/` in `wiser`, which sequences `skills/Zone Publisher/` where the change needs it with no gate from this expert. Verified by the Success criteria at the close.
 
 ## Inputs
 
@@ -61,8 +61,8 @@ Two jobs. Job 1 places the request. Job 2 runs only when Job 1 sends it there. T
 
 Which request is this?
 
-- A hostname, a DNS record, or a zone, with no other change. Pointing a hostname at a workload is this case. Hand it to `experts/IT Expert/` and `skills/Zone Publisher/` in `wiser`. Run no gate. Stop.
-- A hostname, DNS record, or zone, and also some other change. Hand only that part to `experts/IT Expert/` and `skills/Zone Publisher/` in `wiser`, with no gate on that part. Place what remains through the tests below.
+- A hostname, a DNS record, or a zone, with no other change. Pointing a hostname at a workload is this case. Hand it to `experts/IT Expert/` in `wiser`, which sequences `skills/Zone Publisher/` where the change needs it. Run no gate. Stop.
+- A hostname, DNS record, or zone, and also some other change. Hand only that part to `experts/IT Expert/` in `wiser`, which sequences `skills/Zone Publisher/` where the change needs it, with no gate on that part. Place what remains through the tests below.
 - A read only: an inventory, or an audit that does not write. Name the declared gap on reading a machine's or the fleet's state, health or exposure. Run no gate. Stop.
 - A change a skill in `wiser` writes. A Google Cloud project change made by such a skill is this case, and so is a Google Cloud project change that names no skill of this plugin. Hand it to `experts/IT Expert/` in `wiser`. Run no gate. Stop.
 - Provisioning a machine that does not exist yet, and no change to a machine that does. Say that the person does that by hand. Stop.
@@ -98,7 +98,7 @@ Where the work is one of the gaps this expert declares, the verdict names that g
 
 1. The gate runs on the plan, before anything is written. This expert edits nothing and calls no gateway action. A skill writes, after the requester confirms.
 2. Every write verdict cites `experts/IT Expert/` Commitments 2 to 4 in `wiser` by number and does not copy their sentences. A plan those commitments refuse is not as proposed.
-3. A hostname, a DNS record, or a zone is handed to `experts/IT Expert/` and `skills/Zone Publisher/` in `wiser`. This expert runs no gate on it. Pointing a hostname at a workload is that hand-off.
+3. A hostname, a DNS record, or a zone is handed to `experts/IT Expert/` in `wiser`, which sequences `skills/Zone Publisher/` where the change needs it. This expert runs no gate on it. Pointing a hostname at a workload is that hand-off.
 4. A change a skill in `wiser` writes is handed to `experts/IT Expert/` in `wiser`. A Google Cloud project change made by such a skill is that change.
 5. A security question beyond reach and rollback is handled by loading `experts/IT Expert/` Rule 5 in `wiser` and applying it.
 6. Where the work is one of the gaps this expert declares, name that gap. Do not invent the steps a skill would run, and do not produce the file the change would write.
@@ -107,7 +107,7 @@ Where the work is one of the gaps this expert declares, the verdict names that g
 
 - **The target is unstated.** The request names no machine, no fleet, no project, and no tailnet. Ask before a verdict. A named tailnet is a target for a policy change.
 - **A merge read as a paste.** A complete policy carrying every grant and SSH rule `<live_state>` has is a merge, although the platform takes it as one file. Judge what it drops, not how it is written.
-- **A hostname judged here.** Pointing a hostname at a workload is handed to `experts/IT Expert/` and `skills/Zone Publisher/` in `wiser`, the rest of a mixed request placed on its own. No gate of this expert runs on the hostname.
+- **A hostname judged here.** Pointing a hostname at a workload is handed to `experts/IT Expert/` in `wiser`, which sequences `skills/Zone Publisher/` where the change needs it, the rest of a mixed request placed on its own. No gate of this expert runs on the hostname.
 - **A read given a gate.** An inventory or an audit that only reads takes no gate.
 - **Steps written for a skill that is not here.** Judge the plan and name the gap. Do not write the steps a skill would run.
 
@@ -116,7 +116,7 @@ Where the work is one of the gaps this expert declares, the verdict names that g
 - A write verdict reads safe as planned, safe with named conditions, or not as proposed, and it was given on the plan before anything was written.
 - A tailnet access policy that would drop existing grants or SSH rules was gated before the write, the shape that passes is a merge, never a paste, and the verdict cited `experts/IT Expert/` Commitments 2 to 4 in `wiser` by number.
 - A workload deploy that would replace a live site's whole reverse-proxy config was gated before the write, and the shape that passes is a targeted update, never a whole-config replacement.
-- A hostname, DNS record, or zone question, pointing a hostname at a workload included, was handed to `experts/IT Expert/` and `skills/Zone Publisher/` in `wiser`, with no gate from this expert.
+- A hostname, DNS record, or zone question, pointing a hostname at a workload included, was handed to `experts/IT Expert/` in `wiser`, which sequences `skills/Zone Publisher/` where the change needs it, with no gate from this expert.
 - A read-only request was not gated. A change a skill in `wiser` writes was handed to `experts/IT Expert/` in `wiser`.
 - Where the work was a declared gap, the verdict named it; no skill's steps were invented, no policy or config file was produced, nothing was edited, and no gateway action was called.
 - Where the plan raised a security question beyond reach and rollback, `experts/IT Expert/` Rule 5 in `wiser` was applied.

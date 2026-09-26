@@ -1,6 +1,6 @@
 # DevOps
 
-A WISER plugin for people who run their own servers: virtual machines, Docker workloads and light security. No skills or experts have been built yet.
+A WISER plugin for people who run their own servers: virtual machines, Docker workloads and light security. It ships one expert, DevOps Expert, and no skills yet.
 
 ## Install
 

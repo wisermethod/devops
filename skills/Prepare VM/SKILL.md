@@ -245,7 +245,7 @@ Read `<tailnet_policy>`.
 
 The draft is the policy merge from step 3, or the statement that the live policy already carries the additions, plus the host steps in their test-before-act form. Hand it to `experts/DevOps Expert/` with `<live_state>`, in a second context, before the tailnet policy is saved and before a machine is changed.
 
-- Safe as planned. Continue. The person's confirmations below still apply. The person opens Preview changes and saves only when step 3 drafted an addition. Report the policy step `changed` only after they save.
+- Safe as planned. Continue. The person's confirmations below still apply. Before anything is saved, run step 6's three read-only checks: `timeout`, the SFTP subsystem, and `python3`. Any one failing stops the run with nothing saved and nothing changed. When all three pass, the person opens Preview changes and saves, only when step 3 drafted an addition. Report the policy step `changed` only after they save.
 - Safe with named conditions. Tell the person. A condition that changes the steps goes back into the draft and is gated again.
 - Not as proposed. Stop. Do not write.
 - The draft would write nothing: no policy addition, and every host step below is already true. It is a read. Do not ask for a gate. Report no change.
@@ -267,7 +267,8 @@ Read `tailscale status --self --peers=false --json`. The device name is the firs
 
 - Online, carrying exactly the tags from step 4, and the device name equals the identifier. Do not run `tailscale up` again. Report `unchanged`. Tailscale SSH being accepted is proved at step 10, where a fleet member's health call arrives over it.
 - Online, but the tags or the device name differ. Stop. Name each difference. Correcting it is the person's, by the vendor's current instructions, then this step runs again. Do not register a machine whose device name is not its identifier.
-- The node is not joined. The person installs Tailscale by the vendor's current instructions for that distribution. Do not copy an install command into the run. Then they run `tailscale up --ssh`, with `--advertise-tags` set to the tags from step 4 and `--hostname` set to the identifier, after those flags are checked against `tailscale up --help` on the installed version. A refused flag stops the run. The person approves the URL the command prints. Report `changed`.
+- The status names this device with its tags, but it is offline, or the daemon is stopped, or the status cannot be read. Stop. Do not run `tailscale up` and do not register. The person brings the daemon back by the vendor's current instructions, then this step runs again.
+- The node is not joined. The person installs Tailscale by the vendor's current instructions for that distribution. Do not copy an install command into the run. Then they run `tailscale up --ssh`, with `--advertise-tags` set to the tags from step 4 and `--hostname` set to the identifier, after those flags are checked against `tailscale up --help` on the installed version. A refused flag stops the run. The person approves the URL the command prints. Report `changed`, then read the status again and take this step's branches from the top: a device name already used on the tailnet makes Tailscale give the new device a changed name, and a joined device whose name is not its identifier is not registered.
 - The two-tag form is refused on the router host. Stop. Do not join it with one tag and call it the router host.
 
 On the router host only, after the policy grants `funnel` and after the person has enabled HTTPS certificates with the ledger warning: enable Funnel. When an appendix is loaded, use its measured command. When none is loaded, the person enables Funnel for the port their router listens on. Do not invent a command measured on another provider. Do not enable Funnel on a fleet member. Do not run `tailscale cert` while a session is driving. The person then starts their router on this host, which this skill does not do, and steps 8 to 10 run once it answers.
@@ -288,14 +289,15 @@ The toolkit recovery in the contract runs when the toolkit, its auth config, the
 
 Is the identifier already in the list step 8 returned?
 
-- Listed. It is mapped already. Do not register it again. Report `unchanged` and go to step 10.
+- Listed, and its router-host flag matches step 4: `self` for the router host, not `self` for a fleet member. The person confirms with their router's own listing that it maps this identifier to this device's tailnet name as `root`. Do not register it again. Report `unchanged` and go to step 10.
+- Listed, but the flag does not match step 4, or the router's own listing maps the identifier to another host. Stop. Verifying would read a different machine, and a later write would land on it. Correcting the mapping is the person's, with their router's removal and registration commands.
 - Not listed. The person runs their router's registration command for this identifier. The host is the device's tailnet name. The user is `root`. The router host's entry is marked as itself.
 
 What did the command answer?
 
 - A fleet member is mapped and its host key is pinned. Report `changed`.
 - The router host is mapped as itself. It has no SSH peer, so no host key is pinned. Report `changed`.
-- The router refuses because the identifier is already on its map. The list was read before another change landed. Do not register it again. Go to step 10.
+- The router refuses because the identifier is already on its map. The list was read before another change landed. Do not register it again. Read `vm.inventory.list_hosts` again and take the two Listed branches above.
 - The router refuses because `timeout` is not GNU coreutils, or because `python3` lacks what it needs. Stop. The image does not meet the contract.
 - The router refuses because the host key differs from the pin it holds. Stop. The person decides. This skill does not replace a pin.
 - The router refuses because the identifier was removed and has stayed removed. Say so. Do not rebuild it in.

@@ -383,7 +383,7 @@ Take the first match.
 
 What did the unit inspection decide?
 
-Read the Loaded line: `masked` there means the unit is masked.
+Read the Loaded line: `masked` there means the unit is masked. A status that warns the unit changed on disk means a change runs with the definition systemd has loaded, not the one on disk: say so in the plan and in the report. `daemon-reload` is not this skill's.
 
 Take the first match.
 
@@ -397,7 +397,7 @@ Take the first match.
 
 What else would this unit change reach?
 
-Ask only when a change call was decided. One `vm.command.run`, a read the person is told is a read, with `argv` `systemctl`, `show`, then `-p` and each of `Names`, `Type`, `RemainAfterExit`, `RequiredBy`, `BoundBy`, `ConsistsOf`, `PropagatesStopTo`, `PropagatesReloadTo`, `Conflicts`, `Requires`, `Wants`, `BindsTo`, `Upholds`, `OnFailure`, and `OnSuccess`, then `--` and the unit. Classify its answer as the package inspection's: an answer that is not `ok` with every one of those fifteen lines present stops the run with nothing changed. This reads one level. A unit these lines name can have effects of its own that were not read, and the plan says so to the gate.
+Ask only when a change call was decided. One `vm.command.run`, a read the person is told is a read, with `argv` `systemctl`, `show`, then `-p` and each of `Names`, `Type`, `RemainAfterExit`, `RequiredBy`, `BoundBy`, `ConsistsOf`, `PropagatesStopTo`, `PropagatesReloadTo`, `Conflicts`, `Requires`, `Wants`, `BindsTo`, `Upholds`, `OnFailure`, and `OnSuccess`, then `--` and the unit. Classify its answer as the package inspection's: an answer that is not `ok` with every one of those fifteen lines present stops the run with nothing changed. This reads one level. A unit these lines name can have effects of its own that were not read: the plan names those units, says so to the gate, and claims no state for them that it did not read.
 
 The path units are `tailscaled.service`; the SSH server's `ssh.service`, `sshd.service`, `ssh.socket`, and `sshd.socket`; the network stack's `systemd-networkd.service`, `NetworkManager.service`, `networking.service`, and `systemd-resolved.service`; the host firewall's `netfilter-persistent.service`, `nftables.service`, `ufw.service`, and `firewalld.service`; and any unit the person says is their SSH server, their tailnet daemon, their network, their firewall, or their router.
 
@@ -444,7 +444,7 @@ Send the planned call once. The approval question applies. Do not repeat a chang
 
 After every change call, whatever it answered, inspect again. A package: the same inspection argv. A unit: wait a few seconds after `start`, `restart`, or `reload`, so a service that fails at once shows it, then `vm.units.status`. The approval question applies to a package re-inspection, and the person is told it is a read.
 
-The requested state: for `install` and `upgrade`, status `installed` at the pinned version; for `remove`, `not-installed` or `config-files`; for `start` and `restart`, the Active line's first word `active`, or, for a unit whose `Type` is `oneshot` and `RemainAfterExit` is `no`, the change call `ok` with `exit_code` 0 and the first word `inactive`; for `reload`, `active`; for `stop`, `inactive`. `changed` means the unit was in that state at the re-inspection. It does not prove the unit stays up.
+The requested state: for `install` and `upgrade`, status `installed` at the pinned version; for `remove`, `not-installed` or `config-files`; for `start` and `restart`, the Active line's first word `active`, or, for a unit whose `Type` is `oneshot` and `RemainAfterExit` is `no`, the change call `ok` with `exit_code` 0 and the first word `inactive`; for `reload`, `active`; for `stop`, `inactive`. `changed` means the unit was in that state at the re-inspection. It does not prove the unit stays up. For a `restart`, the report also gives the Main PID and the Active since time before and after; they support `changed`, and they do not replace the rule.
 
 - The re-inspection is incomplete, `truncated`, absent, or not a state, under the same rules as the first inspection. Do not claim `changed` or `unchanged`. Report failed, with the change call's outcome and the re-inspection's outcome, any `exit_code`, and the output. Do not repeat the change.
 - A package re-inspection whose audit section is non-empty. Say the package database was left mid-change. Copy the audit section, which names the pending packages. The repair is the person's, over the provider's console. Do not repeat the change that just ran. Do not start a later unit call.

@@ -44,7 +44,7 @@ exit "$rc"
 | The poll reads | The job is |
 |----------------|------------|
 | The call came back `timeout`, `busy`, `vendor_error`, `truncated`, or a failure with no `machine`, or any of the ten fields is missing | Not read. Says nothing about the job. Poll again |
-| `InvocationID` is set and differs from the recorded one | Not this run's. Stop; change nothing; report both IDs |
+| `InvocationID` is set and differs from the recorded one | Not this run's. Stop; change nothing; report both IDs. A first poll with nothing yet recorded, such as a second run's poll of a job it found, records the ID it reads instead |
 | `activating`, or `active` and `running` | Still running. Poll again |
 | `deactivating`, any `SubState` | Being stopped, by its limit or by someone else. Not finished, whatever `Result` reads. Poll again |
 | `active`, `exited`, `ExecMainCode=1`, `ExecMainStatus=0` | Finished, exit 0, every process in it ended. The job succeeded. **The change is not yet known to have succeeded**: the skill's own re-inspection decides that |

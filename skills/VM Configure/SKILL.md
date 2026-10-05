@@ -12,6 +12,7 @@ gaps:
   - repairing a package database left mid-change
   - a unit change that also stops, restarts or conflicts with another unit
   - enabling or disabling a unit
+  - a package change on a machine whose systemd is older than 254, which a background job needs
 ---
 
 # VM Configure
@@ -24,7 +25,7 @@ Not for a configuration file. That is the gap `experts/DevOps Expert/` still dec
 
 This plugin does not ship a router, and no primitive in this root provides one. Every change goes through a router the person already runs. The calls are `vm.inventory.list_hosts`, `vm.inventory.health`, `vm.command.run`, `vm.units.status`, and `vm.units.service`, and no other action.
 
-A package change is a background job. `background-job.md` is the contract: the name, the lock, the generation token, the starter, the start answer, the poll, the read-back, the release, the second run, and what a job's script must be. Cite that file at each step that starts, polls, reads back or releases a job. Do not copy its scripts into a call. A unit change is `vm.units.service`. It is not a job. It does not take the lock and it does not renew the token.
+A package change is a background job. `background-job.md` is the contract: the name, the lock, the generation token, the starter, the start answer, the poll, the read-back, the release, the second run, and what a job's script must be. Cite that file at each step that starts, polls, reads back or releases a job. Each call takes its script from that file verbatim. Do not restate those scripts in this file, and do not alter them. A unit change is `vm.units.service`. It is not a job. It does not take the lock and it does not renew the token.
 
 Reaching the gateway is `skills/Set Up Connectors/` and `gateway/SETUP.md` in `wiser`. Connecting a module is `skills/Connect Account/` in `wiser`. The toolkit registration is `connectors/vm/auth.md` in `wiser`. Cite those files. Do not restate them. The outcome vocabulary is `connectors/vm/CONNECTOR.md` in `wiser`. The connector passes the router's outcome string through unchanged. A gateway status is `status` on the answer. A router result is `outcome`. Do not rename either.
 
@@ -194,8 +195,16 @@ sh
 `<operation>` is the word `install`, `remove`, or `upgrade`. `<script>` is this text and no other:
 
 ```
+export LC_ALL=C
 printf '%s\n' '--- os-release ---'
 awk -F= '$1 == "ID" || $1 == "ID_LIKE" { print }' /etc/os-release
+printf '%s\n' '--- token ---'
+if [ -r /run/vm-job.token ]; then cat /run/vm-job.token; else printf '%s\n' none; fi
+printf '%s\n' '--- jobs ---'
+systemctl list-units --all --plain --no-legend 'vm-job-*'
+printf '%s\n' "jobs-exit:$?"
+printf '%s\n' '--- systemd ---'
+systemctl --version
 printf '%s\n' '--- dpkg-query ---'
 dpkg-query -W -f 'Status: ${db:Status-Status}\nVersion: ${Version}\n' -- "$1"
 printf '%s\n' "dpkg-query-exit:$?"
@@ -205,11 +214,6 @@ printf '%s\n' "apt-cache-exit:$?"
 printf '%s\n' '--- dpkg audit ---'
 dpkg --audit
 printf '%s\n' "dpkg-audit-exit:$?"
-printf '%s\n' '--- jobs ---'
-systemctl list-units --all --plain --no-legend 'vm-job-*'
-printf '%s\n' "jobs-exit:$?"
-printf '%s\n' '--- token ---'
-if [ -r /run/vm-job.token ]; then cat /run/vm-job.token; else printf '%s\n' none; fi
 printf '%s\n' '--- simulate ---'
 case "$2" in
   install)
@@ -228,16 +232,26 @@ esac
 printf '%s\n' "simulate-exit:$?"
 printf '%s\n' '--- history ---'
 tail -n 12 -- /var/log/apt/history.log
+printf '%s\n' '--- token after ---'
+if [ -r /run/vm-job.token ]; then cat /run/vm-job.token; else printf '%s\n' none; fi
 exit 0
 ```
 
 The `-s` simulation is a read. It makes no install and no remove. There is no redirection, no `tee`, and no `sed -i`. The approval question applies, and the person is told this call is a read. Classify the answer after that.
 
 - `status` is `needs_confirmation`. The approval question. Take the repeated call's answer and ask this question again.
-- `outcome` is `ok`, or `outcome` is `remote_failure` and the answer names this identifier in `machine`, and `output` contains every marker `--- os-release ---`, `--- dpkg-query ---`, `--- apt-cache policy ---`, `--- dpkg audit ---`, `--- jobs ---`, `--- token ---`, `--- simulate ---`, and `--- history ---`, and the `jobs-exit:` line, and a line after `--- token ---`, and `truncated` is not true. Use that output. The token is that line: the file's text, or `none`. Continue.
+- `outcome` is `ok`, or `outcome` is `remote_failure` and the answer names this identifier in `machine`, and `output` contains every marker `--- os-release ---`, `--- token ---`, `--- jobs ---`, `--- systemd ---`, `--- dpkg-query ---`, `--- apt-cache policy ---`, `--- dpkg audit ---`, `--- simulate ---`, `--- history ---`, and `--- token after ---`, and the `jobs-exit:` line, and a line after `--- token ---` and after `--- token after ---`, and `truncated` is not true. Take the token question.
 - `outcome` is `truncated`, or a marker is missing, or `output` is absent. The inspection is incomplete. Stop. Name the outcome. Change nothing.
 - `outcome` is `timeout`, `killed`, `request_timeout`, `busy`, or `vendor_error`, or a failure outcome with no `machine`. Not a package state. Name it. On `busy`, the machine was not asked. On `vendor_error`, or on a failure with no `machine`, the answer does not establish whether the call ran. Stop. Change nothing. Do not repeat the inspection.
 - Any other answer. Name the `outcome` or the `status` verbatim. Stop. Change nothing.
+
+Did the token hold across the inspection?
+
+The token is the line after `--- token ---`. The token after is the line after `--- token after ---`. Each is the file's text, or `none`. Ask this of a package inspection and of a pending-upgrades inspection.
+
+- They are equal. That is the token the plan carries. Continue.
+- They differ, and this run has not yet inspected again for this reason. A job started or was released while the inspection ran, so what it read may be stale. Inspect again. Nothing was changed.
+- They differ again. Stop. Change nothing.
 
 What is the distribution?
 
@@ -247,17 +261,9 @@ Read the `ID` and `ID_LIKE` lines. Strip one layer of matching quotes. Split `ID
 - The lines were read and no token is `debian` or `ubuntu`. Stop. Name the gap for a package manager other than apt, and copy the `ID` and `ID_LIKE` lines verbatim. Change nothing.
 - No `ID` line. Stop. Say the distribution could not be read. Change nothing.
 
-Is the package database already mid-change, or is a lock held?
-
-Ask when the package inspection was usable and the distribution question continued. `dpkg --audit` is non-empty when the audit section has a character that is not whitespace. A held lock is output that says the lock could not be taken.
-
-- The audit section is non-empty. The package database is already mid-change. Stop. Copy the audit section verbatim, which names the pending packages. The repair is the person's, over the provider's console. Send nothing.
-- The output says the lock could not be taken. Stop. Copy that output verbatim. A held lock means the inspection changed nothing. Change nothing.
-- Neither. Continue.
-
 Is a job already loaded?
 
-Ask when that question continued, and ask it when a pending-upgrades inspection's audit and lock stops have continued. Ask it again when this run starts over from its inspection. The jobs section is the text between `--- jobs ---` and the line `jobs-exit:`. It is empty when every character in it is whitespace. A unit's name is the first field of its line, with a trailing `.service` removed. One poll here is the poll in `background-job.md`, with the wait at 0. The person is told the poll is a read. Take the first match.
+Ask when the distribution question continued, for a package inspection and for a pending-upgrades inspection, before the audit and lock stops. Ask it again when this run starts over from its inspection. The jobs section is the text between `--- jobs ---` and the line `jobs-exit:`. It is empty when every character in it is whitespace. A unit's name is the first field of its line, with a trailing `.service` removed. One poll here is the poll in `background-job.md`, with the wait at 0. The person is told the poll is a read. Take the first match.
 
 - This run has already started over from its inspection once, and the jobs section is non-empty or `jobs-exit` is not 0. Stop. A job is still loaded. Change nothing.
 - `jobs-exit` is not 0. The list was not read. Stop. Change nothing.
@@ -267,7 +273,7 @@ Ask when that question continued, and ask it when a pending-upgrades inspection'
 
 What did that one poll read?
 
-Classify it by the poll table in `background-job.md`. Take the first match.
+Classify it by the poll table in `background-job.md`. Nothing was recorded before this poll, so it records the `InvocationID` it reads, and the table's row for an ID that differs from the recorded one does not apply to it. Take the first match.
 
 - The poll was not read. Stop. Name the outcome. Change nothing.
 - Still running, or `deactivating`. Say so. Name the unit. Change nothing. Stop.
@@ -276,6 +282,14 @@ Classify it by the poll table in `background-job.md`. Take the first match.
 - `LoadState=not-found`, or `inactive`. The unit left between the list and the poll. Start this run over from its inspection, at most once. An empty journal is not proof it did not run.
 
 A loaded unit carrying this run's own name, after a start whose answer was lost, is the job question below. It is this run's job. Poll it there.
+
+Is the package database already mid-change, or is a lock held?
+
+Ask when the job question continued, for a package inspection and for a pending-upgrades inspection. A loaded job is recovered before these stops, so a job that left the database mid-change is still read back and released. `dpkg --audit` is non-empty when the audit section has a character that is not whitespace. A held lock is output that says the lock could not be taken.
+
+- The audit section is non-empty. The package database is already mid-change. Stop. Copy the audit section verbatim, which names the pending packages. The repair is the person's, over the provider's console. Send nothing.
+- The output says the lock could not be taken. Stop. Copy that output verbatim. A held lock means the inspection changed nothing. Change nothing.
+- Neither. Continue.
 
 What did the inspection decide?
 
@@ -299,6 +313,13 @@ Take the first match.
 - The operation is `upgrade` and the status is `installed` and the installed version equals the candidate. `unchanged`. No change call. No gate.
 - The operation is `upgrade` and the status is `installed` and the candidate is newer. The change is the upgrade call below.
 - Anything else. Stop. Copy the status and the candidate verbatim. Do not send a change.
+
+Can this machine run a job?
+
+Ask when a change was decided, in Job 1 and in Job 4. The systemd section's first line is `systemd <version>` followed by more text. The starter needs systemd 254 or later.
+
+- The version is a whole number of 254 or more. Continue.
+- It is lower, or the line cannot be read. Stop. Name the gap for a package change on a machine whose systemd is older than 254. Copy the line. Change nothing.
 
 Would the simulation install or upgrade a kernel package?
 
@@ -338,6 +359,7 @@ sh
 
 ```
 set -eu
+export LC_ALL=C
 for d in /usr /etc /var/lib/dpkg; do
   if [ ! -w "$d" ]; then printf '%s\n' "not-writable:$d"; exit 3; fi
 done
@@ -357,7 +379,7 @@ What about no candidate?
 
 Ask only when the inspection decision said to take this question.
 
-One job, operation `update`, and no package operand, and no other change in that plan. The purpose is `apt-update`. The limit is 600 seconds. The same starter, the same script, and the token the inspection read. It is a change: the gate question, then the job question. The way back named to the gate is that this skill does not restore the previous package lists. The before-state is the policy output just read.
+First, the question whether this machine can run a job, on this inspection. Then one job, operation `update`, and no package operand, and no other change in that plan. The purpose is `apt-update`. The limit is 600 seconds. The same starter, the same script, and the token the inspection read. It is a change: the gate question, then the job question. The way back named to the gate is that this skill does not restore the previous package lists. The before-state is the policy output just read.
 
 - The update's re-inspection shows a candidate, and the package question now decides `unchanged`. Report `unchanged`. No further change.
 - The update's re-inspection shows a candidate, and a change is now decided. That change is a new plan. Gate it again. Then the job question.
@@ -437,7 +459,7 @@ The change call is sent only when a change call was decided and the question of 
 
 ### Job 3. One package, then one unit
 
-Run Job 1 to its report, its own gate included. Then, only when Job 1 reported `changed` or `unchanged`, run Job 2 from its start: its own inspection, which reads the machine as the package change left it, and its own gate. A stop, a failure, a decline, a job still running after six polls, or an outcome the re-inspection could not settle in Job 1 ends the run before the unit. The report says the unit was not attempted, and why.
+Run Job 1 to its report, its own gate included. Then, only when Job 1 reported `changed` or `unchanged`, run Job 2 from its start: its own inspection, which reads the machine as the package change left it, and its own gate. A stop, a failure, a decline, a job not read as finished after six polls, or an outcome the re-inspection could not settle in Job 1 ends the run before the unit. The report says the unit was not attempted, and why.
 
 ### Job 4. Every pending upgrade
 
@@ -448,16 +470,19 @@ What did the pending-upgrades inspection answer?
 One `vm.command.run`, a read, with `machine` set to the identifier and `argv` exactly `/bin/sh`, `-c`, the script, `sh`. The person is told the call is a read. `<script>` is this text and no other:
 
 ```
+export LC_ALL=C
 printf '%s\n' '--- os-release ---'
 awk -F= '$1 == "ID" || $1 == "ID_LIKE" { print }' /etc/os-release
-printf '%s\n' '--- dpkg audit ---'
-dpkg --audit
-printf '%s\n' "dpkg-audit-exit:$?"
+printf '%s\n' '--- token ---'
+if [ -r /run/vm-job.token ]; then cat /run/vm-job.token; else printf '%s\n' none; fi
 printf '%s\n' '--- jobs ---'
 systemctl list-units --all --plain --no-legend 'vm-job-*'
 printf '%s\n' "jobs-exit:$?"
-printf '%s\n' '--- token ---'
-if [ -r /run/vm-job.token ]; then cat /run/vm-job.token; else printf '%s\n' none; fi
+printf '%s\n' '--- systemd ---'
+systemctl --version
+printf '%s\n' '--- dpkg audit ---'
+dpkg --audit
+printf '%s\n' "dpkg-audit-exit:$?"
 printf '%s\n' '--- simulate upgrade ---'
 env DEBIAN_FRONTEND=noninteractive apt-get -s upgrade
 printf '%s\n' "simulate-exit:$?"
@@ -465,17 +490,19 @@ printf '%s\n' '--- reboot ---'
 if [ -e /var/run/reboot-required ]; then printf '%s\n' reboot-required; else printf '%s\n' no-reboot-required; fi
 printf '%s\n' '--- history ---'
 tail -n 12 -- /var/log/apt/history.log
+printf '%s\n' '--- token after ---'
+if [ -r /run/vm-job.token ]; then cat /run/vm-job.token; else printf '%s\n' none; fi
 exit 0
 ```
 
-Classify it as the package inspection classifies its answer. The markers are `--- os-release ---`, `--- dpkg audit ---`, `--- jobs ---`, `--- token ---`, `--- simulate upgrade ---`, `--- reboot ---`, and `--- history ---`, plus the `jobs-exit:` line and a line after `--- token ---`. The token is that line.
+Classify it as the package inspection classifies its answer. The markers are `--- os-release ---`, `--- token ---`, `--- jobs ---`, `--- systemd ---`, `--- dpkg audit ---`, `--- simulate upgrade ---`, `--- reboot ---`, `--- history ---`, and `--- token after ---`, plus the `jobs-exit:` line and a line after each token marker.
 
 - The inspection is usable. Continue.
 - It is incomplete, `truncated`, or not a state, under the package inspection's other bullets. Stop the way those bullets stop. Change nothing.
 
 What is the distribution? The same question as Job 1, on this output.
 
-Is the package database already mid-change, or is a lock held? The same two stops, on this output. Then the second-run questions, on this output.
+Did the token hold across the inspection? The same question, on this output. Then the second-run questions, on this output. Then the two stops for a database mid-change or a held lock, on this output.
 
 What is on the upgrade list?
 
@@ -486,6 +513,7 @@ A kept-back name is a whitespace-separated word on the lines after `The followin
 - `simulate-exit` is not 0. Stop. Copy the simulate section verbatim. Change nothing.
 - No line `The following packages will be upgraded:` and no `Inst ` line. Nothing to upgrade. `unchanged`. Name any kept-back packages. No job. No gate. A kept-back package needs a package newly installed. Name that gap. Do not attempt one.
 - A name under will be upgraded has no `Inst` line, or that line has no candidate field. Stop. Copy the simulate section verbatim. Change nothing.
+- An `Inst` line names a package that is not under will be upgraded, or the summary line's first number differs from the count of names under will be upgraded. The output was not read as written here. Stop. Copy the simulate section verbatim. Change nothing.
 - Otherwise the list is every name under will be upgraded, each pinned to its candidate. Name every kept-back package. Do not put one on the list. A kept-back package needs a package newly installed. Name that gap.
 
 Which packages leave the list?
@@ -503,13 +531,14 @@ Take the first match.
 
 - The list is empty. Report what was taken out and why. No job. No gate.
 - More than 55 packages remain. Ask which of them this run upgrades. The start `argv` is nine elements plus one per package, and `connectors/vm/CONNECTOR.md` in `wiser` bounds `argv` at 64 strings, so more than 55 does not fit one call. The answer is a subset of the list, 55 or fewer. Do not choose. Do not add a name that was not on the list. No answer: stop.
-- 55 or fewer remain. That is the list. Continue.
+- 55 or fewer remain. That is the list. Ask whether this machine can run a job, the question in Job 1, on the pending-upgrades inspection's systemd section. Then continue.
 
 What did the list simulation answer?
 
 One more read. `argv` is `/bin/sh`, `-c`, the script, `sh`, then each `<package>=<version>` on the list. The person is told the call is a read. `<script>` is this text and no other:
 
 ```
+export LC_ALL=C
 printf '%s\n' '--- simulate list ---'
 env DEBIAN_FRONTEND=noninteractive apt-get install -s --only-upgrade -y --no-remove -o 'Dpkg::Options::=--force-confdef' -o 'Dpkg::Options::=--force-confold' -- "$@"
 printf '%s\n' "simulate-exit:$?"
@@ -527,7 +556,9 @@ The markers are `--- simulate list ---`, `--- dpkg audit ---`, `--- token ---`, 
 
 - The call is not usable. Stop the way the package inspection stops. Change nothing.
 - The token line differs from the pending-upgrades inspection's token line. Nothing was changed. Start over from the pending-upgrades inspection, once. A second difference stops the run. Change nothing.
-- The audit section is non-empty, or `simulate-exit` is not 0, or the simulate section does not contain `<N> upgraded, 0 newly installed, 0 to remove`, where `<N>` is the list's length. Stop. Copy that section verbatim. Change nothing. A summary that also says `and <m> not upgraded` still contains the required phrase.
+- The audit section is non-empty, or `simulate-exit` is not 0. Stop. Copy that section verbatim. Change nothing.
+- The summary line, the line that begins with a number and contains `upgraded,`, does not begin with exactly `<N> upgraded, 0 newly installed, 0 to remove`, where `<N>` is the list's length written as a whole number and the next character after `remove` is a space or a full stop. Read each number whole: `11 upgraded` is not `1 upgraded`. Stop. Copy the section verbatim. Change nothing.
+- The `Inst` lines do not name exactly the packages on the list, each with the candidate the list pinned as the first field inside its parentheses: a package on an `Inst` line that is not on the list, a path package or a dependency included, or a listed package with no `Inst` line. Stop. Name the difference. Copy the section verbatim. Change nothing.
 - All of those hold. The token is still the pending-upgrades inspection's token. Continue to the gate.
 
 The job is one job. The purpose is `apt-upgrade-all`. The limit is 3600 seconds. The operation is `upgrade`. The operands are the pinned list, one `<package>=<version>` each. The script is the job script in Job 1. The unit name follows `background-job.md`. The gate question for this job names the machine, the role, both reads verbatim, every package and version on the list, every package taken out and why, the kept-back packages, the job's unit name, 3600 seconds, the token, the script, the operation `upgrade`, the operands, any package whose name begins `linux-image` or `linux-modules` and the reboot that would follow, and the way back. A version a security update replaced is usually no longer in the index, so the way back named is the provider's boot-volume backup or snapshot, taken before the run. That backup is a condition the person accepts. This skill does not take it. Then the gate question, and when it continues, the job question.
@@ -562,6 +593,7 @@ Send the planned start once. Classify the answer by the start table in `backgrou
 - `start-exit:1` and the line is `Failed to find executable` or `already loaded or has a fragment file`. Nothing was started. The token was renewed. Inspect again, and gate again before any start.
 - Any other nonzero `start-exit`, or `timeout`, `killed`, `request_timeout`, `vendor_error`, `busy`, or a failure with no `machine`. Unknown whether it started. Poll by this run's name, as `background-job.md` states. Loaded: it started, and that `InvocationID` is the one to record. `not-found`: the history row of the poll table. No journal entries is execution history unknown. Re-inspect where a read is possible. Never repeat the change. Never send the start again without a new inspection and a new approval.
 - A loaded unit carrying this run's own name is this run's, after a start whose answer was lost. Poll it.
+- Any other answer, a `connect_timeout` or a `remote_failure` with no `start-exit:` line included. Unknown whether it started. Poll by this run's name, as the bullet for an unknown start says. Never send the start again without a new inspection and a new approval.
 
 What did the poll read?
 
@@ -571,7 +603,7 @@ Each poll is the poll in `background-job.md`. The wait is at most 40 seconds. At
 - Finished, every process ended, a failed result and a `timeout` result included when no processes remain. Read it back by the recorded invocation ID, as `background-job.md` states the read-back. A `truncated` answer is read again with fewer lines. The report names how many lines it shows. The person is told the read-back is a read. Then release.
 - Stuck: `failed`, and processes remain. Stop. Change nothing. Do not release. Re-inspect where a read is possible, and do not treat that read as a reason to repeat the change. The job is the person's, over the provider's console.
 - `LoadState=not-found`, or `inactive`. Read `journalctl -u <unit>` as `background-job.md` states. No entries is execution history unknown. Re-inspect where a read is possible. Never repeat the change.
-- Six polls have been made. Report it running, with its unit name, invocation ID and limit, and that asking again later reads its result through the second-run rule. Do not start another job. Do not repeat the change.
+- Six polls have been made. Report the state the last poll that was read showed, or that the state is unknown when none of the six was read, with its unit name, invocation ID and limit, and that asking again later reads its result through the second-run rule. Do not call it running unless a poll read it running. Do not start another job. Do not repeat the change.
 - Fewer than six polls have been made. Poll again.
 
 What did the release answer?
@@ -608,6 +640,7 @@ The requested state for one package or a unit: for `install` and `upgrade` of on
 - The requested state now holds, and it did not hold in the before-state. `changed`.
 - The requested state held in the before-state and holds now, and the verb is not `restart` or `reload`. `unchanged`.
 - The verb is `restart` or `reload`, the change call's `outcome` was `ok` or `truncated`, and the requested state holds now. `changed`.
+- The verb is `restart` or `reload`, the change call came back `remote_failure` naming this identifier, and the requested state holds now. The call failed. Report failed, with its `exit_code` and output, and that the unit is in the requested state. Do not claim the restart or reload happened.
 - The verb is `restart` or `reload`, and the change call's outcome was unknown until the re-inspection. Report that, with the state the re-inspection shows. Do not relabel it `unchanged` because the state matches, and do not relabel it `changed`.
 - The requested state does not hold. Failed. Name the change call's outcome, any `exit_code`, and its output, and name what the re-inspection shows.
 
@@ -626,7 +659,7 @@ When the list has a package whose name begins `linux-image` or `linux-modules`, 
 
 One report. For each part: what was inspected, what was planned, the gate's verdict or that no gate was taken, each call's action and its `outcome`, any `exit_code`, the output copied verbatim where the report shows it, the re-inspection, and `changed`, `unchanged`, or failed. A change whose outcome was unknown until the re-inspection says that, and then says what the re-inspection decided.
 
-For each job, also: its unit name, its invocation ID and its limit, the last poll's state, the read-back lines verbatim and the line count shown, and the release outcome. Then the re-inspection, as the re-inspection question reports it. A job still running after six polls is reported running, with the unit name, the invocation ID and the limit, and that asking again later reads its result through the second-run rule.
+For each job, also: its unit name, its invocation ID and its limit, the last poll's state, the read-back lines verbatim and the line count shown, and the release outcome. Then the re-inspection, as the re-inspection question reports it. A job not read as finished after six polls is reported in the state the last poll that was read showed, or as unknown when none was read, with the unit name, the invocation ID and the limit, and that asking again later reads its result through the second-run rule.
 
 No credential, address, or hostname is asked for or printed as a field. An identifier is the machine field. A hostname inside copied output stays that output.
 
@@ -638,7 +671,7 @@ No credential, address, or hostname is asked for or printed as a field. An ident
 - **`vendor_error` treated as the machine's answer.** It does not establish whether the call ran.
 - **`busy` treated as a down machine.** The machine was not asked. Do not repeat the change.
 - **A package name or a unit name that fails its pattern, sent anyway.** Ask. Never send the other form. The package name stays an operand.
-- **A shell write.** No redirection, no `tee`, no `sed -i`, and no configuration file, through `vm.command.run` or through `vm.files.write_file`.
+- **A shell write.** No redirection, no `tee`, no `sed -i`, and no configuration file, through `vm.command.run` or through `vm.files.write_file`. The one exception is the contract's own lock and token in `background-job.md`, which its starter and release write under `/run`.
 - **Purge, `--autoremove`, or a second package in the simulation's removal list.** Stop. One package, removed only by `remove`, and only that package.
 - **A path package removed, upgraded, or replaced, or a path unit given any of the four verbs.** Stop. The channel every call to this machine takes is that path. The person's route is the provider's console. The router's own unit is never changed through the router.
 - **A unit change judged by its name alone.** Read the fifteen properties. An alias of a path unit is a path unit. A stop, restart, or reload that reaches another unit, or a start that conflicts with one or pulls in a path unit or a shutdown target, stops the run. One level is read, and the plan says so.
@@ -671,12 +704,12 @@ No credential, address, or hostname is asked for or printed as a field. An ident
 - A change was sent only after `experts/DevOps Expert/` returned safe as planned, or safe with named conditions the person was told, and only after the person approved that call's stop. `skills/Connection Troubleshooter/` in `wiser` was the stop. A declined change had no further call. A `token-changed` start ran nothing, and a later start waited for a new inspection and a new gate.
 - Each package change was one job, sent at most once: install, remove, upgrade of one package, `apt-get update`, and Job 4. The `argv` was `/bin/sh`, `-c`, the starter in `background-job.md`, `sh`, the unit name, the limit, the token the inspection read, the job script, the operation, and the package operands. The limit was 1800 seconds for one package, 600 for `update`, and 3600 for Job 4. Reads stayed direct. A unit change was `vm.units.service`, not a job, and it did not take the lock or renew the token.
 - A job was polled at most six times, each wait at most 40 seconds, each told to the person as a read. The read-back used the recorded invocation ID. Release followed a poll that read the job finished, and the person was told it unloads the finished job and removes no log. `release-exit:0` with `load-state:not-found` is the released outcome. A stuck job was not released.
-- A job's own success was not reported as the change's success. The re-inspection decided `changed`, `unchanged`, or failed. A `timeout` result, an unknown-history `not-found`, a stuck job, or a start whose outcome was unknown was re-inspected where a read was possible, and the change was not repeated. Past six polls, the report said the job was running, with its unit name, invocation ID and limit, and that a later ask reads it through the second-run rule.
+- A job's own success was not reported as the change's success. The re-inspection decided `changed`, `unchanged`, or failed. A `timeout` result, an unknown-history `not-found`, a stuck job, or a start whose outcome was unknown was re-inspected where a read was possible, and the change was not repeated. Past six polls, the report gave the last state a poll read, or unknown when none was read, never running unless a poll read it so, with its unit name, invocation ID and limit, and that a later ask reads it through the second-run rule.
 - A non-empty `dpkg --audit` before a change stopped the run. A non-empty audit after a change said the package database was left mid-change and named the pending packages. No repair was sent.
 - A path package was not removed, upgraded, or replaced through the router, and no path unit, or alias of one, was changed with any verb. On the router host, a package the person said is or carries their router was not changed, and a unit the person said is their router was not changed. The run did not stop a package change because the inspection ran inside the router's sandbox. A job that printed `not-writable:` and exited 3 installed nothing. A unit change that would reach another unit was stopped.
 - Every package job was started by the starter, which sets `NEEDRESTART_SUSPEND=1`, and an install or upgrade carried `--no-remove` and the version the inspection read. A `start`, `restart`, or `reload` was `changed` only when the re-inspection showed the requested state. No unit was enabled or disabled.
-- Job 4 upgraded only the packages left on the list, each pinned, after the list simulation contained `<N> upgraded, 0 newly installed, 0 to remove` with `<N>` the list's length, an empty audit, and the same token. Kept-back packages were named and not attempted. Path packages, and a package the person said carries the router, were taken out and named. More than 55 was asked, not chosen. No `dist-upgrade` and no `full-upgrade` was sent. `changed` only when every listed package's re-inspection said it was already the newest version at its pinned version and the audit was empty. Otherwise failed, naming each package that was not, with the read-back.
+- Job 4 upgraded only the packages left on the list, each pinned, after the list simulation's summary line began with exactly `<N> upgraded, 0 newly installed, 0 to remove`, `<N>` the list's length read as a whole number, its `Inst` lines named exactly the list at the pinned versions, its audit was empty, and its token was the inspection's. Kept-back packages were named and not attempted. Path packages, and a package the person said carries the router, were taken out and named. More than 55 was asked, not chosen. No `dist-upgrade` and no `full-upgrade` was sent. `changed` only when every listed package's re-inspection said it was already the newest version at its pinned version and the audit was empty. Otherwise failed, naming each package that was not, with the read-back.
 - A simulation that would install or upgrade a package whose name begins `linux-image` or `linux-modules` led the plan and the report to say a reboot will be pending, and named the reboot gap. No reboot was sent.
 - The report names, per part, the inspection, the plan, the gate's verdict or that no gate was taken, each call's outcome, the re-inspection, and `changed`, `unchanged`, or failed. Per job it names the unit name, the invocation ID, the limit, the last poll's state, the read-back lines and the line count shown, and the release outcome. Output shown is verbatim. No credential, address, or hostname was asked for or printed as a field.
-- No configuration file was written, and no redirection, `tee`, or `sed -i` was sent through `vm.command.run`.
+- No configuration file was written, and no redirection, `tee`, or `sed -i` was sent through `vm.command.run`, other than the lock and token writes inside the starter and release of `background-job.md`.
 - A hostname, a DNS record, or a zone was handed to `experts/IT Expert/` in `wiser`, which sequences `skills/Zone Publisher/`.

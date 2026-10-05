@@ -63,13 +63,13 @@ Each slow section has its own `timeout`, so one section cannot spend the router'
 
 The script asks for what is on the machine. A command that is not there, a section exit other than 0, or a missing exit line means that section was not read. Do not fill it in. Do not treat this script's commands as present on every machine.
 
-`sshd -T` prints the SSH server's effective configuration as lowercase `key value` lines. The script keeps the lines whose first field is `port`, `listenaddress`, `permitrootlogin`, `passwordauthentication`, `kbdinteractiveauthentication`, `permitemptypasswords`, `pubkeyauthentication`, `x11forwarding`, `allowusers`, or `allowgroups`. Tailscale SSH, when it is on, answers SSH on the tailnet address in place of that server. `sshd -T` does not describe Tailscale SSH.
+`sshd -T` prints the SSH server's configuration as lowercase `key value` lines, as it applies before any `Match` block and as read from the default configuration file. A `Match` block can change a setting for one user, group, or address, and a daemon started with other options is not described. The report says the SSH lines are that server-wide configuration. The script keeps the lines whose first field is `port`, `listenaddress`, `permitrootlogin`, `passwordauthentication`, `kbdinteractiveauthentication`, `permitemptypasswords`, `pubkeyauthentication`, `x11forwarding`, `allowusers`, or `allowgroups`. Tailscale SSH, when it is on, answers SSH on the tailnet address in place of that server. `sshd -T` does not describe Tailscale SSH.
 
 `apt list --upgradable` reads the package lists already on the machine. Their age is the mtime of `/var/lib/apt/periodic/update-success-stamp` when that file exists and `stat` prints an all-digit time. Otherwise the age was not read. The script does not refresh the lists. `/var/run/reboot-required` exists when a reboot is pending.
 
-Authorized keys are read for `root`, and for any other user whose login shell's basename is not empty, `nologin`, or `false`. The script prints count, type, and comment. It does not print key material. A file it cannot read is `keys-not-read`, which is not a count of zero.
+Authorized keys are read for `root`, and for any other user whose login shell's basename is not empty, `nologin`, or `false`. An account without a login shell is not read, and the report says so: such an account can still hold a key, for example one limited to file transfer. The script prints count, type, and comment. A key is a type word followed directly by key data beginning `AAAA`; the last such pair on a line is the key, so a type word inside a quoted option is not taken for it, and the comment is only what follows the key data. It does not print key material. A file it cannot read is `keys-not-read`, which is not a count of zero.
 
-The world-writable walk stays on the root filesystem and prunes `/proc`, `/sys`, `/dev`, and `/run`. Other filesystems are not walked. On the router host, a router whose own service is sandboxed runs this read inside that sandbox, where `/home` and `/root` can be hidden: there a `keys-not-read` is that hiding, and the walk does not see those directories. A router-host row says so. The INPUT chain is read with `iptables -S INPUT` and `ip6tables -S INPUT`. A firewall those two commands do not show was not read.
+The world-writable walk stays on the root filesystem and prunes `/proc`, `/sys`, `/dev`, and `/run`. Other filesystems are not walked. On the router host, a router whose own service is sandboxed runs this read inside that sandbox, where `/home` and `/root` can be hidden: there a `keys-not-read` is that hiding, and the walk does not see those directories. A router-host row says so. The filter table is read whole with `iptables -S` and `ip6tables -S`, so a chain INPUT jumps to is in the same output. A firewall those two commands do not show was not read. A file name holding a newline splits into two lines in the world-writable walk, and the totals count lines.
 
 ## Steps
 
@@ -183,7 +183,7 @@ Ask only when health is reachable. One `vm.command.run`, with `machine` set to t
 sh
 ```
 
-`<script>` is this text and no other, without a final newline. It is 4076 code points, inside the 4096 code point bound on one `argv` element. Do not add a line, a redirection, or a refresh of the package lists. A longer element is `invalid_arguments`, and the connector sends nothing.
+`<script>` is this text and no other, without a final newline. It is 4072 code points, inside the 4096 code point bound on one `argv` element. Do not add a line, a redirection, or a refresh of the package lists. A longer element is `invalid_arguments`, and the connector sends nothing.
 
 ```
 printf '%s\n' '--- listen ---'
@@ -216,8 +216,8 @@ function dump(path,line,n,i,j,t,c,tot,sh,un,rc){
  while(rc>0){
   if(line~/^[ \t]*($|#)/){rc=(getline line < path); continue}
   n=split(line,f,/[ \t]+/); t=""
-  for(i=1;i<=n;i++) if(f[i]~/^(ssh-|ecdsa-|sk-ssh-|sk-ecdsa-)/){
-   t=f[i]; c=""; for(j=i+2;j<=n;j++) c=c (c==""?"":" ") f[j]; break
+  for(i=1;i<n;i++) if(f[i]~/^(ssh-|ecdsa-|sk-ssh-|sk-ecdsa-)/&&f[i+1]~/^AAAA/){
+   t=f[i]; c=""; for(j=i+2;j<=n;j++) c=c (c==""?"":" ") f[j]
   }
   if(t=="") un++
   else { tot++; if(sh<20){ if(length(c)>80) c=substr(c,1,80); printf "key:%s\t%s\n", t, c; sh++ } }
@@ -270,10 +270,10 @@ printf '%s\n' "$ww" | awk -F '\t' '$1=="f"{f++;if(f<=40)print}$1=="d"{d++;if(d<=
 printf '%s\n' "writable-exit:$ww_ec"
 printf '%s\n' '--- input ---'
 printf '%s\n' '--- iptables ---'
-timeout 3 iptables -S INPUT
+timeout 3 iptables -S
 printf '%s\n' "iptables-exit:$?"
 printf '%s\n' '--- ip6tables ---'
-timeout 3 ip6tables -S INPUT
+timeout 3 ip6tables -S
 printf '%s\n' "ip6tables-exit:$?"
 printf '%s\n' '--- end ---'
 exit 0
@@ -301,14 +301,14 @@ The start marker is `--- listen ---` and the exit line is `listen-exit:`. The la
 
 `ss -lntup` prints numeric addresses. A socket line's first field is `tcp` or `udp`. Any other line is not a socket. The local address is the fifth field. When that field contains `[`, the address is the text inside the brackets and the port is the digits after `]:`. Otherwise the address is the text before the last colon and the port is the digits after it. A port that is not a decimal from 1 to 65535, or a fifth field that is missing, is unclassified. Do not flag it.
 
-The address is loopback when it is `::1`, or `::ffff:127.0.0.1`, or it starts with `127.`. `0.0.0.0`, `*`, and `::` are not loopback. The process name is the text inside the first `users:(("` up to the next `"`. Match that name, not a substring of the line. `ss` prints at most 15 characters of it. `sshd` and `tailscaled` fit. When `users:(("` is absent, the process was not read.
+The address is loopback when it is `::1`, or `::ffff:127.0.0.1`, or it starts with `127.`. `0.0.0.0`, `*`, and `::` are not loopback. The process names are every quoted name inside `users:((...))`, one per owner; a socket can have several, such as the service and `systemd` for socket activation. Match each name whole, not a substring of the line. `ss` prints at most 15 characters of it. `sshd` and `tailscaled` fit. When `users:((` is absent, the process was not read.
 
 Judge each socket. Take the first match.
 
 - The address is loopback. Report the line. Do not flag it.
-- The process name is `sshd`. That socket is the SSH server. Report the line. Do not flag it.
-- The process name is `tailscaled`. That socket is the tailnet daemon. Report the line. Do not flag it.
-- The socket is `udp` on port 68 and the process name is `systemd-network` or `dhclient`. That socket is the machine's DHCP client, which asks for its address and serves nothing. Report the line. Do not flag it.
+- One of the process names is `sshd`. That socket is the SSH server. Report the line. Do not flag it.
+- One of the process names is `tailscaled`. That socket is the tailnet daemon. Report the line. Do not flag it.
+- The socket is `udp` on port 68 and one of the process names is `systemd-network` or `dhclient`. That socket is the machine's DHCP client, which asks for its address and serves nothing. Report the line. Do not flag it.
 - The port is one of `<expected_ports>`. Report the line. Do not flag it.
 - The process was not read. Report the line as unclassified. Do not flag it.
 - The address is not loopback, the process was read, the socket is none of those above, and the port is not one of `<expected_ports>`. Flag it. Copy the line. This is the rule a deliberately opened port matches.
@@ -400,13 +400,15 @@ The mode change is the person's. This skill does not change it, and it is not a 
 
 ### What did the INPUT chain show?
 
-`--- iptables ---` with `iptables-exit:` is one chain. `--- ip6tables ---` with `ip6tables-exit:` is the other. Each is complete when its start marker, its exit line, and a later marker are present. The later marker is `--- ip6tables ---` for the first and `--- end ---` for the second. Judge each chain on its own.
+`--- iptables ---` with `iptables-exit:` is the IPv4 filter table. `--- ip6tables ---` with `ip6tables-exit:` is the IPv6 one. Each is complete when its start marker, its exit line, and a later marker are present. The later marker is `--- ip6tables ---` for the first and `--- end ---` for the second. Judge each table's INPUT chain on its own.
 
 An exit other than 0, or a chain that is not complete: that chain was not read. Do not flag it. Do not call it closed, and do not call it clean. A guest whose firewall neither command shows was not read.
 
-When the chain is complete and the exit is 0, walk the lines in order. A policy line begins with `-P INPUT `. A rule begins with `-A INPUT `. The policy target is the last field of the policy line. A rule is unconditional when none of its fields is `-i`, `-s`, `-d`, `-p`, or `-m`, and no field begins with `--in-interface`, `--source`, `--destination`, `--protocol`, or `--match`. The jump target is the field after a field that is `-j` or `--jump`.
+When the table is complete and the exit is 0, walk INPUT's rules in order. A policy line begins with `-P INPUT `. A rule begins with `-A INPUT `. The policy target is the last field of the policy line. The jump target is the field after a field that is `-j` or `--jump`. A rule is unconditional when, apart from its jump and the target's own options after it, its only fields are a `-m comment` and its `--comment` text: a comment restricts nothing. Any other field, `-f` and a `!` included, makes it conditional.
 
-- An unconditional rule whose jump target is `ACCEPT`. Flag this chain. It accepts all traffic that reaches that rule, from every interface. Stop the walk.
+A jump target that is not `ACCEPT`, `DROP`, `REJECT`, `RETURN`, or `LOG` is a user chain. When its rules (`-A <chain> `) are in the same output, walk them at that point by the same tests: an unconditional `ACCEPT`, `DROP`, or `REJECT` there decides, as it would in INPUT; an unconditional `RETURN`, or the end of that chain, goes back to the rule after the jump. Follow at most three levels. A user chain whose rules are not in the output, one reached again inside its own walk, or a fourth level: the table's INPUT chain was not read past that point, so do not flag it and do not call it clean.
+
+- An unconditional rule whose jump target is `ACCEPT`, in INPUT or a user chain the walk entered. Flag this chain. It accepts all traffic that reaches that rule, from every interface. Stop the walk.
 - An unconditional rule whose jump target is `DROP` or `REJECT`. Stop the walk. Later rules are not reached, and the policy is not used. Do not flag this chain for those later rules.
 - Any other rule. Continue.
 - The walk ends with no unconditional `ACCEPT`, `DROP`, or `REJECT`, and the policy target is `ACCEPT`. Flag this chain.
@@ -431,7 +433,7 @@ Name it on the flag. Do not make the change.
 
 One report. State when `list_hosts` was read. One row per machine in scope, in `hosts` order, then any named machine not on the map.
 
-Each in-scope row is the identifier, the role, the health class the way `skills/VM Inventory/` reports it, and the audit. The audit is the sections that were read, each flag with the rule it matched and who would change it, and each section that was not read. An incomplete audit says incomplete, and it does not say there are no flags. A reachable machine whose audit answer was classified, complete or incomplete, counts as audited. Every other in-scope machine counts as not audited.
+Each in-scope row is the identifier, the role, the health class the way `skills/VM Inventory/` reports it, and the audit. The audit is the sections that were read, each flag with the rule it matched and who would change it, and each section that was not read. An incomplete audit says incomplete, and it does not say there are no flags. A reachable machine counts as audited when its audit call answered with output the script printed, complete or incomplete. A machine whose audit call answered not read, `busy`, `invalid_arguments`, or a declined stop included, counts as not audited. Every other in-scope machine counts as not audited.
 
 The count line is machines in scope, then audited, then not audited, then reachable, unreachable, and not determined, then named machines not on the map.
 
@@ -443,6 +445,7 @@ Every report this skill delivers, a stop before any audit included, says all thr
 - The audit is a read of what the guest shows, not a security review.
 - Security lists, network security groups, public IP assignment, IAM policy and encryption at rest are not visible from inside a guest.
 - When `<expected_ports>` was absent, the list was not given.
+- The SSH lines are the server-wide configuration, before any `Match` block, and accounts without a login shell were not read for keys.
 
 No credential, address, or hostname is asked for or printed as a field. An identifier is the machine field. A line the script printed stays that line. A `key:` line is type and comment only.
 

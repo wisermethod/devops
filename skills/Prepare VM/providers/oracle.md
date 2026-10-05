@@ -25,7 +25,7 @@ Measured 2026-09-28: Cloud Shell runs in FIPS mode and refuses Ed25519 (`ED25519
 
 The Cloud Shell network bar reads ephemeral. When it reads public, the person switches it to the ephemeral private network for the machine's VCN and subnet, and uses that as the active network.
 
-Once the machine answers through the router, the person removes any provisioning key that came from a computer they work from. Confirm before that edit. Measured 2026-10-05 on stock Canonical Ubuntu 24.04 aarch64: the key supplied at launch was in three accounts' `authorized_keys`, `ubuntu`'s, `opc`'s, and `root`'s, the last behind a forced command. Remove it from each, by the key's fingerprint, keeping the break-glass key. `skills/VM Security Audit/`'s keys section lists every account's keys by type and comment. On the router host a sandboxed router's own service may not see home directories, and that host's keys are removed over Cloud Shell.
+Once the machine answers through the router, the person removes any provisioning key that came from a computer they work from. Confirm before that edit. Measured 2026-10-05 on stock Canonical Ubuntu 24.04 aarch64: the key supplied at launch was in three accounts' `authorized_keys`, `ubuntu`'s, `opc`'s, and `root`'s, the last behind a forced command. Remove it from each, by the key's fingerprint, keeping the break-glass key. `skills/VM Security Audit/`'s keys section lists `root`'s keys and those of every account with a login shell, by type and comment. On the router host a sandboxed router's own service may not see home directories, and that host's keys are removed over Cloud Shell.
 
 ## Host firewall
 

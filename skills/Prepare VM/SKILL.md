@@ -315,7 +315,7 @@ Run the three checks in the contract, in order. Stop at the first failure.
 
 Only after step 10 reports enrolled.
 
-- A provisioning key that came from a computer the person works from is still accepted on the machine, in any account's `authorized_keys`, not only the login user's. `skills/VM Security Audit/` lists them. The person confirms, then it is removed from each. Report `changed`.
+- A provisioning key that came from a computer the person works from is still accepted on the machine, in any account's `authorized_keys`, not only the login user's. `skills/VM Security Audit/` lists `root`'s and those of every account with a login shell; an account without one is checked by the person. The person confirms, then it is removed from each. Report `changed`.
 - An inbound SSH rule opened at the provider's network firewall for the one-time path is still open. The person closes it at the provider. Report `changed`.
 - Neither. Report `unchanged`.
 - Step 10 did not report enrolled. Remove nothing. The one-time path may still be the only way in.

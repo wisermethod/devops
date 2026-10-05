@@ -4,7 +4,7 @@ What this plugin does not do, declared by the primitive that names it.
 
 A gap is a capability this root does not provide that a primitive's own body names as missing (`wiser/standards/primitives.md`). This file collects every declared `gaps` entry, by hand, and is corrected whenever a primitive's gaps change. It carries capability gaps only, and names what is missing, never where it went.
 
-Counted 2026-10-05: 9 gaps across 4 primitives. Bullet count: `grep -E '^- ' system/GAPS.md | wc -l` returns 9, and the same count derived from the primitives' own `gaps:` frontmatter returns 9.
+Counted 2026-10-05: 11 gaps across 4 primitives. Bullet count: `grep -E '^- ' system/GAPS.md | wc -l` returns 11, and the same count derived from the primitives' own `gaps:` frontmatter returns 11.
 
 ## Experts
 
@@ -26,6 +26,8 @@ Counted 2026-10-05: 9 gaps across 4 primitives. Bullet count: `grep -E '^- ' sys
 - a router this plugin does not ship, which every change goes through
 - a package manager other than apt
 - a change that runs longer than the router's command limit, a whole-system upgrade included
+- repairing a package database left mid-change
+- a unit change that also stops, restarts or conflicts with another unit
 
 ### VM Inventory
 

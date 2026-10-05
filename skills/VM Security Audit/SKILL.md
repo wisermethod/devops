@@ -3,7 +3,7 @@ name: VM Security Audit
 type: skill
 category: operations
 description: Report listening ports, SSH configuration, pending updates and world-writable paths on one machine, flag the facts that match this skill's rules, and name what a guest cannot show, read through a router the person already runs
-version: 0.1.0
+version: 0.1.1
 gaps:
   - a router this plugin does not ship, which the audit reads through
   - security lists, network security groups, public IP assignment, IAM policy and encryption at rest, which are not visible from inside a guest
@@ -380,7 +380,7 @@ The reboot line and the list age are their own lines. Read each when it is prese
 
 When the section is complete and `updates-exit` is 0, `upgradable-total:` and `security-total:` are the counts. The script prints at most 40 package lines. The totals count the rest.
 
-- `security-total` is greater than 0. Flag pending updates from a `-security` pocket. Name `skills/VM Configure/` for one package. Do not start an upgrade of every package.
+- `security-total` is greater than 0. Flag pending updates from a `-security` pocket. Name `skills/VM Configure/` for one package or for every pending upgrade. Start nothing.
 - `security-total` is 0. Report `upgradable-total`. Do not flag an update that is not from a `-security` pocket.
 
 ### What did the writable section show?
@@ -424,7 +424,7 @@ Name it on the flag. Do not make the change.
 
 - A flagged listener. A package or a unit change is `skills/VM Configure/`, one package or one unit. This skill does not choose the package.
 - A flagged SSH setting. The gap `experts/DevOps Expert/` still declares is a configuration file. This skill writes no file.
-- A `-security` update. `skills/VM Configure/`, one package. Not an upgrade of every package.
+- A `-security` update. `skills/VM Configure/`, for one package or for every pending upgrade. Start nothing.
 - Package lists older than seven days, a pending reboot, or a world-writable path. The person. Refreshing the lists, rebooting, and changing a mode are not this skill.
 - A flagged INPUT chain. The person, over the provider's console.
 

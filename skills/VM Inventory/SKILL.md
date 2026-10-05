@@ -51,9 +51,8 @@ Which scope is this? Take the first match.
 - The request asks for a hostname, a DNS record, or a zone. Hand that part to `experts/IT Expert/` in `wiser`, which sequences `skills/Zone Publisher/`. Ask this question again of what remains. When nothing remains, stop.
 - The request asks to change a package, a service, or a configuration, or it asks for a security review. Say that this skill does not do that part. Ask this question again of what remains. When nothing remains, stop.
 - The request both names machines and asks for the whole fleet. Ask which scope. Do not guess. Do not call the gateway.
-- The request names one or more machines by identifier. Scope is those identifiers only. An identifier named more than once is one machine.
-- The request asks only for the router host. Scope is the entry whose `self` is true.
-- The request narrows the machines by anything else, such as a purpose, an environment, or a label. `list_hosts` returns identifiers and the router-host flag only, so that subset cannot be read from it. Ask which identifiers. Do not call the gateway.
+- The request narrows the machines, in whole or in part, by anything other than identifiers or the router host, such as a purpose, an environment, or a label. `list_hosts` returns identifiers and the router-host flag only, so that subset cannot be read from it. Ask which identifiers. Do not call the gateway.
+- The request names machines by identifier, the router host, or both. Scope is those machines only. An identifier named more than once is one machine.
 - The request asks for the whole fleet, or for the machines without narrowing them. Scope is every identifier `vm.inventory.list_hosts` returns.
 - The scope cannot be read. Ask. Do not guess. Do not call the gateway.
 
@@ -64,7 +63,7 @@ Do not ask `experts/DevOps Expert/` for a gate.
 Any call in this run answers `status` `needs_confirmation` when the person's gateway policy asks to approve it.
 
 - It stopped. Hand the stop to `skills/Connection Troubleshooter/` in `wiser`, which shows it and repeats the identical call only after the person approves that stop. Take the repeated call's answer as this call's answer.
-- The person declines. Make no further call. Before `list_hosts` has answered a list, there is no inventory. After it, every machine in scope whose row is not decided is not determined, declined, and the report is delivered.
+- The person declines. Make no further call. Before `list_hosts` has answered a list, there is no inventory. After it, a machine whose health is decided keeps it, and its facts, when not yet read, are not read, declined. Every machine in scope whose health is not decided is not determined, declined. Deliver the report.
 - It did not stop. Take the answer as it came.
 
 Call one machine at a time. The router runs at most four remote sessions at once, across every caller, and answers `busy` past that. Do not start the next machine until this machine's row is decided. The router host's own entry runs on that host. Any other entry is asked through the router.
@@ -82,8 +81,7 @@ Call it with `{}` before any machine. Do not retry this call.
 ### Which rows are in the report?
 
 - Scope is the whole fleet. One row for every `hosts` entry, in that order.
-- Scope is the router host. One row, the entry whose `self` is true. No entry has it: say the map marks no router host, and stop.
-- Scope is named machines. Look up each named identifier in `hosts`. One that is present is in scope, in `hosts` order. One that is absent is not on the router's map: do not call `health` or `facts` for it, and do not call it unreachable. Report those after the in-scope rows, in the order `<machines>` names them. Say that the report covered only the named machines, and say how many identifiers the map holds that were not named.
+- Scope is named machines. Look up each named identifier in `hosts`. A named router host is the entry whose `self` is true; when no entry has it, say the map marks no router host, and count it with the named machines not on the map. One that is present is in scope, in `hosts` order. One that is absent is not on the router's map: do not call `health` or `facts` for it, and do not call it unreachable. Report those after the in-scope rows, in the order `<machines>` names them. Say that the report covered only the named machines, and say how many identifiers the map holds that were not named.
 
 ### What is this machine's role?
 
@@ -103,7 +101,7 @@ Call `vm.inventory.health` with `machine` set to the entry's `id`.
 
 - `outcome` is `ok`. Reachable.
 - `outcome` is `timeout`, `connect_timeout`, `request_timeout`, `killed`, or `remote_failure`, and the answer names this identifier in `machine`. Unreachable through the router. Name the outcome and any `exit_code`. An exit code does not change the outcome's name.
-- One of those outcomes, and the answer carries no `machine`. The router answered before it reached the machine. Not determined. Name the outcome and any `reason`.
+- One of those outcomes, and the answer carries no `machine`. The answer does not establish whether the router reached the machine. Not determined. Name the outcome and any `reason`.
 - `outcome` is `busy`. Not determined. Name it. The machine was not asked.
 - `status` is `vendor_error`. Not determined. Name it. The answer did not establish whether the machine was asked, or what it answered.
 - `outcome` is `unknown_machine`. Do not retry. Read `vm.inventory.list_hosts` once more, and take the next question.
@@ -148,8 +146,8 @@ State when the first `list_hosts` was read. One row per machine in scope, in `ho
 
 - **A request whose scope cannot be read.** Ask which machines, or whether the request is the whole fleet. Do not guess. Do not call.
 - **An unreachable machine left out.** Put the row in. Name it unreachable, with the outcome and any `exit_code`.
-- **A router refusal called unreachable.** A failure outcome with no `machine` came from the router before it reached the machine. Not determined, with the outcome and any `reason`.
-- **A subset the map cannot show, guessed.** `list_hosts` carries identifiers and the router-host flag only. A request for the production machines, or any other subset not named by identifier, is asked about before any call.
+- **A router failure called unreachable.** A failure outcome with no `machine` does not establish whether the router reached the machine. Not determined, with the outcome and any `reason`.
+- **A subset the map cannot show, guessed.** `list_hosts` carries identifiers and the router-host flag only. A request for the production machines, or any other subset not named by identifier or as the router host, is asked about before any call.
 - **A name the map does not hold, called unreachable.** Report it as not on the router's map. Do not call `health`. `connectors/vm/CONNECTOR.md` in `wiser` says what the list leaves out. Do not say the identifier was withdrawn.
 - **The fleet called down.** A router-host row that is unreachable, or a `list_hosts` that fails with `vendor_error`, means connector access to the whole fleet depends on the router host. Workloads keep serving. Do not say the fleet is down.
 - **A fact the output does not carry.** Copy `output` verbatim. Do not state a memory, disk, package, or service figure.
@@ -176,4 +174,4 @@ State when the first `list_hosts` was read. One row per machine in scope, in `ho
 - A router-host row that is unreachable, or a `list_hosts` `vendor_error`, says that connector access to the whole fleet depends on the router host, and does not say the fleet is down.
 - No gate was asked for, the skill added no confirmation, a call stopped by the person's own policy repeated only after they approved that stop, and nothing was written.
 - A hostname, a DNS record, or a zone was handed to `experts/IT Expert/` in `wiser`, which sequences `skills/Zone Publisher/`.
-- A request whose scope could not be read, or that narrowed the machines by anything but identifiers or the router host, was asked about, and nothing was called before the answer.
+- A request whose scope could not be read, or that narrowed the machines, in whole or in part, by anything but identifiers or the router host, was asked about, and nothing was called before the answer.

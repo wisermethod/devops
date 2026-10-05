@@ -67,7 +67,7 @@ The script asks for what is on the machine. A command that is not there, a secti
 
 `apt list --upgradable` reads the package lists already on the machine. Their age is the mtime of `/var/lib/apt/periodic/update-success-stamp` when that file exists and `stat` prints an all-digit time. Otherwise the age was not read. The script does not refresh the lists. `/var/run/reboot-required` exists when a reboot is pending.
 
-Authorized keys are read for `root`, and for any other user whose login shell's basename is not empty, `nologin`, or `false`. An account without a login shell is not read, and the report says so: such an account can still hold a key, for example one limited to file transfer. The script prints count, type, and comment. A key is a type word followed directly by key data beginning `AAAA`; the last such pair on a line is the key, so a type word inside a quoted option is not taken for it, and the comment is only what follows the key data. It does not print key material. A file it cannot read is `keys-not-read`, which is not a count of zero.
+Authorized keys are read for `root`, and for any other user whose login shell's basename is not empty, `nologin`, or `false`. An account without a login shell is not read, and the report says so: such an account can still hold a key, for example one limited to file transfer. The script prints count, type, and comment. A key is a type word followed directly by key data beginning `AAAA`, the first such pair on the line that sits outside double quotes; a type word inside a quoted option, or one later in the comment, is not taken for it, and the comment is only what follows the key data. It does not print key material. A file it cannot read is `keys-not-read`, which is not a count of zero.
 
 The world-writable walk stays on the root filesystem and prunes `/proc`, `/sys`, `/dev`, and `/run`. Other filesystems are not walked. On the router host, a router whose own service is sandboxed runs this read inside that sandbox, where `/home` and `/root` can be hidden: there a `keys-not-read` is that hiding, and the walk does not see those directories. A router-host row says so. The filter table is read whole with `iptables -S` and `ip6tables -S`, so a chain INPUT jumps to is in the same output. A firewall those two commands do not show was not read. A file name holding a newline splits into two lines in the world-writable walk, and the totals count lines.
 
@@ -183,7 +183,7 @@ Ask only when health is reachable. One `vm.command.run`, with `machine` set to t
 sh
 ```
 
-`<script>` is this text and no other, without a final newline. It is 4072 code points, inside the 4096 code point bound on one `argv` element. Do not add a line, a redirection, or a refresh of the package lists. A longer element is `invalid_arguments`, and the connector sends nothing.
+`<script>` is this text and no other, without a final newline. It is 4046 code points, inside the 4096 code point bound on one `argv` element. Do not add a line, a redirection, or a refresh of the package lists. A longer element is `invalid_arguments`, and the connector sends nothing.
 
 ```
 printf '%s\n' '--- listen ---'
@@ -211,34 +211,34 @@ timeout 4 awk -v patterns="$pats" -F: '
 function r(s,a,b,i,o){o="";while((i=index(s,a))>0){o=o substr(s,1,i-1) b;s=substr(s,i+length(a))}return o s}
 function xp(p,h,u,s){s=r(r(r(p,"%%","\001"),"%h",h),"%u",u);if(index(s,"%")>0)return "";s=r(s,"\001","%");return substr(s,1,1)=="/"?s:h "/" s}
 function dump(path,line,n,i,j,t,c,tot,sh,un,rc){
- tot=sh=un=0; rc=(getline line < path)
- if(rc<0){close(path); print "keys-not-read"; return}
- while(rc>0){
-  if(line~/^[ \t]*($|#)/){rc=(getline line < path); continue}
-  n=split(line,f,/[ \t]+/); t=""
-  for(i=1;i<n;i++) if(f[i]~/^(ssh-|ecdsa-|sk-ssh-|sk-ecdsa-)/&&f[i+1]~/^AAAA/){
-   t=f[i]; c=""; for(j=i+2;j<=n;j++) c=c (c==""?"":" ") f[j]
-  }
-  if(t=="") un++
-  else { tot++; if(sh<20){ if(length(c)>80) c=substr(c,1,80); printf "key:%s\t%s\n", t, c; sh++ } }
-  rc=(getline line < path)
- }
- close(path); print "keys-total:" tot; print "keys-shown:" sh; print "unparsed:" un
+tot=sh=un=0;rc=(getline line < path)
+if(rc<0){close(path);print "keys-not-read";return}
+while(rc>0){
+if(line~/^[ \t]*($|#)/){rc=(getline line < path);continue}
+n=split(line,f,/[ \t]+/);t="";q=0
+for(i=1;i<n;i++){if(q%2==0&&f[i]~/^(ssh-|ecdsa-|sk-ssh-|sk-ecdsa-)/&&f[i+1]~/^AAAA/){
+t=f[i];c="";for(j=i+2;j<=n;j++) c=c (c==""?"":" ") f[j];break
+};x=f[i];gsub(/\\"/,"",x);q+=gsub(/"/,"",x)}
+if(t=="") un++
+else { tot++;if(sh<20){ if(length(c)>80) c=substr(c,1,80);printf "key:%s\t%s\n", t, c;sh++ } }
+rc=(getline line < path)
+}
+close(path);print "keys-total:" tot;print "keys-shown:" sh;print "unparsed:" un
 }
 BEGIN { npat=split(patterns, pat, "\036") }
 {
- name=$1; home=$6; n=split($7, segs, "/"); base=segs[n]
- if(name=="" || home=="") next
- if(name!="root" && (base=="" || base=="nologin" || base=="false")) next
- print "user:" name
- if(substr(home,1,1)!="/"){ print "home-not-absolute"; next }
- for(p=1;p<=npat;p++){
-  if(pat[p]=="") continue
-  path=xp(pat[p], home, name)
-  if(path==""){ print "pattern-unexpanded:" pat[p]; continue }
-  print "file:" path
-  dump(path)
- }
+name=$1;home=$6;n=split($7, segs, "/");base=segs[n]
+if(name=="" || home=="") next
+if(name!="root" && (base=="" || base=="nologin" || base=="false")) next
+print "user:" name
+if(substr(home,1,1)!="/"){ print "home-not-absolute";next }
+for(p=1;p<=npat;p++){
+if(pat[p]=="") continue
+path=xp(pat[p], home, name)
+if(path==""){ print "pattern-unexpanded:" pat[p];continue }
+print "file:" path
+dump(path)
+}
 }
 ' /etc/passwd
 printf '%s\n' "keys-exit:$?"
@@ -268,7 +268,6 @@ ww=$(timeout 25 find / -xdev \( \( -path /proc -o -path /sys -o -path /dev -o -p
 ww_ec=$?
 printf '%s\n' "$ww" | awk -F '\t' '$1=="f"{f++;if(f<=40)print}$1=="d"{d++;if(d<=40)print}END{print "files-total:"f+0;print "dirs-total:"d+0}'
 printf '%s\n' "writable-exit:$ww_ec"
-printf '%s\n' '--- input ---'
 printf '%s\n' '--- iptables ---'
 timeout 3 iptables -S
 printf '%s\n' "iptables-exit:$?"
@@ -293,7 +292,7 @@ The person is told this call is a read. Do not retry it. Classify the answer aft
 
 A section is complete when its start marker and its exit line are both present, and a later marker is present, so the section sits inside output that was not cut off. A section that is not complete was not read. Do not say "none" for it, and do not flag it. A listening rule, an SSH rule, a `-security` count, a world-writable total, and an INPUT rule are flagged only from a complete section whose exit line is 0. The reboot line and the package-list age are flagged from their own lines when those lines sit between `--- updates ---` and a later marker, including when `updates-exit` is not 0. `writable-exit` 124 is a cut walk: the totals are partial, and it is not flagged.
 
-The markers, in order, are `--- listen ---`, `--- sshd ---`, `--- tailscale-ssh ---`, `--- keys ---`, `--- updates ---`, `--- writable ---`, `--- input ---`, `--- iptables ---`, `--- ip6tables ---`, and `--- end ---`.
+The markers, in order, are `--- listen ---`, `--- sshd ---`, `--- tailscale-ssh ---`, `--- keys ---`, `--- updates ---`, `--- writable ---`, `--- iptables ---`, `--- ip6tables ---`, and `--- end ---`.
 
 ### What did the listening section show?
 
@@ -386,7 +385,7 @@ When the section is complete and `updates-exit` is 0, `upgradable-total:` and `s
 
 ### What did the writable section show?
 
-The start marker is `--- writable ---` and the exit line is `writable-exit:`. The later marker is `--- input ---`.
+The start marker is `--- writable ---` and the exit line is `writable-exit:`. The later marker is `--- iptables ---`.
 
 A line `f`, a tab, and a path is a world-writable regular file. A line `d`, a tab, and a path is a world-writable directory without the sticky bit. The script prints at most 40 of each. `files-total:` and `dirs-total:` count every line the walk printed. The walk does not leave the root filesystem, and it prunes `/proc`, `/sys`, `/dev`, and `/run`. Say that. A path on another filesystem was not read.
 
@@ -406,7 +405,7 @@ An exit other than 0, or a chain that is not complete: that chain was not read. 
 
 When the table is complete and the exit is 0, walk INPUT's rules in order. A policy line begins with `-P INPUT `. A rule begins with `-A INPUT `. The policy target is the last field of the policy line. The jump target is the field after a field that is `-j` or `--jump`. A rule is unconditional when, apart from its jump and the target's own options after it, its only fields are a `-m comment` and its `--comment` text: a comment restricts nothing. Any other field, `-f` and a `!` included, makes it conditional.
 
-A jump target that is not `ACCEPT`, `DROP`, `REJECT`, `RETURN`, or `LOG` is a user chain. When its rules (`-A <chain> `) are in the same output, walk them at that point by the same tests: an unconditional `ACCEPT`, `DROP`, or `REJECT` there decides, as it would in INPUT; an unconditional `RETURN`, or the end of that chain, goes back to the rule after the jump. Follow at most three levels. A user chain whose rules are not in the output, one reached again inside its own walk, or a fourth level: the table's INPUT chain was not read past that point, so do not flag it and do not call it clean.
+A jump target that is not `ACCEPT`, `DROP`, `REJECT`, `RETURN`, or `LOG` is a user chain; it exists when the output declares it with `-N <chain>`. A conditional jump to a user chain sends only the traffic its conditions match, so it decides nothing for all traffic: continue with the next rule, as for any conditional rule. An unconditional jump: walk that chain's rules (`-A <chain> `) at that point by the same tests. A declared chain with no rules returns at once. An unconditional `ACCEPT`, `DROP`, or `REJECT` there decides, as it would in INPUT, unless a conditional `RETURN` came before it in that chain, which sent some traffic back: then the table's INPUT chain was not read past that point. An unconditional `RETURN`, or the end of the chain, goes back to the rule after the jump. Follow at most three levels. A rule that uses `-g` or `--goto`, a chain that is not declared, one reached again inside its own walk, or a fourth level: the table's INPUT chain was not read past that point, so do not flag it and do not call it clean.
 
 - An unconditional rule whose jump target is `ACCEPT`, in INPUT or a user chain the walk entered. Flag this chain. It accepts all traffic that reaches that rule, from every interface. Stop the walk.
 - An unconditional rule whose jump target is `DROP` or `REJECT`. Stop the walk. Later rules are not reached, and the policy is not used. Do not flag this chain for those later rules.

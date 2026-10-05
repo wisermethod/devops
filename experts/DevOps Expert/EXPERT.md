@@ -3,10 +3,9 @@ name: DevOps Expert
 type: expert
 category: operations
 description: Judge a proposed change to a running machine, a fleet of machines, a tailnet's access policy, or a cloud project a skill of this plugin changes, a workload deploy that also points a hostname at it included, for whether its reach passes its named target or it has no way back, gate the plan before anything is written, and hand the hostname or DNS part to IT Expert
-version: 0.5.0
+version: 0.6.0
 gaps:
   - changing a configuration file on a machine
-  - deploying a workload to a machine and reporting where it is reachable
   - reading any state of a machine or the fleet beyond the role, reachability and facts an inventory returns, and beyond the exposure a guest audit reads
   - a security review of a machine or workload change, which this expert names as a question and does not answer
 ---
@@ -19,9 +18,9 @@ Use when a change is proposed to a machine that already exists, a fleet of machi
 
 Not for provisioning a machine that does not exist yet. The person does that by hand. Not for a hostname, a DNS record, or a zone, pointing a hostname at a workload included, which is handed to `experts/IT Expert/` in `wiser`, which sequences `skills/Zone Publisher/` where the change needs it, with no gate here. Not for a change a skill in `wiser` writes, which is routed to the expert whose row in `wiser`'s `experts/AGENTS.md` owns that skill. Not for a security question beyond reach and rollback: load `experts/IT Expert/` Rule 5 in `wiser` and apply it.
 
-Owns: `skills/Prepare VM/`, `skills/VM Inventory/`, `skills/VM Configure/`, `skills/VM Security Audit/`
+Owns: `skills/Prepare VM/`, `skills/VM Inventory/`, `skills/VM Configure/`, `skills/VM Security Audit/`, `skills/Deploy Workload/`
 
-This expert owns Prepare VM, VM Inventory, VM Configure, and VM Security Audit. VM Inventory and VM Security Audit are reads and take no gate. A request to prepare an existing machine to join the fleet, or to take one out, is placed on `skills/Prepare VM/`, and this expert's gate runs on the plan before anything is written. A package or unit change on one existing machine is placed on `skills/VM Configure/`, and this expert's gate runs on that plan before any change call. On safe as planned, or on safe with named conditions the requester accepts, the skill writes, after the requester confirms. Where the work is one of the gaps it still declares, the verdict names that gap. It never invents steps a skill would run. It edits nothing and calls no gateway action.
+This expert owns Prepare VM, VM Inventory, VM Configure, VM Security Audit, and Deploy Workload. VM Inventory and VM Security Audit are reads and take no gate. A request to prepare an existing machine to join the fleet, or to take one out, is placed on `skills/Prepare VM/`, and this expert's gate runs on the plan before anything is written. A package or unit change on one existing machine is placed on `skills/VM Configure/`, and this expert's gate runs on that plan before any change call. A workload deployment or removal on one existing machine is placed on `skills/Deploy Workload/`, Docker's installation from Docker's own repository included, and this expert's gate runs on that plan before any change call. On safe as planned, or on safe with named conditions the requester accepts, the skill writes, after the requester confirms. Where the work is one of the gaps it still declares, the verdict names that gap. It never invents steps a skill would run. It edits nothing and calls no gateway action.
 
 On a write, load `experts/IT Expert/` in `wiser` and apply its Commitments 2 to 4. Cite them by number. Do not copy their sentences.
 
@@ -75,7 +74,8 @@ Which request is this?
 - A configuration file change, and also some other change. For the configuration file, go to Job 2 and the verdict names the declared gap. Do not stop the rest of the request. Place what remains through the tests below.
 - A configuration file change, with no other change. Go to Job 2. The verdict names the declared gap.
 - A package or a systemd unit change on one machine that already exists, or on more than one. Place it on `skills/VM Configure/`. Go to Job 2. The gate runs on that plan before any change call.
-- A machine configuration change or a workload deployment, on a machine that already exists or a fleet of them. Go to Job 2.
+- A workload deployment or removal on one machine that already exists, or on more than one, Docker's installation from Docker's own repository included. That installation's apt source and key are this placement, not the configuration-file gap. Place it on `skills/Deploy Workload/`. Go to Job 2. The gate runs on that plan before any change call.
+- A machine configuration change on a machine that already exists, or on a fleet of them. Go to Job 2.
 - A cloud project change a skill of this plugin would make. Go to Job 2. A cloud project change no skill of this plugin would make, and no gap declared above names, is not placed here: ask what would make the change.
 - None of these. Ask what would be written, and to which existing machine, fleet, project, or tailnet. Do not guess a target.
 
@@ -86,7 +86,7 @@ Judge `<plan>` before anything is written. Apply `experts/IT Expert/` Commitment
 Which of these tests is a yes on `<plan>` against `<live_state>`? Any yes is not as proposed. State the clearing shape beside it. Several yeses: name each. No yes: ask the reach question below.
 
 - The new tailnet access policy would drop grants or SSH rules `<live_state>` still has, as new text pasted over the file does. Clearing shape: a merge, the whole resulting policy carrying every rule `<live_state>` has, never a paste. The platform takes the merged policy as one file, and that is not the defect. That is this expert's Commitment 1. Cite `experts/IT Expert/` Commitments 2 to 4 in `wiser` by number.
-- The plan deploys or changes a workload by replacing a live reverse proxy's whole config. Clearing shape: a targeted update through the interface that proxy supports for one, with its concurrency check where it offers one, for Caddy its admin API with `Etag` and `If-Match`; never a whole-config replacement. Atomic application does not clear this test. Where the proxy or its interface is unknown, ask. That is this expert's Commitment 1. Cite `experts/IT Expert/` Commitments 2 to 4 in `wiser` by number.
+- The plan deploys or changes a workload by replacing a live reverse proxy's whole config. Clearing shape: a targeted update through the interface that proxy supports for one, with its concurrency check where it offers one, for Caddy its admin API with `Etag` and `If-Match`; never a whole-config replacement. A first config written onto a proxy whose config reads `null`, with its concurrency check, replaces nothing and is not a whole-config replacement. Atomic application does not clear this test. Where the proxy or its interface is unknown, ask. That is this expert's Commitment 1. Cite `experts/IT Expert/` Commitments 2 to 4 in `wiser` by number.
 - The plan leaves a host firewall whose INPUT chain ends in a reject with no rule for the tailnet interface. Clearing shape: a rule for that interface ahead of the reject. That is this expert's Commitment 2.
 - The plan aims `dd` or a partition write at a device path it has not shown to be other than a boot disk. Clearing shape: the path shown not to be a boot disk.
 - The plan adds reach to a credential, by creating, granting, or widening it, and the added reach covers machines `<change_request>` did not name. Clearing shape: the added reach narrowed to the named target, or the wider set named as the target. Reach the person already accepted, such as a router's bearer that is root on every machine it maps, is named in the plan as known reach and is not this test; enrolling one named machine adds reach to that machine only.

@@ -12,5 +12,6 @@ Capabilities a user invokes by name for their output; `wiser/standards/primitive
 | `VM Configure/SKILL.md` | Change one apt package or apply every pending upgrade, or change one systemd unit, or one package and then one unit, on one machine a person's router maps, running each package change as a tracked background job after inspecting that machine, and report whether it changed, through a router the person already runs | DevOps Expert |
 | `VM Inventory/SKILL.md` | List every machine a person's router maps, or the machines they name, each with its role, whether it is reachable, and the facts the router returned, read through a router the person already runs | DevOps Expert |
 | `VM Security Audit/SKILL.md` | Report listening ports, SSH configuration, pending updates and world-writable paths on one machine, flag the facts that match this skill's rules, and name what a guest cannot show, read through a router the person already runs | DevOps Expert |
+| `Deploy Workload/SKILL.md` | Deploy one container to one machine a person's router maps, behind a Caddy the skill runs there, through targeted admin-API updates, or remove one it deployed, and report the URL it serves and whether it answered, through a router the person already runs | DevOps Expert |
 
 <!-- /generated:index -->

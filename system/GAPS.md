@@ -4,14 +4,13 @@ What this plugin does not do, declared by the primitive that names it.
 
 A gap is a capability this root does not provide that a primitive's own body names as missing (`wiser/standards/primitives.md`). This file collects every declared `gaps` entry, by hand, and is corrected whenever a primitive's gaps change. It carries capability gaps only, and names what is missing, never where it went.
 
-Counted 2026-10-05: 16 gaps across 5 primitives. Bullet count: `grep -E '^- ' system/GAPS.md | wc -l` returns 16, and the same count derived from the primitives' own `gaps:` frontmatter returns 16.
+Counted 2026-10-05: 23 gaps across 6 primitives. Bullet count: `grep -E '^- ' system/GAPS.md | wc -l` returns 23, and the same count derived from the primitives' own `gaps:` frontmatter returns 23.
 
 ## Experts
 
 ### DevOps Expert
 
 - changing a configuration file on a machine
-- deploying a workload to a machine and reporting where it is reachable
 - reading any state of a machine or the fleet beyond the role, reachability and facts an inventory returns, and beyond the exposure a guest audit reads
 - a security review of a machine or workload change, which this expert names as a question and does not answer
 
@@ -40,3 +39,14 @@ Counted 2026-10-05: 16 gaps across 5 primitives. Bullet count: `grep -E '^- ' sy
 
 - a router this plugin does not ship, which the audit reads through
 - security lists, network security groups, public IP assignment, IAM policy and encryption at rest, which are not visible from inside a guest
+
+### Deploy Workload
+
+- a router this plugin does not ship, which every deploy goes through
+- a workload on the router host, where Caddy has not been measured beside the router's own public origin
+- a workload that needs a secret, a private registry login, a host directory, or more than one container
+- changing a deployed workload's image or settings in place
+- the provider firewall rule and the DNS record a public URL needs, which no guest can set
+- installing Docker on a distribution other than Ubuntu, or on a machine that already forwards IPv4 traffic
+- IPv6 ingress
+- installing Docker or pulling an image on a machine whose systemd is older than 254, which a background job needs

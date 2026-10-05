@@ -189,7 +189,7 @@ Before handing over the inspection, a poll, a read-back, a journal read, a socke
 
 ### What did the inspection answer?
 
-One `vm.command.run`, a read, with `machine` set to the identifier and `argv` exactly `/bin/sh`, `-c`, the script, `sh`, and the workload name. The workload name is an operand. It is never written into the script. The person is told the call is a read. There is no redirection in this script. `<script>` is this text and no other:
+One `vm.command.run`, a read, with `machine` set to the identifier and `argv` exactly `/bin/sh`, `-c`, the script, `sh`, and the workload name. The workload name is an operand. It is never written into the script. The person is told the call is a read. Its only redirection discards what `command -v` prints. `<script>` is this text and no other:
 
 ```
 export LC_ALL=C
@@ -482,7 +482,7 @@ printf '%s\n' "simulate-exit:$sim"
 exit 0
 ```
 
-The fingerprint is checked before the key is moved into place. A mismatch removes the downloaded file and exits 20, and the previous key is left where it was. Prerequisites are installed only when `dpkg-query` does not show them installed, each pinned to the candidate that job reads, with the keep-old-config options. The key download, the `mv` into `/etc/apt/keyrings/docker.asc`, and the one `>` that writes `docker.sources` are the configuration write. No other script in this skill redirects.
+The fingerprint is checked before the key is moved into place. A mismatch removes the downloaded file and exits 20, and the previous key is left where it was. Prerequisites are installed only when `dpkg-query` does not show them installed, each pinned to the candidate that job reads, with the keep-old-config options. The key download, the `mv` into `/etc/apt/keyrings/docker.asc`, and the one `>` that writes `docker.sources` are the configuration write. The only other redirection in this skill discards what `command -v` prints in the inspection.
 
 ### The install job
 
@@ -621,7 +621,7 @@ A fresh GET, a read: `curl`, `-sS`, `-D`, `-`, `--max-time`, `10`, `--unix-socke
 - The routes body now contains the hostname or the id, and the gated inspection did not. Stop. Do not POST. The config moved. Copy the body.
 - An `Etag` is present and the hostname is absent. POST once, to that same path, with `If-Match` set to that `Etag`. The body is exactly `{"@id":"workload-<name>","match":[{"host":["<hostname>"]}],"handle":[{"handler":"reverse_proxy","upstreams":[{"dial":"<name>:<port>"}]}],"terminal":true}`.
 - The status line is `200`. The route is in place. Take the curl question.
-- The status line is `412`. The call changed nothing. Stop. Do not POST again in this run. Copy the body. The container stays. Name what was left.
+- The status line is `412`. The call changed nothing: another change reached the routes between the GET and the POST. Read the routes again, once, with the same GET. When the hostname and the id are still absent, POST once more with the new `Etag`. When either is now present, stop: the config moved, copy the body. A second `412` stops: do not POST again in this run, copy the body, the container stays, name what was left.
 - Any other answer. Stop. Copy it. Do not POST again. Do not claim the route is in place.
 
 ### What did the curl from the machine answer?
@@ -765,7 +765,7 @@ An environment value the person confirmed is not a secret is shown. A secret is 
 - **Docker installed where forwarding is already on, or on a distribution that is not Ubuntu.** Stop. Name the gap. Docker sets the `FORWARD` policy to `DROP`.
 - **A pull sent as a direct `docker pull`.** A pull is a job. So are the repository job and the install job. A machine whose systemd is older than 254 does not get either. Name the gap.
 - **Caddy published on every address.** The publish is `<addr>:80` and `<addr>:443`, the default route's source address. Never all addresses.
-- **A whole-config write.** The first POST to `/config/` happens only when that GET's body was null, and it carries `If-Match`. A route is one POST to the routes path with `If-Match`. A `412` changed nothing. Do not retry it in the run.
+- **A whole-config write.** The first POST to `/config/` happens only when that GET's body was null, and it carries `If-Match`. A route is one POST to the routes path with `If-Match`. A `412` changed nothing: the routes are read again once and the POST is sent once more only when the hostname and the id are still absent; a second `412` stops.
 - **A route added for a container that did not answer.** The verify read comes first. No `HTTP/` line, or a status that is not `running`: logs, failed, no route, and Job 2 is named. This run does not remove the container.
 - **A container removed that this skill did not label.** Stop. The name is taken.
 - **A second job started while one is loaded.** The second-run questions. A running job stops the run. A finished one is released and the run starts over from its inspection, once.
@@ -790,7 +790,7 @@ An environment value the person confirmed is not a secret is shown. A secret is 
 - Each pull was one job, purpose `docker-pull`, limit 1800, the reference an operand, and the container was run from the digest that job printed. A tag was not run. Systemd older than 254 named the gap and was not pulled.
 - Caddy, when created, was the container named `caddy`, label `deploy-workload=caddy`, `--restart unless-stopped`, command `caddy run --resume`, admin socket under `/var/lib/caddy-admin`, published only on the source address at 80 and 443. A Caddy that was not this skill's stopped the run. The first config was sent only when GET `/config/` was null, with `If-Match`.
 - The workload published no port. It joined `wl-<name>`, was started with `--restart no`, and was set to `unless-stopped` only after `docker inspect` showed it running and the wget from inside Caddy printed an `HTTP/` line. Otherwise the report failed, with the state and `docker logs --tail 50`, no route was added, and Job 2 was named and not run.
-- The route was one POST of the one route object, with `If-Match` from a fresh GET. A `412` was reported as changing nothing. A removal's `404` on the id was the route already absent.
+- The route was one POST of the one route object, with `If-Match` from a fresh GET. A `412` was read again once and posted once more only when the hostname and the id were still absent, and a second `412` stopped the run. A removal's `404` on the id was the route already absent.
 - The curl from the machine was the one the curl question states. Exit 60 was reported as not publicly trusted, with the `-k` result. A public name was tried at most three times. A `.localhost` name was said to be reachable only from the machine.
 - The report names, per part, the inspection, the plan, the gate's verdict or that no gate was taken, each call's outcome, the re-inspection, and `changed`, `unchanged`, or failed. It names the URL, whether it answered, whether the certificate verified, and the image digest. For a public name it names the provider firewall and the DNS record, and the DNS part was handed to `experts/IT Expert/` in `wiser`, which sequences `skills/Zone Publisher/`.
 - Per job the report names the unit name, the invocation ID, the limit, the last poll's state, the read-back lines and the line count shown, and the release outcome. A job was polled at most six times, each wait at most 40 seconds. Release followed a poll that read the job finished. A stuck job was not released.

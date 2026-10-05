@@ -637,7 +637,7 @@ The requested state for one package or a unit: for `install` and `upgrade` of on
 - A package re-inspection whose audit section is non-empty. Say the package database was left mid-change. Copy the audit section, which names the pending packages. The repair is the person's, over the provider's console. Do not repeat the change that just ran. Do not start a later unit call.
 - A package re-inspection whose history section's last entry names a package the inspection's simulation did not. Name each one. When one is a path package, say the change may have reached the channel every later call to this machine takes. Then take the bullets below for the named package.
 - The re-inspection output says the lock could not be taken, and the re-inspection shows the before-state. The change call changed nothing. Report that, with the outcome, the `exit_code`, and the output. Do not repeat the change.
-- The requested state now holds, and it did not hold in the before-state. `changed`.
+- The requested state now holds, it did not hold in the before-state, and the verb is neither `restart` nor `reload`. `changed`.
 - The requested state held in the before-state and holds now, and the verb is not `restart` or `reload`. `unchanged`.
 - The verb is `restart` or `reload`, the change call's `outcome` was `ok` or `truncated`, and the requested state holds now. `changed`.
 - The verb is `restart` or `reload`, the change call came back `remote_failure` naming this identifier, and the requested state holds now. The call failed. Report failed, with its `exit_code` and output, and that the unit is in the requested state. Do not claim the restart or reload happened.

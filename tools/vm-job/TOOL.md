@@ -198,7 +198,7 @@ The journal command, with no trailing newline, is `journalctl --no-pager -o shor
 
 ## Classification
 
-`classify` reads the answer file. A missing file, a file that is not valid UTF-8, a file that contains a NUL, a file that is not JSON, or a JSON value that is not an object, is refused, exit 1. An array, `null`, a string, or a number is not an object. Otherwise `classify` exits 0 and the class is in the JSON, including `unknown` and `not-read`. Extra keys on the answer are ignored and are not listed. `exit_code` matches only as a number: the string `"10"` is not exit 10. `finished` is present only for step `poll`.
+`classify` reads the answer file. A byte-order mark at its start is ignored, since the answer is JSON and not text the tool passes on. A missing file, a file that is not valid UTF-8, a file that contains a NUL, a file that is not JSON, or a JSON value that is not an object, is refused, exit 1. An array, `null`, a string, or a number is not an object. Otherwise `classify` exits 0 and the class is in the JSON, including `unknown` and `not-read`. Extra keys on the answer are ignored and are not listed. `exit_code` matches only as a number: the string `"10"` is not exit 10. `finished` is present only for step `poll`.
 
 Take the first match in the step. A marker class needs its marker line and its exit code together. A code without its marker, or a marker without its code, is not that class.
 
@@ -223,7 +223,7 @@ Requires `--unit`, the unit this run's `start` printed. The started line has to 
 
 ### poll
 
-`--recorded` is optional. The ten fields, in order, are `LoadState`, `ActiveState`, `SubState`, `Result`, `ExecMainCode`, `ExecMainStatus`, `InvocationID`, `TasksCurrent`, `ExecMainStartTimestamp`, `ExecMainExitTimestamp`. Facts carry all ten. A field that was absent is null. When the fields are not read, all ten are null, so a failed call does not claim a job state. A field that appears more than once is not chosen between: the class is `unrecognized`, and facts carry `repeated`, naming each such field. "No processes" means `TasksCurrent` is `[not set]`, empty, or `0`. An invocation ID is set when it is a non-empty string other than `[not set]`.
+`--recorded` is optional. The ten fields, in order, are `LoadState`, `ActiveState`, `SubState`, `Result`, `ExecMainCode`, `ExecMainStatus`, `InvocationID`, `TasksCurrent`, `ExecMainStartTimestamp`, `ExecMainExitTimestamp`. Facts carry all ten. A field that was absent is null. When the fields are not read, all ten are null, so a failed call does not claim a job state. A field that appears more than once is not chosen between: the class is `unrecognized`, and facts carry `repeated`, naming each such field. A repeated `InvocationID` is reported as null, and offers no `invocationId` to adopt. "No processes" means `TasksCurrent` is `[not set]`, empty, or `0`. An invocation ID is set when it is a non-empty string other than `[not set]`.
 
 Without `--recorded`, facts also carry `invocationId`, the ID when it is set and null when it is not, for the caller to adopt. With `--recorded`, facts also carry `recorded`, that ID. `finished` is true for `succeeded`, `signal`, `failed-exit`, `failed-timeout`, and `failed-other`. It is false for every other poll class.
 

@@ -291,7 +291,7 @@ function readAnswer(resolved) {
   }
   let text;
   try {
-    text = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(buffer);
+    text = new TextDecoder('utf-8', { fatal: true }).decode(buffer);
   } catch {
     fail(`Error: --answer at ${resolved} is not valid UTF-8.`);
   }
@@ -488,6 +488,10 @@ function classifyPoll(answer, recorded) {
   if (repeated.length > 0) {
     const facts = adoption(showFacts(found), recorded);
     facts.repeated = repeated;
+    if (repeated.includes('InvocationID')) {
+      facts.InvocationID = null;
+      if (recorded === undefined) facts.invocationId = null;
+    }
     return { class: 'unrecognized', finished: false, facts };
   }
   const missing = SHOW_FIELDS.some((key) => !Object.prototype.hasOwnProperty.call(found, key));

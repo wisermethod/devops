@@ -720,3 +720,24 @@ describe('review round 1 boundaries', () => {
     });
   });
 });
+
+describe('review round 2 boundaries', () => {
+  it('offers no ID to adopt when InvocationID repeats', () => {
+    withDir((dir) => {
+      const output = show({ InvocationID: '1'.repeat(32) }) + `InvocationID=${'2'.repeat(32)}\n`;
+      const result = ok(['classify', '--step', 'poll', '--answer', writeAnswer(dir, { outcome: 'ok', machine: 'machine-a', exit_code: 0, output })]);
+      assert.equal(result.class, 'unrecognized');
+      assert.equal(result.facts.invocationId, null);
+      assert.equal(result.facts.InvocationID, null);
+    });
+  });
+
+  it('reads an answer file that begins with a byte-order mark', () => {
+    withDir((dir) => {
+      const path = join(dir, 'bom.json');
+      writeFileSync(path, Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), Buffer.from('{"outcome":"timeout","machine":"machine-a"}')]));
+      const result = ok(['classify', '--step', 'poll', '--answer', path]);
+      assert.equal(result.class, 'not-read');
+    });
+  });
+});

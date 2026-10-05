@@ -112,7 +112,7 @@ A unit name matches `^vm-job-[a-z0-9]+(-[a-z0-9]+)*-[0-9]{8}t[0-9]{6}z-[0-9a-f]{
 
 Every path is absolute. A relative path is refused by name. The screen is the one `wiser/standards/script-contract.md` requires, and the resolved path is the one opened. `--script` and `--answer` must be files. A missing path, or the wrong kind, is refused by name. There is no credential file to refuse, because no command takes `--env`, and there is no destination to refuse, because nothing is written. A source that happens to sit inside this tool directory is read; the tool still writes nothing there.
 
-The job script is counted in code points. A file of 4096 code points is accepted when one of them is above the basic multilingual plane. The first line is the text before the first newline, and it must be exactly `set -eu`. A carriage return on that line does not match. A file that is only `set -eu`, with no newline, does.
+The job script is counted in code points. A file of 4096 code points is accepted when one of them is above the basic multilingual plane. The first line is the text before the first newline, and it must be exactly `set -eu`. A carriage return on that line does not match. A file that is only `set -eu`, with no newline, does. A byte-order mark is kept as text, not removed, so a file that begins with one fails the first-line check rather than reaching `argv` changed.
 
 `argv` for `start` is `/bin/sh`, `-c`, the starter, `sh`, the unit, the limit, the token, the script's text, then each operand. That prefix is 8 strings. The connector bounds one `argv` at 64 strings, so `start` admits at most 56 operands. One more is refused by name.
 
@@ -202,7 +202,7 @@ The journal command, with no trailing newline, is `journalctl --no-pager -o shor
 
 Take the first match in the step. A marker class needs its marker line and its exit code together. A code without its marker, or a marker without its code, is not that class.
 
-On `start`, a non-empty `status` other than `vendor_error` is `gateway-status` before any line is read, because a gateway stop is not a router result. `vendor_error` is `unknown`, and its output is not read as a start. On `release`, any non-empty `status` is `unknown`, and its output is not read. On `poll`, `readback`, and `journal`, an answer whose `outcome` is not `ok` is `not-read` (and `truncated` is its own class on a read-back or a journal). A `needs_confirmation` answer is the caller's approval question. Classifying it does not say what the job did.
+On `start`, a non-empty `status` other than `vendor_error` is `gateway-status` before any line is read, because a gateway stop is not a router result. `vendor_error` is `unknown`, and its output is not read as a start. On `release`, any non-empty `status` is `unknown`, and its output is not read. On `poll`, the ten fields are read when `outcome` is `ok`, or `remote_failure` with a `machine`; any other outcome, a failure with no `machine`, or a gateway `status` is `not-read`. On `readback` and `journal`, an answer whose `outcome` is not `ok` is `not-read`, and `truncated` is its own class. A `needs_confirmation` answer is the caller's approval question. Classifying it does not say what the job did.
 
 ### start
 
@@ -223,13 +223,13 @@ Requires `--unit`, the unit this run's `start` printed. The started line has to 
 
 ### poll
 
-`--recorded` is optional. The ten fields, in order, are `LoadState`, `ActiveState`, `SubState`, `Result`, `ExecMainCode`, `ExecMainStatus`, `InvocationID`, `TasksCurrent`, `ExecMainStartTimestamp`, `ExecMainExitTimestamp`. Facts carry all ten. A field that was absent is null. When `outcome` is not `ok`, all ten are null, so a failed call does not claim a job state. "No processes" means `TasksCurrent` is `[not set]`, empty, or `0`. An invocation ID is set when it is a non-empty string other than `[not set]`.
+`--recorded` is optional. The ten fields, in order, are `LoadState`, `ActiveState`, `SubState`, `Result`, `ExecMainCode`, `ExecMainStatus`, `InvocationID`, `TasksCurrent`, `ExecMainStartTimestamp`, `ExecMainExitTimestamp`. Facts carry all ten. A field that was absent is null. When the fields are not read, all ten are null, so a failed call does not claim a job state. A field that appears more than once is not chosen between: the class is `unrecognized`, and facts carry `repeated`, naming each such field. "No processes" means `TasksCurrent` is `[not set]`, empty, or `0`. An invocation ID is set when it is a non-empty string other than `[not set]`.
 
 Without `--recorded`, facts also carry `invocationId`, the ID when it is set and null when it is not, for the caller to adopt. With `--recorded`, facts also carry `recorded`, that ID. `finished` is true for `succeeded`, `signal`, `failed-exit`, `failed-timeout`, and `failed-other`. It is false for every other poll class.
 
 | Class | Means | Caller does next |
 |-------|-------|------------------|
-| `not-read` | `outcome` is not `ok`, or any of the ten fields is missing. Says nothing about the job | Poll again |
+| `not-read` | `outcome` is neither `ok` nor `remote_failure` with a `machine`, or a gateway `status` came back, or any of the ten fields is missing. Says nothing about the job | Poll again |
 | `other-invocation` | `--recorded` was given, and `InvocationID` is set and differs. Without `--recorded` this class does not apply | Stop. Change nothing. Report both IDs |
 | `running` | `ActiveState` is `activating`, or `active` and `SubState` is `running` | Still running. Poll again |
 | `deactivating` | `ActiveState` is `deactivating`, any `SubState`. Not finished, whatever `Result` reads | Being stopped, by its limit or by someone else. Poll again |
@@ -240,7 +240,7 @@ Without `--recorded`, facts also carry `invocationId`, the ID when it is set and
 | `failed-timeout` | `ActiveState` is `failed` and `Result` is `timeout` | A limit stopped it. The journal says which. The work may be partial. For apt, the re-inspection's `dpkg --audit` decides what was left |
 | `failed-other` | `ActiveState` is `failed` and `Result` is anything else | Failed. Name the `Result` verbatim |
 | `not-loaded` | `LoadState` is `not-found` or `inactive`, or `ActiveState` is `inactive` | Not loaded: released, stopped by someone, never started, or the machine rebooted. Read the journal by unit. Entries are what it shows. `no-entries` is execution history unknown, never proof it did not run: a journal can be volatile or vacuumed. Either way the caller re-inspects and never repeats a change on this alone |
-| `unrecognized` | The ten fields were read and no row above matched. A normal exit with `ExecMainCode` `1` and `ExecMainStatus` other than `0` lands here | Name the fields. Do not treat it as finished |
+| `unrecognized` | The ten fields were read and no row above matched, or a field appeared more than once, with facts `repeated` naming it. A normal exit with `ExecMainCode` `1` and `ExecMainStatus` other than `0` lands here | Name the fields. Do not treat it as finished |
 
 ### readback and journal
 

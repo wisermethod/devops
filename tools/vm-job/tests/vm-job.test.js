@@ -671,3 +671,52 @@ describe('classify readback, journal, and release', () => {
     });
   });
 });
+
+describe('review round 1 boundaries', () => {
+  function classifyPoll(dir, answer, recorded) {
+    const args = ['classify', '--step', 'poll', '--answer', writeAnswer(dir, answer)];
+    if (recorded) args.push('--recorded', recorded);
+    return ok(args);
+  }
+
+  it('reads the ten fields from a remote_failure that names a machine, and not from one that does not', () => {
+    withDir((dir) => {
+      const output = show({ ActiveState: 'failed', SubState: 'failed', Result: 'exit-code', ExecMainCode: '1', ExecMainStatus: '3', TasksCurrent: '0' });
+      const withMachine = classifyPoll(dir, { outcome: 'remote_failure', machine: 'machine-a', exit_code: 1, output }, ID);
+      assert.equal(withMachine.class, 'failed-exit');
+      assert.equal(withMachine.finished, true);
+      const noMachine = classifyPoll(dir, { outcome: 'remote_failure', exit_code: 1, output }, ID);
+      assert.equal(noMachine.class, 'not-read');
+      const gateway = classifyPoll(dir, { status: 'vendor_error', outcome: 'ok', machine: 'machine-a', output }, ID);
+      assert.equal(gateway.class, 'not-read');
+    });
+  });
+
+  it('does not choose between repeated fields', () => {
+    withDir((dir) => {
+      const base = show({ ActiveState: 'failed', SubState: 'failed', Result: 'exit-code', ExecMainCode: '1', ExecMainStatus: '3', TasksCurrent: '0' });
+      const tasks = classifyPoll(dir, { outcome: 'ok', machine: 'machine-a', exit_code: 0, output: base + 'TasksCurrent=3\n' }, ID);
+      assert.equal(tasks.class, 'unrecognized');
+      assert.equal(tasks.finished, false);
+      assert.deepEqual(tasks.facts.repeated, ['TasksCurrent']);
+      const ids = classifyPoll(dir, { outcome: 'ok', machine: 'machine-a', exit_code: 0, output: show({}) + `InvocationID=${ID2}\n` });
+      assert.equal(ids.class, 'unrecognized');
+      assert.deepEqual(ids.facts.repeated, ['InvocationID']);
+    });
+  });
+
+  it('keeps a byte-order mark, so the first-line check refuses it', () => {
+    withDir((dir) => {
+      const path = join(dir, 'bom.sh');
+      writeFileSync(path, Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), Buffer.from('set -eu\ntrue\n')]));
+      refused(['start', '--purpose', 'apt-install', '--limit', '1800', '--token', 'none', '--script', path], /set -eu/);
+    });
+  });
+
+  it('refuses a trailing newline on a validated value', () => {
+    withDir(() => {
+      refused(['release', '--unit', UNIT, '--invocation', `${ID}\n`], /invocation/);
+      refused(['poll', '--unit', `${UNIT}\n`, '--wait', '0'], /unit/);
+    });
+  });
+});

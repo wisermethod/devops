@@ -62,7 +62,7 @@ const REQUIRED = {
 function shipped(name) {
   const url = new URL(`./texts/${name}`, import.meta.url);
   const buffer = readFileSync(url);
-  return new TextDecoder('utf-8', { fatal: true }).decode(buffer);
+  return new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(buffer);
 }
 
 export const STARTER = shipped('starter.sh');
@@ -268,7 +268,7 @@ function readScript(flag, resolved) {
   }
   let text;
   try {
-    text = new TextDecoder('utf-8', { fatal: true }).decode(buffer);
+    text = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(buffer);
   } catch {
     fail(`Error: ${flag} at ${resolved} is not valid UTF-8.`);
   }
@@ -291,7 +291,7 @@ function readAnswer(resolved) {
   }
   let text;
   try {
-    text = new TextDecoder('utf-8', { fatal: true }).decode(buffer);
+    text = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(buffer);
   } catch {
     fail(`Error: --answer at ${resolved} is not valid UTF-8.`);
   }
@@ -437,14 +437,19 @@ function classifyStart(answer, unit) {
 
 function parseShow(output) {
   const found = {};
+  const repeated = [];
   for (const line of linesOf(output)) {
     const eq = line.indexOf('=');
     if (eq <= 0) continue;
     const key = line.slice(0, eq);
-    if (!SHOW_FIELDS.includes(key) || Object.prototype.hasOwnProperty.call(found, key)) continue;
+    if (!SHOW_FIELDS.includes(key)) continue;
+    if (Object.prototype.hasOwnProperty.call(found, key)) {
+      if (!repeated.includes(key)) repeated.push(key);
+      continue;
+    }
     found[key] = line.slice(eq + 1);
   }
-  return found;
+  return { found, repeated };
 }
 
 function showFacts(found) {
@@ -469,11 +474,22 @@ function idIsSet(value) {
   return typeof value === 'string' && value !== '' && value !== '[not set]';
 }
 
+function pollReadable(answer) {
+  if (typeof answer.status === 'string' && answer.status !== '') return false;
+  if (answer.outcome === 'ok') return true;
+  return answer.outcome === 'remote_failure' && typeof answer.machine === 'string' && answer.machine !== '';
+}
+
 function classifyPoll(answer, recorded) {
-  if (answer.outcome !== 'ok') {
+  if (!pollReadable(answer)) {
     return { class: 'not-read', finished: false, facts: adoption(showFacts({}), recorded) };
   }
-  const found = parseShow(answer.output);
+  const { found, repeated } = parseShow(answer.output);
+  if (repeated.length > 0) {
+    const facts = adoption(showFacts(found), recorded);
+    facts.repeated = repeated;
+    return { class: 'unrecognized', finished: false, facts };
+  }
   const missing = SHOW_FIELDS.some((key) => !Object.prototype.hasOwnProperty.call(found, key));
   if (missing) {
     return { class: 'not-read', finished: false, facts: adoption(showFacts(found), recorded) };

@@ -3,9 +3,8 @@ name: DevOps Expert
 type: expert
 category: operations
 description: Judge a proposed change to a running machine, a fleet of machines, a tailnet's access policy, or a cloud project a skill of this plugin changes, a workload deploy that also points a hostname at it included, for whether its reach passes its named target or it has no way back, gate the plan before anything is written, and hand the hostname or DNS part to IT Expert
-version: 0.1.2
+version: 0.2.0
 gaps:
-  - preparing an existing machine to join the fleet, its tailnet policy merge included, and confirming it joined
   - changing a package, a service or a configuration on a machine
   - deploying a workload to a machine and reporting where it is reachable
   - reading a machine's or the fleet's state, health or exposure
@@ -20,7 +19,9 @@ Use when a change is proposed to a machine that already exists, a fleet of machi
 
 Not for provisioning a machine that does not exist yet. The person does that by hand. Not for a hostname, a DNS record, or a zone, pointing a hostname at a workload included, which is handed to `experts/IT Expert/` in `wiser`, which sequences `skills/Zone Publisher/` where the change needs it, with no gate here. Not for a change a skill in `wiser` writes, which is routed to the expert whose row in `wiser`'s `experts/AGENTS.md` owns that skill. Not for a security question beyond reach and rollback: load `experts/IT Expert/` Rule 5 in `wiser` and apply it.
 
-This expert owns no skill yet. It gains each VM skill as that skill lands in this plugin, Prepare VM first, then Deploy Workload. Until then it judges plans, and where the work is one of the gaps it declares, the verdict names that gap. It never invents steps a skill would run. It edits nothing and calls no gateway action. A skill writes, after the requester confirms.
+Owns: `skills/Prepare VM/`
+
+This expert owns Prepare VM. It gains each later skill as that skill lands in this plugin, Deploy Workload next. A request to prepare an existing machine to join the fleet, or to take one out, is placed on `skills/Prepare VM/`, and this expert's gate runs on the plan before anything is written. On safe as planned, or on safe with named conditions the requester accepts, the skill writes, after the requester confirms. Where the work is one of the gaps it still declares, the verdict names that gap. It never invents steps a skill would run. It edits nothing and calls no gateway action.
 
 On a write, load `experts/IT Expert/` in `wiser` and apply its Commitments 2 to 4. Cite them by number. Do not copy their sentences.
 
@@ -67,6 +68,7 @@ Which request is this?
 - A change a skill in `wiser` writes, with no other change. Hand it to the expert whose row in `wiser`'s `experts/AGENTS.md` owns that skill. Run no gate. Stop.
 - A change a skill in `wiser` writes, and also some other change. Hand only that part to the expert that owns the skill, with no gate on that part. Place what remains through the tests below.
 - Provisioning a machine that does not exist yet, and no change to a machine that does. Say that the person does that by hand. Stop.
+- A request to prepare an existing machine to join the fleet, or to take one out. Place it on `skills/Prepare VM/`. Go to Job 2. The gate runs on that plan before the tailnet policy is saved and before a machine is changed.
 - A change to a tailnet access policy. Go to Job 2. The tailnet is the target. Do not ask for a machine name first.
 - A machine configuration change or a workload deployment, on a machine that already exists or a fleet of them. Go to Job 2.
 - A cloud project change a skill of this plugin would make. Go to Job 2. A cloud project change no skill of this plugin would make, and no gap declared above names, is not placed here: ask what would make the change.

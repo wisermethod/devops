@@ -57,7 +57,7 @@ One `vm.command.run` per machine. `argv` is `/bin/sh`, `-c`, the script in Steps
 
 The script changes nothing. It writes no file. There is no redirection to a file, no `tee`, and no `sed -i`. The SSH command and the Tailscale command keep stderr in the capture that the filter prints from, so a hostname in that text is not printed. Comparisons inside its awk program are not redirections. It does not run `apt-get update`. Refreshing package lists is a change.
 
-Each slow section has its own `timeout`, so one section cannot spend the router's whole limit: listening sockets 5 seconds, `sshd -T` 5, Tailscale SSH 5, authorized keys 8, pending updates 10, the world-writable walk 12, `iptables` 4, `ip6tables` 4. The router bounds the whole command at 60 seconds, then kills it; exit 124 comes back as `outcome` `timeout`, and a kill as `killed`. The router caps the command's encoded output at 65536 bytes and returns stdout and stderr together. Past that cap the outcome is `truncated`. `connectors/vm/CONNECTOR.md` in `wiser` publishes the `argv` bound of 4096 code points on each element, the outcome names, and that cap.
+Each slow section has its own `timeout`, so one section cannot spend the router's whole limit: listening sockets 3 seconds, `sshd -T` 3, Tailscale SSH 3, authorized keys 4, pending updates 8, the world-writable walk 25, `iptables` 3, `ip6tables` 3, 52 seconds at the most. The walk has the most because it is the slowest: on a measured Ubuntu 24.04 guest a cold walk took longer than 12 seconds. The router bounds the whole command at 60 seconds, then kills it; exit 124 comes back as `outcome` `timeout`, and a kill as `killed`. The router caps the command's encoded output at 65536 bytes and returns stdout and stderr together. Past that cap the outcome is `truncated`. `connectors/vm/CONNECTOR.md` in `wiser` publishes the `argv` bound of 4096 code points on each element, the outcome names, and that cap.
 
 `busy` means the router was at its concurrency limit and the machine was not asked. `vendor_error` does not establish whether the call ran. A failure outcome whose answer carries no `machine` does not establish whether the router reached the machine. `quote_refused` means an element could not be represented. `oversize` means the body was over the router's request cap. `invalid_arguments` means the connector sent nothing.
 
@@ -183,19 +183,19 @@ Ask only when health is reachable. One `vm.command.run`, with `machine` set to t
 sh
 ```
 
-`<script>` is this text and no other, without a final newline. It is 4077 code points, inside the 4096 code point bound on one `argv` element. Do not add a line, a redirection, or a refresh of the package lists. A longer element is `invalid_arguments`, and the connector sends nothing.
+`<script>` is this text and no other, without a final newline. It is 4076 code points, inside the 4096 code point bound on one `argv` element. Do not add a line, a redirection, or a refresh of the package lists. A longer element is `invalid_arguments`, and the connector sends nothing.
 
 ```
 printf '%s\n' '--- listen ---'
-timeout 5 ss -lntup
+timeout 3 ss -lntup
 printf '%s\n' "listen-exit:$?"
 printf '%s\n' '--- sshd ---'
-sshd_out=$(timeout 5 sshd -T 2>&1)
+sshd_out=$(timeout 3 sshd -T 2>&1)
 sshd_ec=$?
 printf '%s\n' "$sshd_out" | awk '$1 ~ /^(port|listenaddress|permitrootlogin|passwordauthentication|kbdinteractiveauthentication|permitemptypasswords|pubkeyauthentication|x11forwarding|allowusers|allowgroups)$/'
 printf '%s\n' "sshd-exit:$sshd_ec"
 printf '%s\n' '--- tailscale-ssh ---'
-ts_out=$(timeout 5 tailscale debug prefs 2>&1)
+ts_out=$(timeout 3 tailscale debug prefs 2>&1)
 ts_ec=$?
 printf '%s\n' "$ts_out" | awk '/"RunSSH"/{ if ($0 ~ /true/) print "run-ssh:yes"; else if ($0 ~ /false/) print "run-ssh:no"; else print "run-ssh:unread"; found=1 } END { if (!found) print "run-ssh:unread" }'
 printf '%s\n' "tailscale-ssh-exit:$ts_ec"
@@ -207,7 +207,7 @@ else
   printf '%s\n' 'authorizedkeysfile:default'
   pats=$(printf '.ssh/authorized_keys\036.ssh/authorized_keys2')
 fi
-timeout 8 awk -v patterns="$pats" -F: '
+timeout 4 awk -v patterns="$pats" -F: '
 function r(s,a,b,i,o){o="";while((i=index(s,a))>0){o=o substr(s,1,i-1) b;s=substr(s,i+length(a))}return o s}
 function xp(p,h,u,s){s=r(r(r(p,"%%","\001"),"%h",h),"%u",u);if(index(s,"%")>0)return "";s=r(s,"\001","%");return substr(s,1,1)=="/"?s:h "/" s}
 function dump(path,line,n,i,j,t,c,tot,sh,un,rc){
@@ -259,21 +259,21 @@ else
   printf '%s\n' 'lists-mtime:unread'
   printf '%s\n' 'lists-age-seconds:unread'
 fi
-up=$(timeout 10 apt list --upgradable)
+up=$(timeout 8 apt list --upgradable)
 up_ec=$?
 printf '%s\n' "$up" | awk '$1~/\//{n++;split($1,a,"/");if(a[2]~/-security/)s++;if(n<=40)print}END{print "upgradable-total:"n+0;print "security-total:"s+0}'
 printf '%s\n' "updates-exit:$up_ec"
 printf '%s\n' '--- writable ---'
-ww=$(timeout 12 find / -xdev \( \( -path /proc -o -path /sys -o -path /dev -o -path /run \) -prune -o -type f -perm -0002 -printf 'f\t%p\n' -o -type d -perm -0002 ! -perm -1000 -printf 'd\t%p\n' \))
+ww=$(timeout 25 find / -xdev \( \( -path /proc -o -path /sys -o -path /dev -o -path /run \) -prune -o -type f -perm -0002 -printf 'f\t%p\n' -o -type d -perm -0002 ! -perm -1000 -printf 'd\t%p\n' \))
 ww_ec=$?
 printf '%s\n' "$ww" | awk -F '\t' '$1=="f"{f++;if(f<=40)print}$1=="d"{d++;if(d<=40)print}END{print "files-total:"f+0;print "dirs-total:"d+0}'
 printf '%s\n' "writable-exit:$ww_ec"
 printf '%s\n' '--- input ---'
 printf '%s\n' '--- iptables ---'
-timeout 4 iptables -S INPUT
+timeout 3 iptables -S INPUT
 printf '%s\n' "iptables-exit:$?"
 printf '%s\n' '--- ip6tables ---'
-timeout 4 ip6tables -S INPUT
+timeout 3 ip6tables -S INPUT
 printf '%s\n' "ip6tables-exit:$?"
 printf '%s\n' '--- end ---'
 exit 0
@@ -308,9 +308,10 @@ Judge each socket. Take the first match.
 - The address is loopback. Report the line. Do not flag it.
 - The process name is `sshd`. That socket is the SSH server. Report the line. Do not flag it.
 - The process name is `tailscaled`. That socket is the tailnet daemon. Report the line. Do not flag it.
+- The socket is `udp` on port 68 and the process name is `systemd-network` or `dhclient`. That socket is the machine's DHCP client, which asks for its address and serves nothing. Report the line. Do not flag it.
 - The port is one of `<expected_ports>`. Report the line. Do not flag it.
 - The process was not read. Report the line as unclassified. Do not flag it.
-- The address is not loopback, the process was read, the process is not `sshd` and not `tailscaled`, and the port is not one of `<expected_ports>`. Flag it. Copy the line. This is the rule a deliberately opened port matches.
+- The address is not loopback, the process was read, the socket is none of those above, and the port is not one of `<expected_ports>`. Flag it. Copy the line. This is the rule a deliberately opened port matches.
 
 `listen-exit` other than 0, or a section that is not complete: listening sockets were not read. Do not say nothing is listening. Do not flag a socket.
 
@@ -322,7 +323,7 @@ The start marker is `--- sshd ---` and the exit line is `sshd-exit:`. The later 
 
 When the section is complete and `sshd-exit` is 0, copy each printed line. The value is the rest of the line after the first field. A keyword that was not printed was not read. Do not flag a missing keyword.
 
-- `permitrootlogin` is a value other than `no` and other than `prohibit-password`. Flag it.
+- `permitrootlogin` is a value other than `no`, `prohibit-password`, and `without-password`, the older name some versions print for `prohibit-password`. Flag it.
 - `passwordauthentication` is `yes`. Flag it.
 - `kbdinteractiveauthentication` is `yes`. Flag it.
 - `permitemptypasswords` is `yes`. Flag it.
@@ -481,7 +482,7 @@ A question beyond these rules was handed to `experts/DevOps Expert/`, which load
 - The count adds up: machines in scope equals audited plus not audited, and equals reachable plus unreachable plus not determined. Named machines not on the map sit beside that sum.
 - A reachable machine was audited with one `vm.command.run`, the person was told it is a read, and the call ran only after the person approved that identical stop. `skills/Connection Troubleshooter/` in `wiser` was the stop. The script was the one in Steps. It wrote no file.
 - Listening sockets are reported from a complete `listen-exit:0`, or the section is named not read. A socket on a non-loopback address, whose process is not `sshd` and not `tailscaled`, and whose port the person did not name, is flagged. A deliberately opened port is flagged by that rule.
-- The SSH lines are reported from a complete `sshd-exit:0`, or the section is named not read. `permitrootlogin` other than `no` or `prohibit-password`, and `passwordauthentication`, `kbdinteractiveauthentication`, or `permitemptypasswords` set to `yes`, are flagged when that section was read.
+- The SSH lines are reported from a complete `sshd-exit:0`, or the section is named not read. `permitrootlogin` other than `no`, `prohibit-password`, or `without-password`, and `passwordauthentication`, `kbdinteractiveauthentication`, or `permitemptypasswords` set to `yes`, are flagged when that section was read.
 - Tailscale SSH is reported `yes`, `no`, or not read. When it is `yes`, the report says `sshd -T` does not describe it.
 - Authorized keys are count, type, and comment only, or the section is named not read. No key material was printed. `keys-not-read` was not called a count of zero.
 - Pending updates, the `-security` count, the package-list age, and reboot-required are reported, or each is named not read. A `-security` count above zero, lists older than seven days, and a pending reboot are flagged only from lines that were read. The lists were not refreshed.

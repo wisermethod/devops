@@ -9,6 +9,7 @@ Capabilities a user invokes by name for their output; `wiser/standards/primitive
 | Skill | Description | Owner |
 |-------|-------------|-------|
 | `Prepare VM/SKILL.md` | Enroll an existing machine into a fleet reached over a tailnet through a router the person already runs, merge that tailnet's access policy, register the machine, and report whether it joined, or take the machine back out | DevOps Expert |
+| `VM Configure/SKILL.md` | Change one apt package or one systemd unit, or one package and then one unit, on one machine a person's router maps, after inspecting that machine, and report whether it changed, through a router the person already runs | DevOps Expert |
 | `VM Inventory/SKILL.md` | List every machine a person's router maps, or the machines they name, each with its role, whether it is reachable, and the facts the router returned, read through a router the person already runs | DevOps Expert |
 
 <!-- /generated:index -->

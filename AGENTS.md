@@ -7,7 +7,7 @@ layout: 1
 
 A WISER domain plugin. This file is this root's constitution. The chain starts here: load it before the first read or write under this root.
 
-A WISER plugin for people who run their own servers: virtual machines, Docker workloads and light security. It ships one expert, DevOps Expert, and two skills, Prepare VM and VM Inventory.
+A WISER plugin for people who run their own servers: virtual machines, Docker workloads and light security. It ships one expert, DevOps Expert, and three skills, Prepare VM, VM Inventory and VM Configure.
 
 ## What this root is
 

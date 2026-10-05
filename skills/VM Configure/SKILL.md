@@ -3,7 +3,7 @@ name: VM Configure
 type: skill
 category: operations
 description: Change one apt package or apply every pending upgrade, or change one systemd unit, or one package and then one unit, on one machine a person's router maps, running each package change as a tracked background job after inspecting that machine, and report whether it changed, through a router the person already runs
-version: 0.2.0
+version: 0.3.0
 gaps:
   - a router this plugin does not ship, which every change goes through
   - a package manager other than apt
@@ -25,7 +25,9 @@ Not for a configuration file. That is the gap `experts/DevOps Expert/` still dec
 
 This plugin does not ship a router, and no primitive in this root provides one. Every change goes through a router the person already runs. The calls are `vm.inventory.list_hosts`, `vm.inventory.health`, `vm.command.run`, `vm.units.status`, and `vm.units.service`, and no other action.
 
-A package change is a background job. `background-job.md` is the contract: the name, the lock, the generation token, the starter, the start answer, the poll, the read-back, the release, the second run, and what a job's script must be. Cite that file at each step that starts, polls, reads back or releases a job. Each call takes its script from that file verbatim. Do not restate those scripts in this file, and do not alter them. A unit change is `vm.units.service`. It is not a job. It does not take the lock and it does not renew the token.
+A package change is a background job. The contract is `tools/vm-job/`. A job's start, poll, read-back, journal read and release are each built with that tool's command and sent as one `vm.command.run` whose `argv` is the `argv` the tool prints, unchanged. Each answer is saved and classified with that tool's `classify`. The session never writes a starter or a release script itself. A unit change is `vm.units.service`. It is not a job. It does not take the lock and it does not renew the token.
+
+The job script, written verbatim from this skill, and each saved answer, go in a temporary directory outside the plugin and outside any repository. The path passed to the tool is absolute. The tool writes nothing.
 
 Reaching the gateway is `skills/Set Up Connectors/` and `gateway/SETUP.md` in `wiser`. Connecting a module is `skills/Connect Account/` in `wiser`. The toolkit registration is `connectors/vm/auth.md` in `wiser`. Cite those files. Do not restate them. The outcome vocabulary is `connectors/vm/CONNECTOR.md` in `wiser`. The connector passes the router's outcome string through unchanged. A gateway status is `status` on the answer. A router result is `outcome`. Do not rename either.
 
@@ -63,7 +65,7 @@ The command's background children in its session are killed when the command end
 
 On the router host the command runs inside the router's own sandboxed service, where `/usr` and `/etc` are read-only and `/home` and `/root` are empty. A transient unit started from there runs outside that sandbox, with the system's view of those directories. An inspection on the router host does not decide whether a package job can write. The job checks that itself.
 
-On Ubuntu, an apt hook (`needrestart`) restarts the services that use an upgraded library once a change ends, and the router's own service can be one: that would stop the call it runs inside. The hook does nothing when `NEEDRESTART_SUSPEND` is set. The starter in `background-job.md` sets `NEEDRESTART_SUSPEND=1` and `DEBIAN_FRONTEND=noninteractive` on every job, so the job script does not set them. A service still using an old library is then the person's to restart, as a unit request of its own.
+On Ubuntu, an apt hook (`needrestart`) restarts the services that use an upgraded library once a change ends, and the router's own service can be one: that would stop the call it runs inside. The hook does nothing when `NEEDRESTART_SUSPEND` is set. The starter the tool emits sets `NEEDRESTART_SUSPEND=1` and `DEBIAN_FRONTEND=noninteractive` on every job, so the job script does not set them. A service still using an old library is then the person's to restart, as a unit request of its own.
 
 `busy` means the router was at its concurrency limit and the machine was not asked. `vendor_error` does not establish whether the call ran. A failure outcome whose answer carries no `machine` does not establish whether the router reached the machine. `remote_failure` carries the command's `exit_code` and its `output` when the command ran.
 
@@ -263,7 +265,7 @@ Read the `ID` and `ID_LIKE` lines. Strip one layer of matching quotes. Split `ID
 
 Is a job already loaded?
 
-Ask when the distribution question continued, for a package inspection and for a pending-upgrades inspection, before the audit and lock stops. Ask it again when this run starts over from its inspection. The jobs section is the text between `--- jobs ---` and the line `jobs-exit:`. It is empty when every character in it is whitespace. A unit's name is the first field of its line, with a trailing `.service` removed. One poll here is the poll in `background-job.md`, with the wait at 0. The person is told the poll is a read. Take the first match.
+Ask when the distribution question continued, for a package inspection and for a pending-upgrades inspection, before the audit and lock stops. Ask it again when this run starts over from its inspection. The jobs section is the text between `--- jobs ---` and the line `jobs-exit:`. It is empty when every character in it is whitespace. A unit's name is the first field of its line, with a trailing `.service` removed. One poll here is the tool's `poll` with `--wait 0`. Save the answer in the temporary directory and classify it with `classify --step poll` and no `--recorded`. The person is told the poll is a read. `needs_confirmation` is the approval question, taken before classify. A gateway status other than `needs_confirmation` and other than `vendor_error` is the unit question's gateway bullets, with the module `command`, and it is not a poll class. Take the first match.
 
 - This run has already started over from its inspection once, and the jobs section is non-empty or `jobs-exit` is not 0. Stop. A job is still loaded. Change nothing.
 - `jobs-exit` is not 0. The list was not read. Stop. Change nothing.
@@ -273,13 +275,14 @@ Ask when the distribution question continued, for a package inspection and for a
 
 What did that one poll read?
 
-Classify it by the poll table in `background-job.md`. Nothing was recorded before this poll, so it records the `InvocationID` it reads, and the table's row for an ID that differs from the recorded one does not apply to it. Take the first match.
+The class `other-invocation` does not apply: nothing was recorded, and the facts carry the invocation ID the poll read, for this poll to adopt. Take the first match.
 
-- The poll was not read. Stop. Name the outcome. Change nothing.
-- Still running, or `deactivating`. Say so. Name the unit. Change nothing. Stop.
-- Stuck: `failed`, and processes remain. Stop. Change nothing. Do not release it. It is the person's, over the provider's console.
-- Finished, every process ended, whatever `Result` reads. Record the `InvocationID` the poll reads. Read it back by that ID, as `background-job.md` states the read-back. The person is told the read-back is a read. Release it with that ID, as `background-job.md` states release. Tell the person the release unloads the finished job and removes no log. `release-exit:0` with `load-state:not-found`: report it as an earlier run's result, then start this run over from its inspection. The plan and the gate use the new inspection and its token. This start-over happens at most once. Any other release answer: stop, the job is still loaded, change nothing, and do not start over.
-- `LoadState=not-found`, or `inactive`. The unit left between the list and the poll. Start this run over from its inspection, at most once. An empty journal is not proof it did not run.
+- The class is `not-read`. Stop. Name the outcome. Change nothing. This class is a router result that was not read. It is not a `needs_confirmation` stop.
+- The class is `running` or `deactivating`. Say so. Name the unit. Change nothing. Stop.
+- The class is `stuck`. Stop. Change nothing. Do not release it. It is the person's, over the provider's console.
+- The class is `succeeded`, `signal`, `failed-exit`, `failed-timeout`, or `failed-other`. Adopt the invocation ID the facts carry. Read it back by that ID: the tool's `readback`, sent as the `argv` it prints, unchanged. Classify the read-back. A class `truncated` is read again with fewer lines, and the report names the line count in the facts. A class `not-read` says the read-back was not read. The person is told the read-back is a read. Release it with that ID: the tool's `release`, sent as the `argv` it prints, unchanged. Tell the person the release unloads the finished job and removes no log. Classify the release. The class `released`: report it as an earlier run's result, then start this run over from its inspection. The plan and the gate use the new inspection and its token. This start-over happens at most once. Any other release class: stop, the job is still loaded, change nothing, and do not start over.
+- The class is `not-loaded`. The unit left between the list and the poll. Start this run over from its inspection, at most once. A journal class `no-entries` is not proof it did not run.
+- The class is `unrecognized`. Stop. Name the facts. Change nothing.
 
 A loaded unit carrying this run's own name, after a start whose answer was lost, is the job question below. It is this run's job. Poll it there.
 
@@ -340,22 +343,9 @@ The path packages are `tailscale`, `openssh-server`, `openssh-sftp-server`, `pyt
 - The decided change is an install of a path package whose status is `not-installed`, `config-files`, or not in the database, and the simulation removes or upgrades no path package. It is an ordinary install. Continue.
 - Any other package. Continue.
 
-The job is sent only when a change call was decided and the path question did not stop. It is one `vm.command.run` with `machine` and this `argv`. The starter is the starter in `background-job.md`, cited, not copied. The script below is one element. The package name is an operand, after the operation, and it is never written into the script. For an install or an upgrade the operand is `<package>=<version>`, where `<version>` is the candidate the inspection read, so the job installs that version, or fails before unpacking anything when apt cannot select it. Apt resolves the other packages again when the job runs, so a package list refreshed since the inspection can change them; the plan says so, and the re-inspection's history section shows what the job did. When the decision was `unchanged` or a stop, do not send one. Then go to the gate question only when a job remains.
+The job is sent only when a change call was decided and the path question did not stop. Write the script below, verbatim, to a file in the temporary directory. Run the tool's `start` with `--purpose` one of `apt-install`, `apt-remove`, or `apt-upgrade`, `--limit` `1800`, `--token` the token line the inspection read, `--script` that file's absolute path, and, after `--`, the operation and then the operand. Send one `vm.command.run` with `machine` and the `argv` `start` prints, unchanged. The `unit` field it prints is the unit name. The package name is an operand, after the operation, and it is never written into the script. For an install or an upgrade the operand is `<package>=<version>`, where `<version>` is the candidate the inspection read, so the job installs that version, or fails before unpacking anything when apt cannot select it. Apt resolves the other packages again when the job runs, so a package list refreshed since the inspection can change them; the plan says so, and the re-inspection's history section shows what the job did. When the decision was `unchanged` or a stop, do not send one. Then go to the gate question only when a job remains.
 
-```
-/bin/sh
--c
-<starter>
-sh
-<unit>
-<limit>
-<token>
-<script>
-<operation>
-<operand>
-```
-
-`<token>` is the token line the inspection read. `<operation>` is `install`, `remove`, or `upgrade`. `<operand>` is `<package>=<version>` for `install` and `upgrade`, and `<package>` for `remove`. `<unit>` is `vm-job-<purpose>-<yyyymmddthhmmssz>-<six lowercase hex characters>`, as `background-job.md` states the name: the stamp is UTC to the second, and the six characters are chosen afresh. The purpose is `apt-install`, `apt-remove`, or `apt-upgrade`. The limit is 1800 seconds. `<script>` is this text and no other:
+`<operation>` is `install`, `remove`, or `upgrade`. `<operand>` is `<package>=<version>` for `install` and `upgrade`, and `<package>` for `remove`. The purpose is `apt-install`, `apt-remove`, or `apt-upgrade`. The limit is 1800 seconds. `<script>` is this text and no other:
 
 ```
 set -eu
@@ -373,13 +363,13 @@ case "$op" in
 esac
 ```
 
-The writability loop is what stops an apt change on a machine whose package system cannot be written. Exit 3 and `not-writable:<path>` mean nothing was installed. The starter sets `DEBIAN_FRONTEND=noninteractive` and `NEEDRESTART_SUSPEND=1`, so the script does not. The install and upgrade options keep the machine's version of a changed configuration file and refuse any removal. Do not send `purge`, `--purge`, or `--autoremove`. The gate question names this job. The job question runs it.
+The writability loop is what stops an apt change on a machine whose package system cannot be written. Exit 3 and `not-writable:<path>` mean nothing was installed. The starter the tool emits sets `DEBIAN_FRONTEND=noninteractive` and `NEEDRESTART_SUSPEND=1`, so the script does not. The install and upgrade options keep the machine's version of a changed configuration file and refuse any removal. Do not send `purge`, `--purge`, or `--autoremove`. The gate question names this job. The job question runs it.
 
 What about no candidate?
 
 Ask only when the inspection decision said to take this question.
 
-First, the question whether this machine can run a job, on this inspection. Then one job, operation `update`, and no package operand, and no other change in that plan. The purpose is `apt-update`. The limit is 600 seconds. The same starter, the same script, and the token the inspection read. It is a change: the gate question, then the job question. The way back named to the gate is that this skill does not restore the previous package lists. The before-state is the policy output just read.
+First, the question whether this machine can run a job, on this inspection. Then one job, operation `update`, and no package operand, and no other change in that plan. The purpose is `apt-update`. The limit is 600 seconds. Run `start` with `--purpose apt-update`, `--limit 600`, the token the inspection read, the same script file, and, after `--`, the one operand `update`. Send the `argv` it prints, unchanged. It is a change: the gate question, then the job question. The way back named to the gate is that this skill does not restore the previous package lists. The before-state is the policy output just read.
 
 - The update's re-inspection shows a candidate, and the package question now decides `unchanged`. Report `unchanged`. No further change.
 - The update's re-inspection shows a candidate, and a change is now decided. That change is a new plan. Gate it again. Then the job question.
@@ -561,7 +551,7 @@ The markers are `--- simulate list ---`, `--- dpkg audit ---`, `--- token ---`, 
 - The `Inst` lines do not name exactly the packages on the list, each with the candidate the list pinned as the first field inside its parentheses: a package on an `Inst` line that is not on the list, a path package or a dependency included, or a listed package with no `Inst` line. Stop. Name the difference. Copy the section verbatim. Change nothing.
 - All of those hold. The token is still the pending-upgrades inspection's token. Continue to the gate.
 
-The job is one job. The purpose is `apt-upgrade-all`. The limit is 3600 seconds. The operation is `upgrade`. The operands are the pinned list, one `<package>=<version>` each. The script is the job script in Job 1. The unit name follows `background-job.md`. The gate question for this job names the machine, the role, both reads verbatim, every package and version on the list, every package taken out and why, the kept-back packages, the job's unit name, 3600 seconds, the token, the script, the operation `upgrade`, the operands, any package whose name begins `linux-image` or `linux-modules` and the reboot that would follow, and the way back. A version a security update replaced is usually no longer in the index, so the way back named is the provider's boot-volume backup or snapshot, taken before the run. That backup is a condition the person accepts. This skill does not take it. Then the gate question, and when it continues, the job question.
+The job is one job. The purpose is `apt-upgrade-all`. The limit is 3600 seconds. The operation is `upgrade`. The operands are the pinned list, one `<package>=<version>` each. The script is the job script in Job 1. Run `start` the way Job 1 does, with `--purpose apt-upgrade-all`, `--limit 3600`, and, after `--`, the operation `upgrade` and then each pinned operand. The unit name is the `unit` field `start` prints. Send the `argv` it prints, unchanged. The gate question for this job names the machine, the role, both reads verbatim, every package and version on the list, every package taken out and why, the kept-back packages, the job's unit name, 3600 seconds, the token, the script, the operation `upgrade`, the operands, any package whose name begins `linux-image` or `linux-modules` and the reboot that would follow, and the way back. A version a security update replaced is usually no longer in the index, so the way back named is the provider's boot-volume backup or snapshot, taken before the run. That backup is a condition the person accepts. This skill does not take it. Then the gate question, and when it continues, the job question.
 
 ### Is the plan gated?
 
@@ -578,41 +568,40 @@ The way back for one package: remove what would be installed, or install again w
 
 ### What did the job do?
 
-Ask when the gated change is a package job. A unit change uses the next question. Do not send the start until the gate has continued and the person approves that start. Do not repeat a start without a new inspection and a new approval, except after `lock-busy`, which started nothing and whose retry the token protects. Do not send the way back because a job failed. A gateway status other than `needs_confirmation` on a start, a poll, a read-back, a release, or a re-inspection is handled as the unit question's gateway bullets, with the module `command`.
+Ask when the gated change is a package job. A unit change uses the next question. Do not send the start until the gate has continued and the person approves that start. Do not repeat a start without a new inspection and a new approval, except after the class `lock-busy`, which started nothing and whose retry the token protects. Do not send the way back because a job failed. Save each job answer in the temporary directory and pass that absolute path to `classify`. `needs_confirmation` is the approval question, taken before classify. On a poll, a read-back, a journal read, or a release, a gateway status other than `needs_confirmation` and other than `vendor_error` is handled as the unit question's gateway bullets, with the module `command`, and it is not classified as a statement about the job. On a start, classify that status: the class `gateway-status` has those same bullets. `vendor_error` is classified on every step. A re-inspection is not a job answer: a gateway status other than `needs_confirmation` on a re-inspection is those same bullets.
 
 What did the start answer?
 
-Send the planned start once. Classify the answer by the start table in `background-job.md`. Take the first match.
+Send the planned start once. Save the answer. Classify it with `classify --step start --unit` the unit this run's `start` printed. Take the first match.
 
-- Started: the line `Running as unit: <unit>.service; invocation ID: <id>` and `start-exit:0`. Record the invocation ID. Poll.
-- `existing-job`, exit 10. Nothing was started. The second-run questions, on a fresh inspection.
-- `lock-busy`, exit 11. Nothing was started. Start again later with the same token. A token that moved is refused at exit 15. Do not send a different start.
-- `enumeration-failed`, exit 12. Nothing was started. Stop. Change nothing.
-- `token-changed:<token>`, exit 15. Nothing was started. The plan is stale. Inspect again and gate again, with a new approval. Never send a start again without both. For Job 4, inspect again means the pending-upgrades inspection, then the list simulation, then the gate.
-- `token-write-failed`, exit 16. Nothing was started. The token may have changed. Inspect again, and gate again before any start.
-- `start-exit:1` and the line is `Failed to find executable` or `already loaded or has a fragment file`. Nothing was started. The token was renewed. Inspect again, and gate again before any start.
-- Any other nonzero `start-exit`, or `timeout`, `killed`, `request_timeout`, `vendor_error`, `busy`, or a failure with no `machine`. Unknown whether it started. Poll by this run's name, as `background-job.md` states. Loaded: it started, and that `InvocationID` is the one to record. `not-found`: the history row of the poll table. No journal entries is execution history unknown. Re-inspect where a read is possible. Never repeat the change. Never send the start again without a new inspection and a new approval.
+- The class is `started`. Record the invocation ID in the facts. Poll.
+- The class is `existing-job`. Nothing was started. The second-run questions, on a fresh inspection.
+- The class is `lock-busy`. Nothing was started. Start again later with the same token. A token that moved is the class `token-changed`. Do not send a different start.
+- The class is `enumeration-failed`. Nothing was started. Stop. Change nothing.
+- The class is `token-changed`. Nothing was started. The plan is stale. Inspect again and gate again, with a new approval. Never send a start again without both. For Job 4, inspect again means the pending-upgrades inspection, then the list simulation, then the gate.
+- The class is `token-write-failed`. Nothing was started. The token may have changed. Inspect again, and gate again before any start.
+- The class is `refused-before-submission`. Nothing was started. The token was renewed. Inspect again, and gate again before any start.
+- The class is `gateway-status`. The unit question's gateway bullets, with the module `command`. A `needs_confirmation` status is the approval question.
+- The class is `unknown`, a `connect_timeout` or a `remote_failure` with no `start-exit:` line included, and `vendor_error`. Unknown whether it started. Poll by this run's name. A class of `running`, `deactivating`, `succeeded`, `signal`, `stuck`, `failed-exit`, `failed-timeout`, or `failed-other` means it started, and that invocation ID is the one to record. The class `not-loaded` is the history question: the tool's `journal`, and the class `no-entries` is execution history unknown. Re-inspect where a read is possible. Never repeat the change. Never send the start again without a new inspection and a new approval.
 - A loaded unit carrying this run's own name is this run's, after a start whose answer was lost. Poll it.
-- Any other answer, a `connect_timeout` or a `remote_failure` with no `start-exit:` line included. Unknown whether it started. Poll by this run's name, as the bullet for an unknown start says. Never send the start again without a new inspection and a new approval.
 
 What did the poll read?
 
-Each poll is the poll in `background-job.md`. The wait is at most 40 seconds. At most six polls in a row. Each is a read, and the person is told it is a read. Classify by that file's poll table. Take the first match.
+Each poll is the tool's `poll`. The wait is at most 40 seconds, passed as `--wait`. At most six polls in a row. Each is a read, and the person is told it is a read. Save the answer. Classify with `classify --step poll --recorded` the invocation ID recorded for this run. Take the first match.
 
-- `InvocationID` is set and differs from the recorded one. Stop. Change nothing. Report both IDs.
-- Finished, every process ended, a failed result and a `timeout` result included when no processes remain. Read it back by the recorded invocation ID, as `background-job.md` states the read-back. A `truncated` answer is read again with fewer lines. The report names how many lines it shows. The person is told the read-back is a read. Then release.
-- Stuck: `failed`, and processes remain. Stop. Change nothing. Do not release. Re-inspect where a read is possible, and do not treat that read as a reason to repeat the change. The job is the person's, over the provider's console.
-- `LoadState=not-found`, or `inactive`. Read `journalctl -u <unit>` as `background-job.md` states. No entries is execution history unknown. Re-inspect where a read is possible. Never repeat the change.
-- Six polls have been made. Report the state the last poll that was read showed, or that the state is unknown when none of the six was read, with its unit name, invocation ID and limit, and that asking again later reads its result through the second-run rule. Do not call it running unless a poll read it running. Do not start another job. Do not repeat the change.
-- Fewer than six polls have been made. Poll again.
+- The class is `other-invocation`. Stop. Change nothing. Report both IDs: the one recorded, and the `InvocationID` in the facts.
+- The class is `succeeded`, `signal`, `failed-exit`, `failed-timeout`, or `failed-other`. `finished` is true. Read it back by the recorded invocation ID: the tool's `readback`, sent as the `argv` it prints, unchanged. Classify that answer. A class `truncated` is read again with fewer lines. The report names the line count in the facts. A class `read` is the journal. A class `not-read` says the read-back was not read. The person is told the read-back is a read. Then release.
+- The class is `stuck`. Stop. Change nothing. Do not release. Re-inspect where a read is possible, and do not treat that read as a reason to repeat the change. The job is the person's, over the provider's console.
+- The class is `not-loaded`. Read the journal with the tool's `journal`, sent as the `argv` it prints, unchanged. Classify it with `classify --step journal`. The class `no-entries` is execution history unknown. A class `truncated` is read again with fewer lines. A class `not-read` says the journal was not read. Re-inspect where a read is possible. Never repeat the change.
+- The class is `running`, `deactivating`, `not-read`, or `unrecognized`. When six polls have been made, report the state the last poll that was read showed, or that the state is unknown when none of the six was read, with its unit name, invocation ID and limit, and that asking again later reads its result through the second-run rule. Do not call it running unless the class was `running`. Do not start another job. Do not repeat the change. When fewer than six polls have been made, poll again.
 
 What did the release answer?
 
-Release only after a poll that read the job finished, with the unit and the recorded invocation ID, as `background-job.md` states release. Tell the person it unloads the finished job and removes no log.
+Release only after a poll whose class was `succeeded`, `signal`, `failed-exit`, `failed-timeout`, or `failed-other`, with the unit and the recorded invocation ID. Build it with the tool's `release` and send the `argv` it prints, unchanged. Tell the person it unloads the finished job and removes no log. Save the answer. Classify with `classify --step release`.
 
-- `release-exit:0` and `load-state:not-found`. Released. The token was renewed. Re-inspect.
-- Exit 11, 13, 14, or 17. Released nothing. The token was left alone. Exit 17 is stuck: the person's, over the provider's console. Stop. Do not repeat the change. Re-inspect where a read is possible.
-- Any other answer. Name it. Do not repeat the change. Re-inspect where a read is possible.
+- The class is `released`. The token was renewed. Re-inspect.
+- The class is `lock-busy`, `invocation-mismatch`, `not-finished`, or `processes-remain`. Released nothing. The token was left alone. The class `processes-remain` is stuck: the person's, over the provider's console. Stop. Do not repeat the change. Re-inspect where a read is possible.
+- The class is `unknown`. Name it. Do not repeat the change. Re-inspect where a read is possible.
 
 A job's success is not the change's success. The re-inspection decides `changed`, `unchanged`, or failed.
 
@@ -671,12 +660,12 @@ No credential, address, or hostname is asked for or printed as a field. An ident
 - **`vendor_error` treated as the machine's answer.** It does not establish whether the call ran.
 - **`busy` treated as a down machine.** The machine was not asked. Do not repeat the change.
 - **A package name or a unit name that fails its pattern, sent anyway.** Ask. Never send the other form. The package name stays an operand.
-- **A shell write.** No redirection, no `tee`, no `sed -i`, and no configuration file, through `vm.command.run` or through `vm.files.write_file`. The one exception is the contract's own lock and token in `background-job.md`, which its starter and release write under `/run`.
+- **A shell write.** No redirection, no `tee`, no `sed -i`, and no configuration file, through `vm.command.run` or through `vm.files.write_file`. The one exception is the lock and the token inside the starter and the release the tool emits, which those scripts write under `/run`.
 - **Purge, `--autoremove`, or a second package in the simulation's removal list.** Stop. One package, removed only by `remove`, and only that package.
 - **A path package removed, upgraded, or replaced, or a path unit given any of the four verbs.** Stop. The channel every call to this machine takes is that path. The person's route is the provider's console. The router's own unit is never changed through the router.
 - **A unit change judged by its name alone.** Read the fifteen properties. An alias of a path unit is a path unit. A stop, restart, or reload that reaches another unit, or a start that conflicts with one or pulls in a path unit or a shutdown target, stops the run. One level is read, and the plan says so.
 - **A oneshot called failed for being inactive.** A `Type=oneshot` unit without `RemainAfterExit` is inactive once it has run. The call's `ok` with exit 0 is its success.
-- **An apt change sent as a direct `apt-get`.** Install, remove, upgrade, `apt-get update`, and every pending upgrade are jobs. The starter in `background-job.md` sets `NEEDRESTART_SUSPEND=1`. A unit change is `vm.units.service`. It is not a job, it does not take the lock, and it does not renew the token.
+- **An apt change sent as a direct `apt-get`.** Install, remove, upgrade, `apt-get update`, and every pending upgrade are jobs. The starter the tool emits sets `NEEDRESTART_SUSPEND=1`. A unit change is `vm.units.service`. It is not a job, it does not take the lock, and it does not renew the token.
 - **A second job started while one is loaded.** The second-run questions. A running job stops the run. A finished one is released and the run starts over from its inspection, once.
 - **A start sent again after `token-changed`, with no new inspection and no new gate.** Nothing was started. Inspect again and gate again before any start.
 - **A job's exit 0 reported as `changed`.** The re-inspection decides. A stuck job is not released. It is the person's, over the provider's console.
@@ -702,7 +691,7 @@ No credential, address, or hostname is asked for or printed as a field. An ident
 - The package inspection was one `vm.command.run`, the person was told it is a read, and the package name was an operand. It carried the jobs section and the token line. The unit inspection was `vm.units.status`.
 - Already in the requested state is `unchanged`, with no change and no gate. `restart` and `reload` of a unit that exists were changes. A loaded job was handled by the second-run questions before any decision to change: a running one stopped the run, a finished one was released and the run started over from its inspection at most once, and a stuck one was left to the person.
 - A change was sent only after `experts/DevOps Expert/` returned safe as planned, or safe with named conditions the person was told, and only after the person approved that call's stop. `skills/Connection Troubleshooter/` in `wiser` was the stop. A declined change had no further call. A `token-changed` start ran nothing, and a later start waited for a new inspection and a new gate.
-- Each package change was one job, sent at most once: install, remove, upgrade of one package, `apt-get update`, and Job 4. The `argv` was `/bin/sh`, `-c`, the starter in `background-job.md`, `sh`, the unit name, the limit, the token the inspection read, the job script, the operation, and the package operands. The limit was 1800 seconds for one package, 600 for `update`, and 3600 for Job 4. Reads stayed direct. A unit change was `vm.units.service`, not a job, and it did not take the lock or renew the token.
+- Each package change was one job, sent at most once: install, remove, upgrade of one package, `apt-get update`, and Job 4. The `argv` was the `argv` the tool's `start` printed, sent unchanged: `/bin/sh`, `-c`, the starter the tool emits, `sh`, the unit name, the limit, the token the inspection read, the job script, the operation, and the package operands. The limit was 1800 seconds for one package, 600 for `update`, and 3600 for Job 4. Reads stayed direct. A unit change was `vm.units.service`, not a job, and it did not take the lock or renew the token.
 - A job was polled at most six times, each wait at most 40 seconds, each told to the person as a read. The read-back used the recorded invocation ID. Release followed a poll that read the job finished, and the person was told it unloads the finished job and removes no log. `release-exit:0` with `load-state:not-found` is the released outcome. A stuck job was not released.
 - A job's own success was not reported as the change's success. The re-inspection decided `changed`, `unchanged`, or failed. A `timeout` result, an unknown-history `not-found`, a stuck job, or a start whose outcome was unknown was re-inspected where a read was possible, and the change was not repeated. Past six polls, the report gave the last state a poll read, or unknown when none was read, never running unless a poll read it so, with its unit name, invocation ID and limit, and that a later ask reads it through the second-run rule.
 - A non-empty `dpkg --audit` before a change stopped the run. A non-empty audit after a change said the package database was left mid-change and named the pending packages. No repair was sent.
@@ -711,5 +700,5 @@ No credential, address, or hostname is asked for or printed as a field. An ident
 - Job 4 upgraded only the packages left on the list, each pinned, after the list simulation's summary line began with exactly `<N> upgraded, 0 newly installed, 0 to remove`, `<N>` the list's length read as a whole number, its `Inst` lines named exactly the list at the pinned versions, its audit was empty, and its token was the inspection's. Kept-back packages were named and not attempted. Path packages, and a package the person said carries the router, were taken out and named. More than 55 was asked, not chosen. No `dist-upgrade` and no `full-upgrade` was sent. `changed` only when every listed package's re-inspection said it was already the newest version at its pinned version and the audit was empty. Otherwise failed, naming each package that was not, with the read-back.
 - A simulation that would install or upgrade a package whose name begins `linux-image` or `linux-modules` led the plan and the report to say a reboot will be pending, and named the reboot gap. No reboot was sent.
 - The report names, per part, the inspection, the plan, the gate's verdict or that no gate was taken, each call's outcome, the re-inspection, and `changed`, `unchanged`, or failed. Per job it names the unit name, the invocation ID, the limit, the last poll's state, the read-back lines and the line count shown, and the release outcome. Output shown is verbatim. No credential, address, or hostname was asked for or printed as a field.
-- No configuration file was written, and no redirection, `tee`, or `sed -i` was sent through `vm.command.run`, other than the lock and token writes inside the starter and release of `background-job.md`.
+- No configuration file was written, and no redirection, `tee`, or `sed -i` was sent through `vm.command.run`, other than the lock and token writes inside the starter and release the tool emits.
 - A hostname, a DNS record, or a zone was handed to `experts/IT Expert/` in `wiser`, which sequences `skills/Zone Publisher/`.

@@ -1,0 +1,1 @@
+journalctl --no-pager -o short-iso -n "$2" -u "$1.service"

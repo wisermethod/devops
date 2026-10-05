@@ -62,6 +62,8 @@ The person has one-time administrative access by a path that leaves no fleet cre
 
 The SSH server's SFTP subsystem is enabled. A `Subsystem sftp` line is present and not commented out.
 
+`python3` is present, and its `os` module carries `O_NOFOLLOW` and `O_DIRECTORY`. The router's file confinement and its command watchdog run it on the machine, and the router refuses registration without it.
+
 The directory the router will allow file writes under exists on the machine. The person names it. There is no default. `/var/lib/vm-control` is only an example. The router's allowlist is that path, on the router, and a request cannot change the list.
 
 ### Host firewall
@@ -82,7 +84,7 @@ Join by the interactive `tailscale up` flow. The command prints a URL. The perso
 
 How a machine is un-enrolled:
 
-- Full un-enrollment is three steps, in this order. On the guest, `tailscale logout`, then remove the daemon. Then the person deletes the device in the admin console. Then the person removes the identifier from the router's map. Never remove it at the router first and then try to clean up through the channel just removed.
+- Full un-enrollment is three steps, in this order. On the guest, `tailscale logout`, then remove the daemon, run over the provider's console path and never through the router: logging the machine out of the tailnet cuts the router's channel mid-command, and the router stops whatever that channel started, so the teardown would not finish. The device then shows logged out in the admin console. Then the person deletes the device in the admin console. Then the person removes the identifier from the router's map. Never remove it at the router first and then try to clean up through the channel just removed.
 - Emergency withdrawal is device deletion alone. The person does it. It does not wait for the guest-side teardown.
 
 Removing the map entry stops the router routing to that identifier. It does not deauthorize the device. Deleting the device is the withdrawal.
@@ -105,7 +107,9 @@ Two blocks are the ones most likely already there. Keep both verbatim, in whatev
 - The default allow-all grant, which lets every source reach every destination: `{"src": ["*"], "dst": ["*"], "ip": ["*"]}`.
 - The default `ssh` block, which lets members SSH to their own devices: `{"action": "check", "src": ["autogroup:member"], "dst": ["autogroup:self"], "users": ["autogroup:nonroot", "root"]}`.
 
-Keeping the allow-all grant has a consequence the person should hear in their own terms. Their own devices keep network reach to fleet machines. SSH to those machines stays denied, because no `ssh` rule grants a user identity. The network half of "no user identity reaches the fleet" is therefore recorded as not provable on that tailnet. It is never claimed. The SSH half still holds.
+Keeping the allow-all grant has a consequence the person should hear in their own terms. Their own devices keep network reach to fleet machines. The network half of "no user identity reaches the fleet" is therefore recorded as not provable on that tailnet. It is never claimed.
+
+The SSH half holds only while no `ssh` rule already in the file grants a user identity a destination that covers `tag:vm` or `tag:vm-router`: `*`, either tag, or a group of tags that includes one. The default block's `autogroup:self` does not cover a tagged device. Read every existing `ssh` rule. Where one covers a tag, the SSH half does not hold: name that rule, record the half as not holding, and keep the rule in the merge. Changing it is a separate change, the person's to decide, gated by `experts/DevOps Expert/` on its own.
 
 The additions, written in beside what is already there:
 
@@ -114,7 +118,7 @@ The additions, written in beside what is already there:
 - An `ssh` accept from `tag:vm-router` to `tag:vm` as `root`. Network permission and SSH permission are separate, and Tailscale's documentation says SSH needs both: the TCP 22 rule is required, not optional. That is the vendor's statement and was not measured with the TCP rule absent. Record the network result and the SSH result separately.
 - The `funnel` node attribute for `tag:vm-router` only.
 
-No `ssh` rule grants a user identity to either tag. SSH to the router host as root would be fleet access, because that host can reach every `tag:vm` device. The router host, holding `tag:vm-router`, can SSH as root to a fleet member. The reverse stays denied.
+No `ssh` rule these additions write grants a user identity to either tag. SSH to the router host as root would be fleet access, because that host can reach every `tag:vm` device. The router host, holding `tag:vm-router`, can SSH as root to a fleet member. The reverse stays denied.
 
 The console now uses `grants` syntax and still accepts the `acls` form these additions were applied in. A merge keeps the live file's syntax. These are the additions, in the `acls` form, for a file that is still in that form:
 
@@ -144,7 +148,7 @@ Funnel is the router host only. Before the person enables HTTPS certificates on 
 
 ### Router
 
-The router maps an identifier to a tailnet host and refuses an unknown identifier. At registration it pins the host's SSH key and refuses a host whose `timeout` is not GNU coreutils. A removed identifier stays removed across a restart and across a restore of a stale map. The router lists its mapped identifiers. The user on every entry is `root`. The router host's own entry is marked as itself, and no other entry is. Traffic to a node's own tailnet address is delivered on loopback and never reaches Tailscale SSH, which is why that mark exists.
+The router maps an identifier to a tailnet host and refuses an unknown identifier. At registration it pins a fleet member's SSH key, and it refuses a host whose `timeout` is not GNU coreutils or whose `python3` lacks what the router runs there. A removed identifier stays removed across a restart and across a restore of a stale map. The router lists its mapped identifiers. The user on every entry is `root`. The router host's own entry is marked as itself, and no other entry is. Traffic to a node's own tailnet address is delivered on loopback and never reaches Tailscale SSH, which is why that mark exists.
 
 While the router is unreachable, nothing changes on a fleet machine. Workloads keep serving. Connector access is lost. The router process being down is not the router host being gone. With the process down and the host up, a person at that host's console can still reach every `tag:vm` device. Only the host being gone makes the fleet unreachable over the tailnet. The remaining path is each provider's console.
 
@@ -162,7 +166,7 @@ On the hosted endpoint, which may answer that this connector is not offered ther
 
 The person generates the bearer, writes it to the router host, and enters it at the provider's hosted page. No session, transcript, file in a repository, or skill carries it. This skill does not name a generator.
 
-Recovery when the toolkit, its auth config, the connection, or the project is lost. The provider masks a stored key and cannot give it back, so the old value is never recovered or pasted. The person issues a new credential generation at the router, registers or repairs the toolkit per `connectors/vm/auth.md` in `wiser`, connects through `skills/Connect Account/` in `wiser`, proves a call through the gateway, then withdraws the old generation at the router. The old generation stays accepted until that call is proved, so there is no window in which neither works. After the withdrawal, one live copy exists outside the router.
+Recovery when the toolkit, its auth config, the connection, or the project is lost. The provider masks a stored key and cannot give it back, so the old value is never recovered or pasted. The person issues a new credential generation at the router, registers or repairs the toolkit per `connectors/vm/auth.md` in `wiser`, connects through `skills/Connect Account/` in `wiser`, and proves the switch, then withdraws the old generation at the router. The proof is a call through the gateway whose `request_id` the router's own audit record shows matched the new generation. A successful call is not that proof: while both generations are accepted, either one answers it. The old generation stays accepted until that proof, and no longer than the router's own overlap bound, so there is no window in which neither works. Once the new value is entered at the provider, the only way out is forward: prove the switch, then withdraw the old generation. Removing the new generation is an abort only before the provider holds it. After the withdrawal, one live copy exists outside the router.
 
 ### Verification
 
@@ -180,7 +184,7 @@ The report says enrolled only when all three checks pass. Otherwise it says not 
 
 ### Running it twice
 
-Every host step is test-before-act. When the firewall is iptables, the form is `iptables -C` before `iptables -I`, and a save only when something changed. A different tool asks whether the accept is already present, adds it only when it is absent, and saves only when something changed. A joined node is checked, rather than given a second `tailscale up`. The check is `tailscale status --self --peers=false --json`: online, and carrying the tags the role requires.
+Every host step is test-before-act. When the firewall is iptables, the form is `iptables -C` before `iptables -I`, and a save only when something changed. `-C` finds a rule wherever it sits, so the chain is then read with `iptables -S INPUT`: the `tailscale0` accept must come before the closing reject. An accept that sits only after it is inserted again at the top, after confirmation, and saved. A different tool asks whether the accept is already present, adds it only when it is absent, and saves only when something changed. A joined node is checked, rather than given a second `tailscale up`. The check is `tailscale status --self --peers=false --json`: online, and carrying the tags the role requires.
 
 The skill reports `changed` or `unchanged` per step. A re-run on an enrolled machine reports no change.
 
@@ -221,6 +225,7 @@ A hostname, a DNS record, or a zone inside the request: hand that part to `exper
 Read `<tailnet_policy>`.
 
 - It has machines, a default allow-all grant, or a default `ssh` block that lets members SSH to their own devices. Merge. Keep those blocks verbatim. Tell the person that their own devices keep network reach to fleet machines, and that the network half of "no user identity reaches the fleet" is recorded as not provable on this tailnet.
+- An existing `ssh` rule grants a user identity a destination that covers `tag:vm` or `tag:vm-router`. Keep it in the merge. Name it to the person, and record that the SSH half does not hold on this tailnet. Do not remove it in this run.
 - The file has no grants and no `ssh` block yet. The additions are the whole draft. The person still previews it. This is not a paste over a live file.
 - The current file cannot be read. Ask. Do not draft a replacement.
 
@@ -251,13 +256,17 @@ Confirm each reversible change, then run it. Report `changed` or `unchanged` for
 
 - `timeout --version` contains `GNU coreutils`. If it does not, stop. The router will refuse registration.
 - The SFTP subsystem is enabled. If it is not, stop, and say what was read.
+- `python3 -c 'import os; os.O_NOFOLLOW; os.O_DIRECTORY'` exits 0. If it does not, stop before any change. The router will refuse registration.
 - `<directory>` exists. If it does not, create the directory the person named. Do not invent `/var/lib/vm-control` when they named nothing. Ask.
-- The host firewall either already accepts `tailscale0` ahead of a closing reject, or has no closing reject. Otherwise add that accept by the test-before-act form, using the loaded appendix's commands when an appendix is loaded.
+- The host firewall either already accepts `tailscale0` ahead of a closing reject, or has no closing reject. Otherwise add that accept by the test-before-act form, using the loaded appendix's commands when an appendix is loaded. Then read the chain again. The accept must stand ahead of the reject. If it stands only after it, insert it at the top, after confirmation, and save.
 - One-time administrative access is by a path that leaves no fleet credential on a computer the person works from. When an appendix is loaded, its path is the one.
 
 **7. Has the machine joined?**
 
-- `tailscale status --self --peers=false --json` shows the node online and carrying the tags from step 4. Do not run `tailscale up` again. Report `unchanged`.
+Read `tailscale status --self --peers=false --json`. The device name is the first label of `Self.DNSName`.
+
+- Online, carrying exactly the tags from step 4, and the device name equals the identifier. Do not run `tailscale up` again. Report `unchanged`. Tailscale SSH being accepted is proved at step 10, where a fleet member's health call arrives over it.
+- Online, but the tags or the device name differ. Stop. Name each difference. Correcting it is the person's, by the vendor's current instructions, then this step runs again. Do not register a machine whose device name is not its identifier.
 - The node is not joined. The person installs Tailscale by the vendor's current instructions for that distribution. Do not copy an install command into the run. Then they run `tailscale up --ssh`, with `--advertise-tags` set to the tags from step 4 and `--hostname` set to the identifier, after those flags are checked against `tailscale up --help` on the installed version. A refused flag stops the run. The person approves the URL the command prints. Report `changed`.
 - The two-tag form is refused on the router host. Stop. Do not join it with one tag and call it the router host.
 
@@ -277,10 +286,17 @@ The toolkit recovery in the contract runs when the toolkit, its auth config, the
 
 **9. What did registration answer?**
 
-The person runs their router's registration command for this identifier. The host is the device's tailnet name. The user is `root`. The router host's entry is marked as itself.
+Is the identifier already in the list step 8 returned?
 
-- The identifier is mapped, and the host key is pinned, or it was already mapped to the same host and the same key. Report `changed` or `unchanged` from what the command reported.
-- The router refuses because `timeout` is not GNU coreutils. Stop. The image does not meet the contract.
+- Listed. It is mapped already. Do not register it again. Report `unchanged` and go to step 10.
+- Not listed. The person runs their router's registration command for this identifier. The host is the device's tailnet name. The user is `root`. The router host's entry is marked as itself.
+
+What did the command answer?
+
+- A fleet member is mapped and its host key is pinned. Report `changed`.
+- The router host is mapped as itself. It has no SSH peer, so no host key is pinned. Report `changed`.
+- The router refuses because the identifier is already on its map. The list was read before another change landed. Do not register it again. Go to step 10.
+- The router refuses because `timeout` is not GNU coreutils, or because `python3` lacks what it needs. Stop. The image does not meet the contract.
 - The router refuses because the host key differs from the pin it holds. Stop. The person decides. This skill does not replace a pin.
 - The router refuses because the identifier was removed and has stayed removed. Say so. Do not rebuild it in.
 - The router cannot be reached. Report that registration did not happen. Change nothing on the machine.
@@ -310,9 +326,11 @@ Is this the router host or a fleet member?
 - Fleet member. The other machines stay reachable through the router. Continue.
 - Not said. Ask.
 
+Is the plan gated? Hand the withdrawal plan to `experts/DevOps Expert/` with `<live_state>`, in a second context, before any guest change: which machine, router host or fleet member, the provider's console path the guest steps run over, and what the rest of the fleet keeps. Safe as planned: continue. Safe with named conditions: tell the person, and a condition that changes the steps goes back into the plan and is gated again. Not as proposed: stop. An emergency withdrawal, below, is the person's own deletion and is not held for the gate.
+
 Full un-enrollment, in this order. Confirm each guest step before it runs.
 
-1. On the guest, `tailscale logout`, then remove the daemon. The person confirms. Report `changed`.
+1. Over the provider's console path, never through the router, run `tailscale logout` on the guest, then remove the daemon. The person confirms. The device shows logged out in the admin console before the next step. Report `changed`.
 2. The person deletes the device in the admin console. This skill composes the explanation. The person performs the deletion. Deleting the device is irreversible.
 3. The person removes the identifier with their router's removal command. The identifier stays removed across a restart and a stale restore.
 
@@ -328,7 +346,7 @@ Terminating the instance, or destroying its storage, is the person's act. It is 
 - **Pasting the policy.** The console saves the whole file. A merge that drops the allow-all grant or the members' own `ssh` block cuts off machines that were already there. Keep both verbatim.
 - **Healthy in the console, treated as reachable.** `tailscale up` can succeed, and the device can show healthy, while the host firewall rejects `tailscale0`. The health check through the gateway is the reachability test.
 - **Revoking the auth key, treated as withdrawal.** The device stays authorized. Delete the device.
-- **Withdrawing at the router first.** The guest cleanup then has no channel. Logout and remove the daemon, then the person deletes the device, then the map.
+- **Withdrawing at the router first, or tearing down through it.** The guest cleanup then has no channel, and a logout sent through the router cuts its own command short. Logout and remove the daemon over the provider's console path, then the person deletes the device, then the map.
 - **A credential asked for.** The person generates, holds, and enters it. A value that appears in the conversation is rotated, not used.
 - **A second `tailscale up` on a joined node.** Check. Report `unchanged`.
 - **An insert that does not check.** `iptables -I` alone adds a duplicate on every run. `iptables -C` first, and a save only when something changed.
@@ -342,9 +360,9 @@ Terminating the instance, or destroying its storage, is the person's act. It is 
 - Each host step reports `changed` or `unchanged`. A re-run on an enrolled machine reports no change.
 - Once the machine is enrolled, no provisioning key from a computer the person works from is still accepted on it, and no inbound SSH rule opened for the one-time path is still open, or the report says which one remains and why.
 - The policy the person saved is a merge. The two blocks most likely already there are still present, verbatim, when they were present before. `experts/DevOps Expert/` gated the draft before the save and before a machine was changed, or the run wrote nothing and took no gate.
-- Where the allow-all grant was kept, the report records the network half of "no user identity reaches the fleet" as not provable on that tailnet, and does not claim it.
+- Where the allow-all grant was kept, the report records the network half of "no user identity reaches the fleet" as not provable on that tailnet, and does not claim it. Where an existing `ssh` rule covers a fleet tag, the report names it and records the SSH half as not holding.
 - No credential value was asked for, printed, or written into a file in a repository.
 - The device deletion, and any destruction of storage, was the person's act.
-- A withdrawal followed the contract's order. The map was not removed first.
+- A withdrawal was gated before any guest change, ran its guest steps over the provider's console path, and followed the contract's order. The map was not removed first.
 - An appendix was loaded only for a provider the index names, and a provider with no row was reported as no appendix loaded.
 - A hostname, a DNS record, or a zone was handed to `experts/IT Expert/` in `wiser`, which sequences `skills/Zone Publisher/`.

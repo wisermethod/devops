@@ -13,6 +13,8 @@ Measured 2026-09-22, on a stock Canonical Ubuntu 24.04 aarch64 image from Oracle
 - `timeout --version` reports `timeout (GNU coreutils) 9.4`.
 - `sshd_config` carries `Subsystem sftp /usr/lib/openssh/sftp-server` uncommented.
 
+Not recorded for this image: `python3` with `os.O_NOFOLLOW` and `os.O_DIRECTORY`, which the router checks at registration. Ubuntu's cloud images run cloud-init on `python3`, so it is expected; the skill's Step 6 check settles it.
+
 Unverified: Oracle Linux, and the Minimal images. A Minimal image is the one to suspect when `timeout` is not GNU coreutils.
 
 ## One-time SSH
@@ -48,6 +50,8 @@ if ! iptables -C INPUT -i tailscale0 -j ACCEPT 2>/dev/null; then iptables -I INP
 if ! iptables -C INPUT -p udp --dport 41641 -j ACCEPT 2>/dev/null; then iptables -I INPUT -p udp --dport 41641 -j ACCEPT; changed=1; fi
 if [ "$changed" -eq 1 ]; then netfilter-persistent save; fi
 ```
+
+`-C` finds a rule wherever it sits, so read the chain afterwards with `iptables -S INPUT`. The `tailscale0` accept must come before the closing `REJECT`. If it comes only after, the person confirms, `iptables -I INPUT 1 -i tailscale0 -j ACCEPT` puts one at the top, and `netfilter-persistent save` keeps it. Not run: no machine has shown an accept below the reject.
 
 The first accept is what makes the tailnet usable. The second lets Tailscale negotiate a direct path on its default port. Without the second, the node still works by falling back to a relay. Confirm before this runs.
 

@@ -197,6 +197,10 @@ printf '%s\n' "apt-cache-exit:$?"
 printf '%s\n' '--- dpkg audit ---'
 dpkg --audit
 printf '%s\n' "dpkg-audit-exit:$?"
+printf '%s\n' '--- writable ---'
+for d in /usr /etc /var/lib/dpkg; do
+  if [ -w "$d" ]; then printf '%s yes\n' "$d"; else printf '%s no\n' "$d"; fi
+done
 printf '%s\n' '--- simulate ---'
 case "$2" in
   install)
@@ -267,6 +271,7 @@ Ask only when the inspection decided `unchanged` or a change call. When it said 
 The path packages are `tailscale`, `openssh-server`, `openssh-sftp-server`, `python3` and any package whose name begins `python3.`, `coreutils`, and the host firewall's `iptables`, `iptables-persistent`, `netfilter-persistent`, `nftables`, and `ufw`, and any package the person says is their SSH server, their tailnet client, the python the router runs, or their firewall.
 
 - The decided change is `unchanged`, or there is no change call. Continue. An install of a path package that is already installed is `unchanged`.
+- A change call was decided, and the writable section says `no` for `/usr`, `/etc`, or `/var/lib/dpkg`. The command runs where the package system cannot be written, as it does inside a router's own sandboxed service on the router host, and apt would fail part way. Stop. That change is the person's, over the provider's console. No change call. No gate.
 - The role is router host, and the person says the named package is, or carries, their router. Stop. A package's maintainer scripts restart its own service when it is upgraded or removed, which would stop the router mid-call. That change is the person's, over the provider's console. No change call. No gate. Ask before any change on the router host; no answer is a stop.
 - The decided change would remove or upgrade a path package, or replace one. Replace means the status is `installed` and the install candidate differs from that installed version. Stop. Say that the change would cut the channel this call runs on, and that the machine may be left reachable only by the provider's console. That change is the person's, over the provider's console. No change call. No gate.
 - The decided change is an install of a path package whose status is `not-installed`, `config-files`, or not in the database, and the simulation removes or upgrades no path package. It is an ordinary install. Continue.

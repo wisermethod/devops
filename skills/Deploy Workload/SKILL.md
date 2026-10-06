@@ -226,7 +226,7 @@ if [ -r /proc/sys/net/ipv4/ip_forward ]; then
 else
   printf '%s\n' ip_forward:unread
 fi
-for f in /proc/sys/net/ipv4/conf/*/forwarding; do
+for f in /proc/sys/net/ipv4/conf/[!.]*/forwarding; do
   if [ -r "$f" ]; then printf '%s:%s\n' "$f" "$(cat "$f")"; else printf '%s\n' "unread:$f"; fi
 done
 printf '%s\n' '--- source ---'
@@ -933,6 +933,7 @@ An environment value the person confirmed is not a secret is shown. A secret is 
 
 ## Pitfalls
 
+- **A glob written `/*/` in a script this skill sends.** Measured 2026-10-06: a script carrying `conf/*/forwarding` beside other shell text came back `vendor_error` HTTP 400 at `/exec` every time, before reaching the machine, while the same text had passed the night before; `conf/[!.]*/forwarding`, which matches the same names, passed. Something on the connector's path now reads `/*` and `*/` as a database-comment attack. Write a glob that needs a directory wildcard as `[!.]*`, and do not read a repeated `vendor_error` on an unchanged script as the machine's answer.
 - **The request is ambiguous.** More than one machine, more than one workload, a deploy and a removal together, or an install of Docker with no workload. Ask before any call.
 - **A package or unit change kept in this run because a workload was named.** Hand each such change to `skills/VM Configure/` on its own, whether or not a workload is named. Docker's own installation for this deployment stays here. An install of Docker with no workload is asked, and Docker is not installed with nothing to deploy.
 - **A machine that is not on the map, or whose health is not `ok`.** Stop. Not on the map: point to `skills/Prepare VM/`. Not reachable: name the outcome the way `skills/VM Inventory/` does. Change nothing.

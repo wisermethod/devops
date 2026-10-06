@@ -21,7 +21,7 @@ gaps:
 
 Use when one container should be deployed on one existing machine, or one container this skill deployed there should be removed, and the machine is one a person's router maps. One run is one machine and one workload. The workload publishes no port. Caddy, one container per machine, is the only publisher, and a route is one targeted admin-API update. The report says what was inspected, what was planned, what the gate said, what each call answered, the URL, and whether that URL answered.
 
-Not for a workload on the router host. That is the gap for a workload on the router host, where Caddy has not been measured beside the router's own public origin. Not for a secret, a private registry login, a host directory, or more than one container. Not for changing a deployed workload's image or settings in place. Not for a configuration file. That is the gap `experts/DevOps Expert/` still declares. The one configuration write this skill makes is Docker's apt source and key, and only as the install branch of a deploy on a machine that has no Docker. This skill never calls `vm.files.write_file` or `vm.files.read_file`. Not for enrolling a machine or taking one out, which is `skills/Prepare VM/`. Not for reading the fleet, which is `skills/VM Inventory/`. Not for a package or a unit with no workload, which is `skills/VM Configure/`. Not for a security review. Not for IPv6 ingress. Not for the provider firewall rule or the DNS record a public URL needs. Hand the DNS part to `experts/IT Expert/` in `wiser`, which sequences `skills/Zone Publisher/`.
+Not for a workload on the router host. That is the gap for a workload on the router host, where Caddy has not been measured beside the router's own public origin. Not for a secret, a private registry login, a host directory, or more than one container. Not for changing a deployed workload's image or settings in place. Not for a configuration file. That is the gap `experts/DevOps Expert/` still declares. The one configuration write this skill makes is Docker's apt source and key, and only as the install branch of a deploy on a machine that has no Docker. This skill never calls `vm.files.write_file` or `vm.files.read_file`. Not for enrolling a machine or taking one out, which is `skills/Prepare VM/`. Not for reading the fleet, which is `skills/VM Inventory/`. Not for a package or a unit other than Docker's own installation for this deployment, which is handed to `skills/VM Configure/` on its own whether or not a workload is named. Not for a security review. Not for IPv6 ingress. Not for the provider firewall rule or the DNS record a public URL needs. Hand the DNS part to `experts/IT Expert/` in `wiser`, which sequences `skills/Zone Publisher/`.
 
 This plugin does not ship a router, and no primitive in this root provides one. Every deploy goes through a router the person already runs. The calls are `vm.inventory.list_hosts`, `vm.inventory.health`, and `vm.command.run`, and no other action.
 
@@ -83,7 +83,7 @@ Which job is this? Take the first match.
 - The request asks for a hostname, a DNS record, or a zone, and names no workload to deploy and no workload to remove. Hand that part to `experts/IT Expert/` in `wiser`, which sequences `skills/Zone Publisher/`. Ask this question again of what remains. When nothing remains, stop.
 - The request asks to read the fleet, or whether a machine is reachable, and names no workload. Hand that part to `skills/VM Inventory/`. Ask this question again of what remains. When nothing remains, stop.
 - The request asks for a configuration file. Say that this skill does not change one, and that the gap `experts/DevOps Expert/` still declares is a configuration file. Docker's apt source and key are not this case. They are the install branch of a deploy, below. Do not send a command that writes any other file. Ask this question again of what remains. When nothing remains, stop.
-- The request asks for a package change or a unit change, and names no workload. Hand that part to `skills/VM Configure/`. Ask this question again of what remains. When nothing remains, stop.
+- The request asks for a package change or a unit change other than Docker's own installation for this deployment, and it is not only an install of Docker with no workload named. Hand each such change to `skills/VM Configure/` on its own, whether or not a workload is named. Ask this question again of what remains. When nothing remains, stop.
 - The request asks for a security review. Say that this skill does not do that part. Ask this question again of what remains. When nothing remains, stop.
 - The request asks for a secret, a private registry login, a host directory, or more than one container. Stop. Name the gap for a workload that needs a secret, a private registry login, a host directory, or more than one container. Send nothing.
 - The request asks to change a deployed workload's image or settings in place, to recreate it, or to redeploy it. Stop. Name the gap for changing a deployed workload's image or settings in place. Name Job 2. Do not change it. Send nothing.
@@ -116,7 +116,7 @@ Job 1 also requires an image, a port, and a hostname.
 - The hostname matches `^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$`, is at most 253 characters, and contains a letter. A name with no dot does not match.
 - Each environment pair is `KEY=VALUE`. The key matches `^[A-Z0-9_]+$`. The value is one line: no newline. The whole pair is at most 4096 code points. Zero pairs is a match.
 - Each volume is `<named volume>:<absolute container path>`, one colon. The named volume matches `^[A-Za-z0-9][A-Za-z0-9_.-]*$` and contains no `/`. The container path matches `^/[A-Za-z0-9._/-]*$`. A source that contains `/`, starts with `.`, or is absolute is a host path and does not match. A mode suffix does not match. A named volume `caddy-config` or `caddy-data` does not match. Refuse either by name before any call. Zero volumes is a match.
-- Job 1's environment pairs and volumes together are more than 25. Stop. The workload `docker run` argv is 13 strings plus two per pair, and `connectors/vm/CONNECTOR.md` in `wiser` bounds `argv` at 64 strings, so more than 25 does not fit one call. Ask which this run includes, 25 or fewer. Do not choose. Do not add a pair that was not named. No answer: stop. Send nothing.
+- Job 1's environment pairs and volumes together are more than 56. Stop. The workload call's argv is `/bin/sh`, `-c`, the script, `sh`, the name, the digest, the environment count, each pair, the volume count, and each volume: 8 strings plus one per pair and one per volume. `connectors/vm/CONNECTOR.md` in `wiser` bounds `argv` at 64 strings, so more than 56 does not fit one call. Ask which this run includes, 56 or fewer. Do not choose. Do not add a pair or a volume that was not named. No answer: stop. Send nothing.
 
 Job 2 has no image, port, hostname, environment, or volume. A Job 2 request that includes one: ask whether the request is a removal. Do not send the extra value. Do not guess.
 
@@ -178,7 +178,7 @@ When the row is the router host and health was unreachable, that stop already sa
 
 `vm.command.run` stops on `needs_confirmation` before it runs. Any other call stops there when the person's gateway policy asks to approve it. `skills/Connection Troubleshooter/` in `wiser` owns that stop: it shows the stop, and it repeats the identical call with `confirm: true` only after the person approves that stop, once.
 
-Before handing over the inspection, a poll, a read-back, a journal read, a socket read, a config or routes read, an id GET, the verify read, a logs read, or the curl that checks the URL, tell the person the call is a read. Before handing over a release, tell the person it unloads the finished job and removes no log.
+Before handing over the inspection, a poll, a read-back, a journal read, a socket read, a config or routes read, an id GET, a saved-config read, the verify read, a logs read, or the curl that checks the URL, tell the person the call is a read. Before handing over a release, tell the person it unloads the finished job and removes no log.
 
 - The stop is the call this step sent. Hand it over. Take the repeated call's answer as this call's answer.
 - The stop is some other call. Do not confirm it. Stop. Name the difference. Change nothing further.
@@ -338,7 +338,7 @@ A loaded unit carrying this run's own name, after a start whose answer was lost,
 
 Read the docker section. The server version is the text after `server:` on that line.
 
-- The section says `docker-absent`. Docker is absent. Continue to the install-branch question. Do not read the caddy, workload, or network sections as container state. Do not read the caddy-config section or the volumes section as volume state. A requested volume is created after Docker is installed.
+- The section says `docker-absent`. Docker is absent. Continue to the install-branch question. Do not read the caddy, workload, or network sections as container state. Do not read the caddy-config section or the volumes section as volume state. A requested volume is created by the workload script after Docker is installed, in the same call that runs the container.
 - `docker-version-exit` is 0 and the server line has a version. Docker is present. That version is the one the report names. Continue to the source question. Do not install Docker.
 - The command is present and the exit is not 0, or the server line has no version. Docker did not answer. Stop. Copy the docker section. Do not install over it. Change nothing.
 
@@ -391,18 +391,20 @@ Ask when the socket says `socket-present`. The same rules judge the inspection, 
 
 An admin-API read is a successful read only when curl's exit is 0, the headers from `-D -` contain an HTTP status line of `200`, an `Etag` header is present, and the body parses as the expected JSON. The status line is the first header line. The routes body is a JSON array. The config body is JSON, and `null` is JSON. The id GET's body, when the status is `200`, is one JSON route object. Anything else on a read the skill decides on is not read: stop, change nothing. Two answers are absence, not a failed read: a config body that is null, and an id GET whose status line is `404` or whose body says the object id is unknown.
 
-The `Etag` value is the header text after the colon, with one leading space removed and a trailing carriage return removed. `If-Match` is set to that value. The path field is the first field of that value once one layer of matching double quotes is removed. Measured: `GET /id/workload-<name>` answered `Etag: "/config/apps/http/servers/workloads/routes/0 <hash>"`, and the path field is the object's expanded config path.
+The `Etag` value is the header text after the colon, with one leading space removed and a trailing carriage return removed. `If-Match` is set to that value. The path field is the first field of that value once one layer of matching double quotes is removed. Measured: `GET /id/workload-<name>` answered `Etag: "/config/apps/http/servers/workloads/routes/0 <hash>"`, and the path field is the object's expanded config path. Measured: Caddy checks an `If-Match` against the config at the path the Etag names. A route POST carries `If-Match` set to the `Etag` from `GET /config/` in the same fresh read whose body passed the shape check, not the routes path's `Etag`, so the write proceeds only when the whole config is unchanged since that read. A `412` on that POST means the config changed anywhere.
 
 The config body is the text after the blank line that ends the `--- config ---` headers. It is null when its only non-whitespace is `null`. The routes body is the text after the blank line that ends the `--- routes ---` headers.
 
-The config is this skill's shape when `apps.http.servers` has exactly one key, `workloads`, and every route of that server and every route in the routes body is this skill's route shape. A route is this skill's route shape when its `@id` begins `workload-`, its `match` is exactly one matcher set and that set has exactly one key, `host`, `host` is a list of hostnames with no `*` anywhere in those names, its `handle` is a list of one object whose `handler` is `reverse_proxy`, and `terminal` is true. Hostnames are compared case-insensitively. The shape is judged when the config body is not null. A route or a server outside that shape: stop, change nothing, and say Caddy carries configuration this skill did not write.
+The config is this skill's shape when its top-level keys are exactly `apps`, `apps` holds exactly `http`, `http` holds exactly `servers`, `servers` has exactly one key, `workloads`, and every route of that server and every route in the routes body is exactly the route this skill generates. Anything else, an `admin` block that turns persistence off included: stop, change nothing, and say Caddy carries configuration this skill did not write. The shape is judged when the config body is not null.
+
+A route is this skill's only when it is exactly the object this skill generates. Its keys are exactly `@id`, `match`, `handle`, and `terminal`. `@id` is `workload-` followed by a workload name this skill accepts. `match` is exactly one object, that object's only key is `host`, and `host` holds exactly one hostname. That hostname contains no `*`. `handle` is exactly one object, and that object's keys are exactly `handler` and `upstreams`. `handler` is `reverse_proxy`. `upstreams` is exactly one object, and that object's only key is `dial`. `dial` is that same workload name, a colon, and a port. A port here is a whole number from 1 to 65535, written in digits, with no sign and no leading zero. `terminal` is true. Hostnames are compared case-insensitively. Any other route in the server stops the run, a deploy or a removal.
 
 A hostname is present when some route's host list contains it, compared case-insensitively. The id `workload-<name>` is present when some route's `@id` is that string.
 
 - The config was not a successful read. The config was not read. Stop. Change nothing.
 - Job 1, and the config body is null. No route exists yet. A routes read that was not successful is that absence. The plan's first config applies, and only because this read was null. Continue.
 - Job 2, and the config body is null. The route is absent. Continue. Do not send a first config. The removal uses a fresh GET of the id, not this Etag.
-- The config body is not null, and `apps.http.servers` is not exactly the one key `workloads`, or a route that was read is outside this skill's route shape. Stop. Change nothing. Say Caddy carries configuration this skill did not write.
+- The config body is not null, and the config is not this skill's shape, or a route that was read is not exactly the route this skill generates. Stop. Change nothing. Say Caddy carries configuration this skill did not write. This stops a deploy and a removal.
 - The config body is not null, and the routes were not a successful read. The routes were not read. Stop. Change nothing.
 - The config is this skill's shape, the routes were a successful read, and neither the Job 1 hostname nor the id is present. Continue. The plan does not send a first config.
 - Job 1, and the hostname or the id is present. Stop. The hostname is already in a route, or this workload's route is already there. Name the gap for changing a deployed workload when the container question also says it is ours. Otherwise say the hostname is already routed. Name Job 2 when the id is present. Change nothing.
@@ -410,7 +412,7 @@ A hostname is present when some route's host list contains it, compared case-ins
 
 ### What holds ports 80 and 443?
 
-Read the listeners section. `listeners-exit` not 0 means the listeners were not read: stop, change nothing. A listener holds the source address on 80 or 443 when its local address is `<addr>:80`, `<addr>:443`, `0.0.0.0:80`, `0.0.0.0:443`, `[::]:80`, `[::]:443`, `*:80`, or `*:443`. `[::]:80`, `[::]:443`, `*:80` and `*:443` hold it because a dual-stack socket accepts IPv4. A different address, a tailnet address included, does not. Only this skill's Caddy's own `<addr>:80` and `<addr>:443` are allowed. IPv6 ingress is the gap named in the report.
+Read the listeners section. `listeners-exit` not 0 means the listeners were not read: stop, change nothing. `ss` prints a dual-stack IPv6 wildcard socket as `*:<port>` and an IPv6-only one as `[::]:<port>`. A listener holds the source address on 80 or 443 when its local address is `<addr>:80`, `<addr>:443`, `0.0.0.0:80`, `0.0.0.0:443`, `*:80`, or `*:443`. `[::]:80` and `[::]:443` do not hold IPv4. Name them in the report as IPv6 listeners, under the IPv6 gap. They do not by themselves stop the run. A different address, a tailnet address included, does not hold the source address. Only this skill's Caddy's own `<addr>:80` and `<addr>:443` are allowed. IPv6 ingress is the gap named in the report.
 
 - This skill's Caddy is in the plan as already present, and the only listeners that hold 80 or 443 are `<addr>:80` and `<addr>:443`. Continue.
 - Caddy is not present, and no listener holds 80 or 443. Continue. The plan binds those two, on `<addr>` only.
@@ -431,8 +433,8 @@ Ask when Docker is present. The workload line is read the way the caddy line is.
 
 Ask on Job 1 when at least one volume was named. Each volume is one `volume:<name>` line, the inspect line after it, and the `volume-exit:` line after that, in operand order. Take the first match.
 
-- The section says `volumes-not-read`. Docker is absent. The volumes were not read as existing volumes. The plan creates each after Docker is installed and before the workload `docker run`. Continue.
-- Every volume is one of these two: its `volume-exit` is not 0 and its inspect text contains `No such volume`, or its exit is 0 and its inspect line is exactly `local null <workload name>` or exactly `local {} <workload name>`. A volume that does not exist is created by the plan with `docker volume create --label deploy-workload=<name> -- <volume>` before the workload `docker run`. A volume whose line matches is accepted and is not created again. Continue.
+- The section says `volumes-not-read`. Docker is absent. The volumes were not read as existing volumes. The workload script creates each when it is absent, after Docker is installed, in the same call as the container. Continue.
+- Every volume is one of these two: its `volume-exit` is not 0 and its inspect text contains `No such volume`, or its exit is 0 and its inspect line is exactly `local null <workload name>` or exactly `local {} <workload name>`. A volume that does not exist is created by the workload script, with the label, when it is absent. A volume whose line matches is not created again. That same call inspects every requested volume again and does not run the container unless each line is exactly `local null <name>` or `local {} <name>`. Continue.
 - Any volume was not read, or an existing volume's driver is not `local`, or its options are not `null` or `{}`, or its label is not the workload name. Stop. Copy the section. Do not create a volume. Change nothing.
 
 ### Is any environment value a secret?
@@ -451,9 +453,9 @@ One plan, the calls that apply, in this order. A call that the questions skipped
 3. A pull of `caddy:2`, only when Caddy is not present. Purpose `docker-pull`, limit 1800, the reference the operand.
 4. The Caddy run below, from that pull's digest, only when Caddy is not present. Then the socket read, a GET of `/config/` that is a successful read, and the first-config POST only when that body is still null.
 5. A pull of the workload image. Purpose `docker-pull`, limit 1800. When the reference is `caddy:2` and this run already pulled it, reuse that digest and do not pull again.
-6. The network script, then one `docker volume create` for each volume the volume question said does not exist, then the workload `docker run`, then the verify read.
+6. The network script, then the workload script, one call that creates each absent requested volume, refuses a volume whose inspect line is not exactly `local null <name>` or `local {} <name>`, and runs the container, then the verify read.
 7. When the verify shows the container running and an `HTTP/` line: `docker update --restart unless-stopped`. When it does not: `docker logs --tail 50`, and stop. No route. Name Job 2. Do not remove the container in this run.
-8. A GET of the config and the routes, both successful reads and this skill's shape, then POST the one route with the routes response's `Etag` as `If-Match`.
+8. A GET of the config and the routes, both successful reads and this skill's shape, then POST the one route with `If-Match` set to that same config response's `Etag`.
 9. The curl from the machine, then a closing re-inspection.
 
 Job 2's plan is the removal order in its own question, not this list.
@@ -476,7 +478,7 @@ Ask of the repository job's read-back, after that job is released and before the
 
 A run whose inspection shows nothing to change writes nothing and takes no gate. Job 1 always has a change when it reaches this question. Job 2 takes this question only when a removal call remains. Already absent, with no call left, takes no gate.
 
-When there is a change, hand the plan to `experts/DevOps Expert/` with `<live_state>`, in a second context, before any change. `<live_state>` is the inspection output copied verbatim. The plan names every call in order and the way back. A job names its purpose, its unit name, its limit, the token, the script, and the operands. The first config, when the plan has one, is the POST below onto a config whose GET was a successful read and whose body read `null`, with `If-Match` set to that GET's `Etag`. It replaces nothing. A route POST is one object appended through the admin API, with `If-Match` from a successful routes read, and it is not a whole-config replacement.
+When there is a change, hand the plan to `experts/DevOps Expert/` with `<live_state>`, in a second context, before any change. `<live_state>` is the inspection output copied verbatim. The plan names every call in order and the way back. A job names its purpose, its unit name, its limit, the token, the script, and the operands. The first config, when the plan has one, is the POST below onto a config whose GET was a successful read and whose body read `null`, with `If-Match` set to that GET's `Etag`. It replaces nothing. A route POST is one object appended through the admin API, with `If-Match` set to the `Etag` from the same `GET /config/` whose body passed the shape check, not the routes path's `Etag`. It is not a whole-config replacement. A `412` on that POST means the config changed anywhere.
 
 The Docker apt source and key, when the plan installs Docker, are that install. They are not a request to change a configuration file, which remains the gap `experts/DevOps Expert/` declares for any other file.
 
@@ -643,9 +645,84 @@ docker network connect "wl-$1" caddy
 
 The workload publishes no port. Caddy is connected to `wl-<name>`. The workload is not on the default bridge.
 
-Then, for each volume the volume question said does not exist, one `vm.command.run`. `argv` is `docker`, `volume`, `create`, `--label`, `deploy-workload=<name>`, `--`, the volume. Take the direct-call question of each answer. Continue only when the answer is `ok`, or `remote_failure` naming this identifier with `exit_code` 0. Any other answer stops the run. Do not run the workload. Do not remove a volume. A volume the question accepted is not created again. Zero volumes means no create.
+Take the direct-call question of the network script's answer. Continue only when the answer is `ok`, or `remote_failure` naming this identifier with `exit_code` 0. Any other answer stops the run. Do not run the workload script.
 
-Then one `vm.command.run` whose `argv` is `docker`, `run`, `-d`, `--name`, the name, `--network`, `wl-<name>`, `--restart`, `no`, `--label`, `deploy-workload=<name>`, then each `-e` and `KEY=VALUE`, then each `-v` and `<volume>:<path>`, then `--`, then the digest. No command after the digest. `--restart` stays `no` until the verify question passes.
+Then one `vm.command.run`. The script is verbatim. `$1` is the workload name. `$2` is the digest. `$3` is the count of environment pairs. The next operands are the pairs, one each. The next operand is the count of volumes. The operands after that are the volumes, one each. Each volume operand is `<named volume>:<absolute container path>`. Zero pairs passes the count `0` and no pair. Zero volumes passes the count `0` and no volume. `argv` is `/bin/sh`, `-c`, the script, `sh`, and those operands in that order. None of them is written into the script. `<script>` is this text and no other:
+
+```
+set -eu
+export LC_ALL=C
+name=$1
+digest=$2
+envn=$3
+shift 3
+i=0
+while [ "$i" -lt "$envn" ]; do
+  pair=$1
+  shift
+  set -- "$@" "$pair"
+  i=$((i + 1))
+done
+voln=$1
+shift
+i=0
+while [ "$i" -lt "$voln" ]; do
+  spec=$1
+  shift
+  vol=${spec%%:*}
+  if ! docker volume inspect -- "$vol" >/dev/null 2>&1; then
+    docker volume create --label "deploy-workload=$name" -- "$vol"
+  fi
+  set -- "$@" "$spec"
+  i=$((i + 1))
+done
+i=0
+while [ "$i" -lt "$envn" ]; do
+  pair=$1
+  shift
+  set -- "$@" "$pair"
+  i=$((i + 1))
+done
+refused=0
+i=0
+while [ "$i" -lt "$voln" ]; do
+  spec=$1
+  shift
+  vol=${spec%%:*}
+  line=$(docker volume inspect --format '{{.Driver}} {{json .Options}} {{index .Labels "deploy-workload"}}' -- "$vol" 2>/dev/null) || true
+  if [ "$line" != "local null $name" ] && [ "$line" != "local {} $name" ]; then
+    printf '%s\n' "volume-refused:$vol:$line"
+    refused=1
+  fi
+  set -- "$@" "$spec"
+  i=$((i + 1))
+done
+if [ "$refused" -ne 0 ]; then
+  exit 1
+fi
+i=0
+while [ "$i" -lt "$envn" ]; do
+  pair=$1
+  shift
+  set -- "$@" -e "$pair"
+  i=$((i + 1))
+done
+i=0
+while [ "$i" -lt "$voln" ]; do
+  spec=$1
+  shift
+  set -- "$@" -v "$spec"
+  i=$((i + 1))
+done
+set -- docker run -d --name "$name" --network "wl-$name" --restart no --label "deploy-workload=$name" "$@" -- "$digest"
+"$@"
+```
+
+For each requested volume, the script creates it with the label when it is absent, then inspects every requested volume. The volume name is the text of the operand before its one colon. The inspect line is the same format the inspection uses. Unless that line is exactly `local null <name>` or exactly `local {} <name>`, the script prints `volume-refused:<volume>:<line>` and exits nonzero, and it does not run the container. It inspects every requested volume before that exit. It does not remove a volume. A root process acting on the machine between the check and the run is not something any check here can stop.
+
+The `docker run` arguments are exactly `docker`, `run`, `-d`, `--name`, the name, `--network`, `wl-<name>`, `--restart`, `no`, `--label`, `deploy-workload=<name>`, then each `-e` and `KEY=VALUE`, then each `-v` and `<volume>:<path>`, then `--`, then the digest. No command after the digest. `--restart` stays `no` until the verify question passes.
+
+Take the direct-call question of the answer. Continue to the verify read only when the answer is `ok`, or `remote_failure` naming this identifier with `exit_code` 0, and the output has no `volume-refused:` line. A `volume-refused:` line means the container was not run. Do not remove a volume. Any other answer stops the run. Do not run the script again.
 
 ### What did the verify read show?
 
@@ -694,12 +771,12 @@ Judge both with the config question. Take the first match.
 - The config body is null. Stop. Do not POST. The config is no longer the one the plan gated.
 - The shape does not hold. Stop. Do not POST. Say Caddy carries configuration this skill did not write.
 - The hostname or the id is present, and the gated inspection did not have it. Stop. Do not POST. The config moved. Copy the body.
-- Both reads are successful, the shape holds, and the hostname is absent. POST once, to the routes path, with `If-Match` set to the routes `Etag`. `argv` is `curl`, `-sS`, `-D`, `-`, `--max-time`, `15`, `--unix-socket`, `/var/lib/caddy-admin/admin.sock`, `-H`, `Content-Type: application/json`, `-H`, `If-Match: <etag>`, `-X`, `POST`, `--data-binary`, the body, `http://localhost/config/apps/http/servers/workloads/routes`. The body is exactly `{"@id":"workload-<name>","match":[{"host":["<hostname>"]}],"handle":[{"handler":"reverse_proxy","upstreams":[{"dial":"<name>:<port>"}]}],"terminal":true}`.
+- Both reads are successful, the shape holds, and the hostname is absent. POST once, to the routes path, with `If-Match` set to the config `Etag` from this same read, not the routes `Etag`. `argv` is `curl`, `-sS`, `-D`, `-`, `--max-time`, `15`, `--unix-socket`, `/var/lib/caddy-admin/admin.sock`, `-H`, `Content-Type: application/json`, `-H`, `If-Match: <etag>`, `-X`, `POST`, `--data-binary`, the body, `http://localhost/config/apps/http/servers/workloads/routes`. `<etag>` is that config `Etag`. The body is exactly `{"@id":"workload-<name>","match":[{"host":["<hostname>"]}],"handle":[{"handler":"reverse_proxy","upstreams":[{"dial":"<name>:<port>"}]}],"terminal":true}`.
 
 What did the POST answer?
 
 - The status line is `200`. The route is in place. Take the curl question.
-- The status line is `412`. The call changed nothing: another change reached the routes between the read and the POST. Read the config and the routes again, once, with the same script. A re-read that is not successful: stop, do not POST again. A null config body: stop, the config moved, copy the body. The shape does not hold: stop, do not POST again, and say Caddy carries configuration this skill did not write. The hostname and the id are still absent: POST once more with the new routes `Etag`. Either is now present: stop, the config moved, copy the body. A second `412` stops: do not POST again in this run, copy the body, the container stays, name what was left.
+- The status line is `412`. The call changed nothing. A `412` here means the config changed anywhere. Read the config and the routes again, once, with the same script. A re-read that is not successful: stop, do not POST again. A null config body: stop, the config moved, copy the body. The shape does not hold: stop, do not POST again, and say Caddy carries configuration this skill did not write. The hostname and the id are still absent: POST once more, with `If-Match` set to the config `Etag` from that re-read, the same read whose body passed the shape check, not the routes `Etag`. Either is now present: stop, the config moved, copy the body. A second `412` stops: do not POST again in this run, copy the body, the container stays, name what was left.
 - Any other answer. Stop. Copy it. Do not POST again. Do not claim the route is in place.
 
 ### What did the curl from the machine answer?
@@ -734,16 +811,18 @@ The route. Take the first match.
 - The socket is absent, and a container named `caddy` exists. The route was not read. Stop. Remove nothing. A route left in a stopped Caddy would return with it.
 - The socket is present. GET `http://localhost/id/workload-<name>`. `argv` is `curl`, `-sS`, `-D`, `-`, `--max-time`, `10`, `--unix-socket`, `/var/lib/caddy-admin/admin.sock`, and that URL. The person is told the GET is a read. The status line is the first header line from `-D -`. Curl's exit is not 0, or there is no status line: the route was not read. Stop. Remove nothing. The status line is `404`, or the body says the object id is unknown: the route is absent. Do not DELETE. A successful read, as the config question defines one, whose removal check holds: the route is this skill's. A successful read whose removal check does not hold: the route is not this skill's. Stop. Remove nothing. Copy the body and the `Etag`. Any other answer: the route was not read. Stop. Remove nothing. Copy the body and the `Etag` when they came back.
 
-The removal check holds only when all three are true. The GET's status line is `200`. The `Etag` path field, as the config question defines it, is `/config/apps/http/servers/workloads/routes/` followed by one or more digits and nothing else. The body is one route whose `@id` is `workload-<name>`, whose `handle` is a list of one object whose `handler` is `reverse_proxy` and whose `upstreams` is a list of one object, and that object's `dial` begins `<name>:`.
+The removal check holds only when all three are true. The GET's status line is `200`. The `Etag` path field, as the config question defines it, is `/config/apps/http/servers/workloads/routes/` followed by one or more digits and nothing else. The body is exactly the route this skill generates, as the config question defines that object, with `@id` `workload-<name>` and `dial` `<name>:<port>` for some port. A port is a whole number from 1 to 65535, written in digits, with no sign and no leading zero.
 
 When the route is this skill's, DELETE `http://localhost/id/workload-<name>` with `If-Match` set to that GET's `Etag` value. `argv` is `curl`, `-sS`, `-D`, `-`, `--max-time`, `15`, `--unix-socket`, `/var/lib/caddy-admin/admin.sock`, `-H`, `If-Match: <etag>`, `-X`, `DELETE`, and that URL.
 
-- The DELETE status line is `200`. The route is removed. Continue.
-- The DELETE status line is `404`. The route was already gone. Continue.
+- The DELETE status line is `200`. The route is removed live. Take the saved-config read.
+- The DELETE status line is `404`. The route was already gone live. Take the saved-config read.
 - The DELETE status line is `412`. The call changed nothing. Stop. Remove nothing further. Copy the body.
 - Any other DELETE answer. Stop. Remove nothing further. Copy the body.
 
-The container re-read runs only when the container was this skill's, and only after the route step. It is a read: `docker`, `inspect`, `--format`, `{{.Id}} {{index .Config.Labels "deploy-workload"}}`, `--`, the name. The first field is the ID. The second field is the label. A second field that is empty or `<no value>` is no label.
+The saved-config read runs only after a DELETE whose status line is `200` or `404`, and before the container and the network. It is one read. The person is told it is a read. `argv` is `docker`, `exec`, `caddy`, `cat`, `/config/caddy/autosave.json`. The route counts toward `changed` only when that answer is `ok`, or `remote_failure` naming this identifier with `exit_code` 0, and the output parses as JSON, and no object in it has `@id` equal to `workload-<name>`. Otherwise report the route removed live but still in the saved config, and stop before the container and the network. Do not remove either.
+
+The container re-read runs only when the container was this skill's, and only after the route step. When a DELETE was sent, it runs only after the saved-config read passed. It is a read: `docker`, `inspect`, `--format`, `{{.Id}} {{index .Config.Labels "deploy-workload"}}`, `--`, the name. The first field is the ID. The second field is the label. A second field that is empty or `<no value>` is no label.
 
 - The label is the workload name. `docker`, `rm`, `-f`, `--`, that ID.
 - The inspect says no such object. The container is already absent. Continue to the network.
@@ -768,7 +847,7 @@ exit 0
 
 A disconnect that fails because Caddy was not connected still continues to `network rm`. Named volumes are kept. The report says so.
 
-The gate question applies to the whole removal plan before the first of these change calls. The way back named is a new Job 1, not sent in this run. Each removal call is sent once, and a failure is not retried. Re-inspect. `changed` means the re-inspection shows the container absent, the network absent, and the route absent. The route is absent when the socket is present, the routes were a successful read, and the id is not in them, or when no container named `caddy` exists and the `caddy-config` volume does not exist. `unchanged` means that was already true before any removal call. Anything else is failed, with the call's outcome and the re-inspection.
+The gate question applies to the whole removal plan before the first of these change calls. The way back named is a new Job 1, not sent in this run. Each removal call is sent once, and a failure is not retried. Re-inspect. `changed` means the re-inspection shows the container absent, the network absent, and the route absent. The route is absent when the socket is present, the routes were a successful read, and the id is not in them, or when no container named `caddy` exists and the `caddy-config` volume does not exist. Where a DELETE was sent, the route counts toward `changed` only when the saved-config read parsed and contained no object whose `@id` is `workload-<name>`. A saved config that does not is not `changed`: the report says the route was removed live but is still in the saved config, and the container and the network were not removed. `unchanged` means that was already true before any removal call. Anything else is failed, with the call's outcome and the re-inspection.
 
 ### What did the job do?
 
@@ -824,7 +903,7 @@ This question is for a `vm.command.run` that is not a job start, poll, read-back
 
 After a job, re-inspect when the job question says to. After the route, or after Job 2's last removal call, inspect again with the same inspection script. The approval question applies, and the person is told it is a read. A job that exited 0 is not yet `changed`.
 
-The requested state for Job 1: the workload container's status is `running`, its label is the workload name, the routes body contains the id and the hostname, and the curl question got an answer. The certificate verified only when a strict curl exited 0 with a code other than `000`. A `-k` answer is served and not publicly trusted. The requested state for Job 2 is the one that question states: the container absent, the network absent, and the route absent.
+The requested state for Job 1: the workload container's status is `running`, its label is the workload name, the routes body contains the id and the hostname, and the curl question got an answer. The certificate verified only when a strict curl exited 0 with a code other than `000`. A `-k` answer is served and not publicly trusted. The requested state for Job 2 is the one that question states: the container absent, the network absent, and the route absent. Where a DELETE was sent, the route is not removed for `changed` unless the saved-config read parsed and contained no object whose `@id` is `workload-<name>`.
 
 - The re-inspection is incomplete, `truncated`, absent, or not a state, under the same rules as the first inspection. Do not claim `changed` or `unchanged`. Report failed, with the change call's outcome and the re-inspection's outcome, any `exit_code`, and the output. Do not repeat the change.
 - Job 1's requested state holds, and it did not hold in the before-state. `changed`. The report adds the URL, whether it answered, whether the certificate verified, and the image digest.
@@ -843,7 +922,7 @@ For a public name, the report also says what the URL still needs outside the gue
 
 For a name under `.localhost`, say it is reachable only from the machine.
 
-Name the IPv6 gap: this skill publishes the IPv4 source address only.
+Name the IPv6 gap: this skill publishes the IPv4 source address only. `ss` prints a dual-stack IPv6 wildcard socket as `*:<port>` and an IPv6-only one as `[::]:<port>`. Name `[::]:80` and `[::]:443`, when they were read, as IPv6 listeners, under that gap. A removal whose saved-config read did not parse, or whose file still holds an object with `@id` `workload-<name>`, says the route was removed live but is still in the saved config, and says the container and the network were not removed.
 
 For each job, also: its unit name, its invocation ID and its limit, the last poll's state, the read-back lines verbatim and the line count shown, and the release outcome. Then the re-inspection, as the re-inspection question reports it. A job not read as finished after six polls is reported in the state the last poll that was read showed, or as unknown when none was read, with the unit name, the invocation ID and the limit, and that asking again later reads its result through the second-run rule.
 
@@ -852,21 +931,22 @@ An environment value the person confirmed is not a secret is shown. A secret is 
 ## Pitfalls
 
 - **The request is ambiguous.** More than one machine, more than one workload, a deploy and a removal together, or an install of Docker with no workload. Ask before any call.
+- **A package or unit change kept in this run because a workload was named.** Hand each such change to `skills/VM Configure/` on its own, whether or not a workload is named. Docker's own installation for this deployment stays here. An install of Docker with no workload is asked, and Docker is not installed with nothing to deploy.
 - **A machine that is not on the map, or whose health is not `ok`.** Stop. Not on the map: point to `skills/Prepare VM/`. Not reachable: name the outcome the way `skills/VM Inventory/` does. Change nothing.
 - **The router host.** Stop before any change. Name the gap. Do not deploy there because a job would run outside the router's sandbox.
 - **A failure with no `machine`, called unreachable or called a finished deploy.** It does not establish whether the router reached the machine. On a read of health, not determined, and stop. On a change, the outcome is unknown until the re-inspection.
 - **`vendor_error` treated as the machine's answer.** It does not establish whether the call ran.
 - **`busy` treated as a down machine.** The machine was not asked. Do not repeat the change.
-- **A value that fails its pattern, sent anyway.** Ask. Never send the other form. The workload name, the image, the port, and every mount stay operands or their own argv elements.
+- **A value that fails its pattern, sent anyway.** Ask. Never send the other form. The workload name, the image, the port, and every mount stay operands or their own argv elements. The workload script's name, digest, environment count, each pair, volume count, and each volume are operands and are never spliced into the script.
 - **A secret in an environment value.** Show the value and ask. A secret is the gap. It is not sent and it is not written into the plan.
-- **A host path, or a bind mount, sent as a volume.** The source has to be a named volume. Refuse the path by name. Refuse `caddy-config` and `caddy-data` by name. An existing volume is accepted only when its driver is `local`, its options are `null` or `{}`, and its label is the workload name. Anything else stops. A volume that does not exist is created with `docker volume create --label deploy-workload=<name> -- <volume>` before the workload `docker run`. Job 2 keeps named volumes.
-- **A shell write.** No redirection, no `tee`, and no `sed -i`, except the repository job's key and `docker.sources`, and except the lock and the token inside the starter and the release the tool emits.
+- **A host path, or a bind mount, sent as a volume.** The source has to be a named volume. Refuse the path by name. Refuse `caddy-config` and `caddy-data` by name. An existing volume is accepted only when its driver is `local`, its options are `null` or `{}`, and its label is the workload name. Anything else stops. A volume that does not exist is created with the label by the workload script, in the same call that runs the container, and only when it is absent. That call then inspects every requested volume and exits nonzero, printing `volume-refused:<volume>:<line>`, unless the line is exactly `local null <name>` or `local {} <name>`. It does not run the container otherwise, and it does not remove a volume. A root process acting on the machine between the check and the run is not something any check here can stop. Job 2 keeps named volumes.
+- **A shell write.** No redirection, no `tee`, and no `sed -i`, except the repository job's key and `docker.sources`, and except the lock and the token inside the starter and the release the tool emits. The workload script discards the existence check's `docker volume inspect` output, and it discards the format inspect's stderr. The format line is kept. That discard is not a write. The inspection discards what `command -v` prints, and `dpkg-query` discards its own stderr.
 - **Docker installed where forwarding is already on, or on a distribution that is not Ubuntu.** Stop. Name the gap. Docker sets the `FORWARD` policy to `DROP`.
 - **A pull sent as a direct `docker pull`.** A pull is a job. So are the repository job and the install job. A machine whose systemd is older than 254 does not get either. Name the gap.
 - **Caddy published on every address.** The publish is `<addr>:80` and `<addr>:443`, the default route's source address. Never all addresses.
-- **A whole-config write.** The first POST to `/config/` happens only when that GET was a successful read and its body was null, and it carries `If-Match`. A route POST uses `If-Match` from a successful routes read. Whenever the routes are read, the config holds exactly one HTTP server, `workloads`, and every route is this skill's shape, with hostnames compared case-insensitively. A route or a server outside that shape: stop, and say Caddy carries configuration this skill did not write. A read that is not successful is not read. A `412` re-reads the config and the routes once and posts once more only when that re-read is successful, the shape holds, and the hostname and the id are still absent. A second `412` stops.
+- **A whole-config write.** The first POST to `/config/` happens only when that GET was a successful read and its body was null, and it carries `If-Match`. A route POST, and its one retry after a `412`, carry `If-Match` set to the `Etag` from the same `GET /config/` whose body passed the shape check, not the routes path's `Etag`. Caddy checks an `If-Match` against the config at the path the Etag names, so the write proceeds only when the whole config is unchanged since that read. A `412` here means the config changed anywhere. Whenever the shape is checked, the config's top-level keys are exactly `apps`, `apps` holds exactly `http`, `http` holds exactly `servers`, and `servers` has exactly one key, `workloads`. Anything else, an `admin` block that turns persistence off included, stops the run. Every route is exactly the object this skill generates, with hostnames compared case-insensitively. Any other route stops the run, a deploy or a removal, and the report says Caddy carries configuration this skill did not write. A read that is not successful is not read. A `412` re-reads the config and the routes once and posts once more only when that re-read is successful, the shape holds, and the hostname and the id are still absent, using the new config `Etag`. A second `412` stops.
 - **A route added for a container that did not answer.** The verify read comes first. No `HTTP/` line, or a status that is not `running`: logs, failed, no route, and Job 2 is named. This run does not remove the container.
-- **A container, a network, or a route removed that is not this skill's.** Each is judged on its own: absent, this skill's, or not this skill's. Any one present and not this skill's stops the run and nothing is removed. The container is removed with `docker rm -f -- <id>` from `{{.Id}} {{index .Config.Labels "deploy-workload"}}` only when the label is the workload name. The network is disconnected and removed by the ID from `{{.Id}} {{index .Labels "deploy-workload"}}` only when the label is the workload name. A route is deleted only when the id GET is HTTP `200`, the `Etag` path field is `/config/apps/http/servers/workloads/routes/` followed by digits and nothing else, and the body is a `reverse_proxy` whose `@id` is `workload-<name>` with exactly one upstream whose `dial` begins `<name>:`.
+- **A container, a network, or a route removed that is not this skill's.** Each is judged on its own: absent, this skill's, or not this skill's. Any one present and not this skill's stops the run and nothing is removed. Any route in the server that is not exactly the object this skill generates stops the run, a deploy or a removal. The container is removed with `docker rm -f -- <id>` from `{{.Id}} {{index .Config.Labels "deploy-workload"}}` only when the label is the workload name. The network is disconnected and removed by the ID from `{{.Id}} {{index .Labels "deploy-workload"}}` only when the label is the workload name. A route is deleted only when the id GET is HTTP `200`, the `Etag` path field is `/config/apps/http/servers/workloads/routes/` followed by digits and nothing else, and the body is exactly the route this skill generates, with `@id` `workload-<name>` and `dial` `<name>:<port>` for some port. After that DELETE, one read, `docker exec caddy cat /config/caddy/autosave.json`. The route counts toward `changed` only when that file parses and no object in it has `@id` `workload-<name>`. Otherwise report the route removed live but still in the saved config, and stop before the container and the network.
 - **A route left unread because no container named `caddy` is present, while the volume `caddy-config` exists.** Stop. The saved config may still route to this workload and would return with Caddy. Remove nothing. Only when no container named `caddy` and no `caddy-config` volume exist may removal proceed without reading a route.
 - **`ca-certificates`, `curl`, or `gpg` installed by the repository job.** They are not installed here. When one is not installed, stop before the gate, name it, and hand it to `skills/VM Configure/`. The repository script checks each with `dpkg-query` and exits nonzero, naming any that is not.
 - **A second job started while one is loaded.** The second-run questions. A running job stops the run. A finished one is released and the run starts over from its inspection, once.
@@ -874,13 +954,13 @@ An environment value the person confirmed is not a secret is shown. A secret is 
 - **A job's exit 0 reported as the URL answering.** The re-inspection and the curl decide. A stuck job is not released.
 - **A `.localhost` name reported as a public URL.** It is reachable only from the machine. Its certificate is not publicly trusted.
 - **A public URL reported as finished because the guest curl answered.** Name the provider firewall and the DNS record. Hand the DNS part to `experts/IT Expert/` in `wiser`.
-- **IPv6 published, or a dual-stack listener treated as free.** Do not publish IPv6. A listener on `[::]:80`, `[::]:443`, `*:80`, or `*:443` holds the source address, because a dual-stack socket accepts IPv4. Only this skill's Caddy's own `<addr>:80` and `<addr>:443` are allowed. Name the IPv6 gap.
+- **IPv6 published, or an IPv6 listener misread.** Do not publish IPv6. `ss` prints a dual-stack IPv6 wildcard socket as `*:<port>` and an IPv6-only one as `[::]:<port>`. A hold on the source address is `<addr>:80`, `<addr>:443`, `0.0.0.0:80`, `0.0.0.0:443`, `*:80`, or `*:443`. `[::]:80` and `[::]:443` do not hold IPv4. Name them in the report as IPv6 listeners, under the IPv6 gap. Only this skill's Caddy's own `<addr>:80` and `<addr>:443` are allowed.
 - **A credential, or `docker login`.** Do not ask. A pull the registry denies names the private-registry gap.
 - **The fleet called down.** A router-host failure, or a `list_hosts` `vendor_error`, means connector access to the whole fleet depends on the router host. Workloads keep serving.
 
 ## Success
 
-- The report covers one machine and one workload. A request that named more than one was asked, and nothing was called before the answer.
+- The report covers one machine and one workload. A request that named more than one was asked, and nothing was called before the answer. When the request had a package or unit change other than Docker's own installation for this deployment, that change was handed to `skills/VM Configure/` on its own, whether or not a workload was named. When the request was only an install of Docker and named no workload, it was asked, and nothing was installed.
 - The machine was on the map and `vm.inventory.health` was `ok` before any inspection or change. Otherwise the report says not on the map and points to `skills/Prepare VM/`, or names the health outcome the way `skills/VM Inventory/` does, and nothing was changed.
 - The router host was stopped before any change, and the report names the gap for a workload on the router host.
 - Patterns were refused by name before any call. A secret was not sent. A host path was not sent. `caddy-config` and `caddy-data` were refused by name.
@@ -890,9 +970,9 @@ An environment value the person confirmed is not a secret is shown. A secret is 
 - Docker was installed only when it was absent, `ID` was `ubuntu`, systemd was 254 or later, IPv4 forwarding was off globally and on every interface, and `ca-certificates`, `curl` and `gpg` were already installed. A missing one of those three was named before the gate and handed to `skills/VM Configure/`, and the repository script did not install it. The repository job and the install job were the two jobs, purposes `docker-repo` and `docker-install`, limits 600 and 1800. The install operands were the simulation's `Inst` lines, each pinned, and only the allowed names. Any other distribution, or a machine that already forwards, named the gap and was not installed.
 - Each pull was one job, purpose `docker-pull`, limit 1800, the reference an operand, and the container was run from the digest that job printed. A tag was not run. Systemd older than 254 named the gap and was not pulled.
 - Caddy, when created, was the container named `caddy`, label `deploy-workload=caddy`, `--restart unless-stopped`, command `caddy run --resume`, admin socket under `/var/lib/caddy-admin`, published only on the source address at 80 and 443. A Caddy that was not this skill's stopped the run. The first config was sent only when GET `/config/` was a successful read and its body was null, with `If-Match`.
-- The workload published no port. It joined `wl-<name>`. A volume that did not exist was created with `docker volume create --label deploy-workload=<name> -- <volume>` before `docker run`. An existing volume was used only when its driver was `local`, its options were `null` or `{}`, and its label was the workload name. The container was started with `--restart no`, and was set to `unless-stopped` only after `docker inspect` showed it running and the wget from inside Caddy printed an `HTTP/` line. Otherwise the report failed, with the state and `docker logs --tail 50`, no route was added, and Job 2 was named and not run.
-- The route was one POST of the one route object, with `If-Match` from a successful routes read, after a successful config read of this skill's shape, hostnames compared case-insensitively. A `412` re-read the config and the routes once and posted once more only when that re-read was successful, the shape held, and the hostname and the id were still absent, and a second `412` stopped the run. A removal judged the container, the network, and the route each on its own. A route was deleted only when the id GET passed the removal check, and a `404` on the id was the route already absent. The container was removed by its ID and the network by its ID, only when each label was the workload name. A `caddy-config` volume with no container named `caddy` stopped the removal.
+- The workload published no port. It joined `wl-<name>`. The volume creates and the container were one call. The name, the digest, the environment count, each pair, the volume count, and each volume were operands, never spliced. A volume that did not exist was created with the label when absent, every requested volume was inspected, and the container was not run unless each line was exactly `local null <name>` or `local {} <name>`. A refusal printed `volume-refused:<volume>:<line>` and removed nothing. A root process acting on the machine between the check and the run is not something any check here can stop. An existing volume was used only when its driver was `local`, its options were `null` or `{}`, and its label was the workload name. The container was started with `--restart no`, and was set to `unless-stopped` only after `docker inspect` showed it running and the wget from inside Caddy printed an `HTTP/` line. Otherwise the report failed, with the state and `docker logs --tail 50`, no route was added, and Job 2 was named and not run.
+- The route was one POST of the one route object, with `If-Match` set to the `Etag` from the same `GET /config/` whose body passed the shape check, not the routes path's `Etag`. The shape required top-level keys exactly `apps`, `apps` exactly `http`, `http` exactly `servers`, and `servers` exactly `workloads`, and every route was exactly the object this skill generates, hostnames compared case-insensitively. Anything else, an `admin` block that turns persistence off included, stopped the run. A `412` meant the config changed anywhere. It re-read the config and the routes once and posted once more only when that re-read was successful, the shape held, and the hostname and the id were still absent, using that re-read's config `Etag`, and a second `412` stopped the run. A removal judged the container, the network, and the route each on its own. Any other route in the server stopped the run. A route was deleted only when the id GET passed the removal check, `dial` `<name>:<port>` for some port included, and a `404` on the id was the route already absent. After the DELETE, `docker exec caddy cat /config/caddy/autosave.json` was read, and the route counted toward `changed` only when that file parsed and held no object whose `@id` is `workload-<name>`. Otherwise the report said the route was removed live but is still in the saved config, and the container and the network were not removed. The container was removed by its ID and the network by its ID, only when each label was the workload name. A `caddy-config` volume with no container named `caddy` stopped the removal.
 - The curl from the machine was the one the curl question states. Exit 60 was reported as not publicly trusted, with the `-k` result. A public name was tried at most three times. A `.localhost` name was said to be reachable only from the machine.
 - The report names, per part, the inspection, the plan, the gate's verdict or that no gate was taken, each call's outcome, the re-inspection, and `changed`, `unchanged`, or failed. It names the URL, whether it answered, whether the certificate verified, and the image digest. For a public name it names the provider firewall and the DNS record, and the DNS part was handed to `experts/IT Expert/` in `wiser`, which sequences `skills/Zone Publisher/`.
 - Per job the report names the unit name, the invocation ID, the limit, the last poll's state, the read-back lines and the line count shown, and the release outcome. A job was polled at most six times, each wait at most 40 seconds. Release followed a poll that read the job finished. A stuck job was not released.
-- No credential was asked for. The source address was not printed as a field. IPv6 was not published, and that gap was named. A listener on `[::]:80`, `[::]:443`, `*:80`, or `*:443` was treated as holding the port.
+- No credential was asked for. The source address was not printed as a field. IPv6 was not published, and that gap was named. A listener on `*:80` or `*:443` was treated as holding the port. `[::]:80` and `[::]:443` were named as IPv6 listeners, under the IPv6 gap, and were not treated as holding IPv4.

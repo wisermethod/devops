@@ -189,6 +189,8 @@ Before handing over the inspection, a poll, a read-back, a journal read, a socke
 
 ### What did the inspection answer?
 
+Docker's wording for an absent object is read without regard to case. Measured with Docker 29.8.2: a missing container prints `error: no such object: <name>`, a missing network `Error response from daemon: network <name> not found`, and a missing volume `Error response from daemon: get <name>: no such volume`.
+
 One `vm.command.run`, a read, with `machine` set to the identifier and `argv` exactly `/bin/sh`, `-c`, the script, `sh`, the workload name, and then each requested volume name. The workload name is the first operand. Each volume name is a further operand. Job 2 passes the workload name and no volume name. None of them is written into the script. The person is told the call is a read. Its only redirection discards what `command -v` prints, and `dpkg-query` discards its own stderr. `<script>` is this text and no other:
 
 ```
@@ -376,8 +378,8 @@ The source line is the `ip` output. The address is the field immediately after t
 
 Ask when Docker is present. The caddy line's first field is the status. The second field is the label, unless it is empty or `<no value>` or starts with `{`, in which case there is no label. The JSON is the remainder, from the first `{`. The socket section says `socket-present` or `socket-absent`. Our published ports are exactly two keys, `80/tcp` and `443/tcp`, each with one binding, `HostIp` the source address, `HostPort` `80` and `443`. Take the first match.
 
-- `caddy-inspect-exit` is not 0 and the section contains `No such object`, and the socket says `socket-absent`. Caddy is not present. The plan creates it when the listener question allows.
-- `caddy-inspect-exit` is not 0 and the section contains `No such object`, and the socket says `socket-present`. Stop. A socket with no container named `caddy` is not this skill's. Change nothing.
+- `caddy-inspect-exit` is not 0 and the section contains `no such object`, compared without regard to case, and the socket says `socket-absent`. Caddy is not present. The plan creates it when the listener question allows.
+- `caddy-inspect-exit` is not 0 and the section contains `no such object`, compared without regard to case, and the socket says `socket-present`. Stop. A socket with no container named `caddy` is not this skill's. Change nothing.
 - The label is not `caddy`. Stop. The container named `caddy` is not this skill's. Change nothing.
 - The ports JSON is missing or is not exactly our published ports. Stop. Name the ports. It is not this skill's. Change nothing.
 - The label is `caddy`, the ports match, and the socket says `socket-absent`. Stop. Name the status. A Caddy with no socket is not one this run uses, a stopped container of ours included. This run does not start it. Change nothing.
@@ -422,7 +424,7 @@ Read the listeners section. `listeners-exit` not 0 means the listeners were not 
 
 Ask when Docker is present. The workload line is read the way the caddy line is. The container exists when `workload-inspect-exit` is 0. The network exists when `network-inspect-exit` is 0. When the network exists, the first field is the ID and the second field is the label. A second field that is empty or `<no value>` is no label. Take the first match.
 
-- `workload-inspect-exit` is not 0 and the section contains `No such object`, and `network-inspect-exit` is not 0 and the section contains `No such network`. The name is free. Job 1 continues. Job 2: the container and the network are absent. The removal question judges the route.
+- `workload-inspect-exit` is not 0 and the section contains `no such object`, compared without regard to case, and `network-inspect-exit` is not 0 and the section contains `no such network` or `not found`, compared without regard to case. The name is free. Job 1 continues. Job 2: the container and the network are absent. The removal question judges the route.
 - The network exists and its label is not the workload name. Stop. The network is not this skill's. Remove nothing. Change nothing.
 - The container exists and its label is not the workload name. Stop. The name is taken. Do not remove it. Change nothing.
 - The container exists and its label is the workload name. Job 1: stop. Changing it is the gap for changing a deployed workload's image or settings in place. Name Job 2. Do not change it. Job 2: the container is this skill's. The removal question judges the network and the route each on its own.
@@ -434,7 +436,7 @@ Ask when Docker is present. The workload line is read the way the caddy line is.
 Ask on Job 1 when at least one volume was named. Each volume is one `volume:<name>` line, the inspect line after it, and the `volume-exit:` line after that, in operand order. Take the first match.
 
 - The section says `volumes-not-read`. Docker is absent. The volumes were not read as existing volumes. The workload script creates each when it is absent, after Docker is installed, in the same call as the container. Continue.
-- Every volume is one of these two: its `volume-exit` is not 0 and its inspect text contains `No such volume`, or its exit is 0 and its inspect line is exactly `local null <workload name>` or exactly `local {} <workload name>`. A volume that does not exist is created by the workload script, with the label, when it is absent. A volume whose line matches is not created again. That same call inspects every requested volume again and does not run the container unless each line is exactly `local null <name>` or `local {} <name>`. Continue.
+- Every volume is one of these two: its `volume-exit` is not 0 and its inspect text contains `no such volume`, compared without regard to case, or its exit is 0 and its inspect line is exactly `local null <workload name>` or exactly `local {} <workload name>`. A volume that does not exist is created by the workload script, with the label, when it is absent. A volume whose line matches is not created again. That same call inspects every requested volume again and does not run the container unless each line is exactly `local null <name>` or `local {} <name>`. Continue.
 - Any volume was not read, or an existing volume's driver is not `local`, or its options are not `null` or `{}`, or its label is not the workload name. Stop. Copy the section. Do not create a volume. Change nothing.
 
 ### Is any environment value a secret?
@@ -799,15 +801,15 @@ A public name: at most three strict tries, about 20 seconds apart.
 
 The map, the health, the role, the inspection, the token, and the loaded-job questions are the ones above. Judge the container, the network, and the route each on its own before the gate: absent, this skill's, or not this skill's. Any one that was not read, or that is present and not this skill's, stops the run. Remove nothing. All three absent: `unchanged`. No gate. No removal call. Otherwise the plan removes whatever is this skill's, in the order route, then container, then network, and skips an absent one. The id GET below is part of judging the route. The DELETE is the first removal call, and it waits until the container and the network have been judged.
 
-The container is absent when `workload-inspect-exit` is not 0 and the section contains `No such object`. It is this skill's when the exit is 0 and the label is the workload name. Any other container that was read is not this skill's.
+The container is absent when `workload-inspect-exit` is not 0 and the section contains `no such object`, compared without regard to case. It is this skill's when the exit is 0 and the label is the workload name. Any other container that was read is not this skill's.
 
-The network is absent when `network-inspect-exit` is not 0 and the section contains `No such network`. It is this skill's when the exit is 0 and the label is the workload name. A network that exists with another label, or with no label, is not this skill's.
+The network is absent when `network-inspect-exit` is not 0 and the section contains `no such network` or `not found`, compared without regard to case. It is this skill's when the exit is 0 and the label is the workload name. A network that exists with another label, or with no label, is not this skill's.
 
 The route. Take the first match.
 
-- No container named `caddy` (`caddy-inspect-exit` is not 0 and the section contains `No such object`), the socket says `socket-absent`, and `caddy-config-exit` is not 0 and the section contains `No such volume`. The route is absent. Removal may proceed without reading a route.
+- No container named `caddy` (`caddy-inspect-exit` is not 0 and the section contains `no such object`, compared without regard to case), the socket says `socket-absent`, and `caddy-config-exit` is not 0 and the section contains `no such volume`, compared without regard to case. The route is absent. Removal may proceed without reading a route.
 - No container named `caddy`, and `caddy-config-exit` is 0. Stop. The saved config may still route to this workload and would return with Caddy. Remove nothing.
-- No container named `caddy`, and either the caddy-config section was not read, or `caddy-config-exit` is not 0 and the section does not contain `No such volume`. The route was not read. Stop. Remove nothing.
+- No container named `caddy`, and either the caddy-config section was not read, or `caddy-config-exit` is not 0 and the section does not contain `no such volume`, compared without regard to case. The route was not read. Stop. Remove nothing.
 - The socket is absent, and a container named `caddy` exists. The route was not read. Stop. Remove nothing. A route left in a stopped Caddy would return with it.
 - The socket is present. GET `http://localhost/id/workload-<name>`. `argv` is `curl`, `-sS`, `-D`, `-`, `--max-time`, `10`, `--unix-socket`, `/var/lib/caddy-admin/admin.sock`, and that URL. The person is told the GET is a read. The status line is the first header line from `-D -`. Curl's exit is not 0, or there is no status line: the route was not read. Stop. Remove nothing. The status line is `404`, or the body says the object id is unknown: the route is absent. Do not DELETE. A successful read, as the config question defines one, whose removal check holds: the route is this skill's. A successful read whose removal check does not hold: the route is not this skill's. Stop. Remove nothing. Copy the body and the `Etag`. Any other answer: the route was not read. Stop. Remove nothing. Copy the body and the `Etag` when they came back.
 

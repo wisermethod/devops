@@ -582,7 +582,7 @@ printf '%s\n' '--- digest ---'
 docker image inspect --format '{{index .RepoDigests 0}}' -- "$1"
 ```
 
-The digest is the single non-empty line after `--- digest ---`. It matches `^[a-z0-9][a-z0-9._/-]*@sha256:[0-9a-f]{64}$`. That line is the image the run uses. A tag is not used.
+The digest is the single non-empty line after `--- digest ---`. In a read-back each line is a journal line, and its text begins after the first `]: ` (measured: `2026-10-06T00:17:54+00:00 <host> sh[197009]: caddy@sha256:...`); read the line's text after that prefix, both for the `--- digest ---` marker and for the digest. It matches `^[a-z0-9][a-z0-9._/-]*@sha256:[0-9a-f]{64}$`. That line is the image the run uses. A tag is not used.
 
 - The line matches. That is the digest. Continue.
 - The line is missing, and the pull's class was `succeeded` or a finished failure whose read-back may have dropped the end. One direct read, which the person is told is a read: `docker`, `image`, `inspect`, `--format`, `{{index .RepoDigests 0}}`, `--`, and the reference. A single matching line is the digest. Anything else: stop. Do not pull again. Do not run a tag.

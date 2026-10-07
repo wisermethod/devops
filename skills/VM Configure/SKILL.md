@@ -3,7 +3,7 @@ name: VM Configure
 type: skill
 category: operations
 description: Change one apt package or apply every pending upgrade, or change one systemd unit, or one package and then one unit, on one machine a person's router maps, running each package change as a tracked background job after inspecting that machine, and report whether it changed, through a router the person already runs
-version: 0.3.0
+version: 0.3.1
 gaps:
   - a router this plugin does not ship, which every change goes through
   - a package manager other than apt
@@ -69,6 +69,8 @@ On Ubuntu, an apt hook (`needrestart`) restarts the services that use an upgrade
 
 `busy` means the router was at its concurrency limit and the machine was not asked. `vendor_error` does not establish whether the call ran. A failure outcome whose answer carries no `machine` does not establish whether the router reached the machine. `remote_failure` carries the command's `exit_code` and its `output` when the command ran.
 
+Through the Wiser endpoint every call has 20 seconds. A call that outlasts that bound answers `status` `uncertain`, and the endpoint does not retry it. Read `uncertain` everywhere this skill reads `vendor_error`. It does not establish whether the call ran, or whether the router reached the machine.
+
 `systemctl status` exits 0 for an active unit, 3 for an inactive or dead one, and 4 when no such unit exists. Exit 1 and exit 2 are systemd's other dead codes. Through `vm.units.status` a nonzero exit is `remote_failure` with that `exit_code` and the status text in `output`.
 
 Call one action at a time. Do not start the next call until this call's answer is classified.
@@ -107,7 +109,8 @@ Call it with `{}` before any other call. Do not retry this call, except the one 
 - `outcome` is `ok` and `hosts` is empty. The map holds no machine. Point to `skills/Prepare VM/`. Stop. Change nothing.
 - `status` is `needs_confirmation`. The approval question. Take the repeated call's answer as this call's answer.
 - `status` is `needs_provider_capability` and the message says this connector is not offered on the hosted endpoint. Change nothing. The route is the local gateway in a command-line harness, through `skills/Set Up Connectors/` and `gateway/SETUP.md` in `wiser`. Do not say the endpoint will never offer the connector. Stop.
-- `status` is `needs_connect`, `denied`, or `vendor_error`, or any other gateway status. Change nothing. Hand that status to `skills/Connection Troubleshooter/` in `wiser` for its one next step. On `needs_connect`, the module is the one the answer names, and `inventory` when it names none. On `vendor_error`, say that connector access to the whole fleet depends on the router host. Do not say the fleet is down. Workloads keep serving while the router is unreachable. Stop.
+- `status` is `uncertain`. Not determined. The answer does not establish whether the call ran, or whether the router reached the machine. Do not hand it to `skills/Connection Troubleshooter/`. Do not say that connector access to the whole fleet depends on the router host. Stop. Change nothing.
+- `status` is `needs_connect`, `denied`, or `vendor_error`, or any other gateway status other than `uncertain`. Change nothing. Hand that status to `skills/Connection Troubleshooter/` in `wiser` for its one next step. On `needs_connect`, the module is the one the answer names, and `inventory` when it names none. On `vendor_error`, say that connector access to the whole fleet depends on the router host. Do not say the fleet is down. Workloads keep serving while the router is unreachable. Stop.
 - Any other answer. Change nothing. Name the `outcome` or the `status` verbatim. Do not call the map empty. Do not retry. Stop.
 
 ### Is this machine on the map?
@@ -587,7 +590,7 @@ Send the planned start once. Save the answer. Classify it with `classify --step 
 
 What did the poll read?
 
-Each poll is the tool's `poll`. The wait is at most 40 seconds, passed as `--wait`. At most six polls in a row. Each is a read, and the person is told it is a read. Save the answer. Classify with `classify --step poll --recorded` the invocation ID recorded for this run. When none was recorded, because the start's class was `unknown`, classify without `--recorded`: a poll whose class is neither `not-read` nor `unrecognized`, and whose facts carry an `invocationId` that is not null, records that ID, and every later poll passes it as `--recorded`. Until then each poll is classified without `--recorded`. Take the first match.
+Each poll is the tool's `poll`. The wait is at most 10 seconds, passed as `--wait`. At most six polls in a row. Each is a read, and the person is told it is a read. Save the answer. Classify with `classify --step poll --recorded` the invocation ID recorded for this run. When none was recorded, because the start's class was `unknown`, classify without `--recorded`: a poll whose class is neither `not-read` nor `unrecognized`, and whose facts carry an `invocationId` that is not null, records that ID, and every later poll passes it as `--recorded`. Until then each poll is classified without `--recorded`. Take the first match.
 
 - The class is `other-invocation`. Stop. Change nothing. Report both IDs: the one recorded, and the `InvocationID` in the facts.
 - The class is `succeeded`, `signal`, `failed-exit`, `failed-timeout`, or `failed-other`. `finished` is true. Read it back by the recorded invocation ID: the tool's `readback`, sent as the `argv` it prints, unchanged. Classify that answer. A class `truncated` is read again with fewer lines. The report names the line count in the facts. A class `read` carries the job's own journal lines, which the report copies. A class `not-read` says the read-back was not read. The person is told the read-back is a read. Then release.
@@ -610,10 +613,10 @@ A job's success is not the change's success. The re-inspection decides `changed`
 This question is for `vm.units.service`. Send the planned call once. The approval question applies. Do not repeat a change call on a failure or an unclear answer. Do not send the way back because a call failed.
 
 - `outcome` is `ok`, `truncated`, or `remote_failure`, and the answer names this identifier in `machine`. The call came back. Re-inspect.
-- `outcome` is `timeout`, `killed`, or `request_timeout`, or `status` is `vendor_error`, or a failure outcome carries no `machine`. The outcome is unknown until the re-inspection. Say that. Re-inspect. Do not repeat the call.
+- `outcome` is `timeout`, `killed`, or `request_timeout`, or `status` is `vendor_error` or `uncertain`, or a failure outcome carries no `machine`. The outcome is unknown until the re-inspection. Say that. Re-inspect. Do not repeat the call.
 - `outcome` is `busy`. The machine was not asked. Re-inspect. Do not repeat the call.
 - `outcome` is `unknown_machine`. Do not repeat the call. Read `vm.inventory.list_hosts` once. Absent: it left the map, point to `skills/Prepare VM/`. Still listed: name the contradiction. Change nothing further.
-- `status` is `needs_connect`, `denied`, `invalid_arguments`, or another gateway status other than `needs_confirmation`. The call did not run as a router result. Hand the status to `skills/Connection Troubleshooter/` in `wiser`. On `needs_connect`, the module is `command` for a package call and `units` for a unit call, unless the answer names one. Re-inspect only when the module that reads the state is connected. Otherwise say the re-inspection could not be made. Do not claim `changed` or `unchanged`. Do not repeat the call.
+- `status` is `needs_connect`, `denied`, `invalid_arguments`, or another gateway status other than `needs_confirmation` and other than `uncertain`. The call did not run as a router result. Hand the status to `skills/Connection Troubleshooter/` in `wiser`. On `needs_connect`, the module is `command` for a package call and `units` for a unit call, unless the answer names one. Re-inspect only when the module that reads the state is connected. Otherwise say the re-inspection could not be made. Do not claim `changed` or `unchanged`. Do not repeat the call.
 - Any other answer. Name it verbatim. Re-inspect when a read of the state is still possible. Do not repeat the call.
 
 ### What did the re-inspection show?
@@ -681,7 +684,7 @@ No credential, address, or hostname is asked for or printed as a field. An ident
 - **The audit non-empty, repaired here.** `dpkg --configure -a` configures every pending package, path packages included. Name the pending packages. The repair is the person's, over the provider's console.
 - **A credential, an address, or a hostname asked for or printed as a field.** Do not ask. Do not print one as a field. Copied output stays copied output.
 - **Another package manager's commands borrowed.** Stop. Name the gap, and name the `ID` and `ID_LIKE` lines.
-- **The fleet called down.** A router-host failure, or a `list_hosts` `vendor_error`, means connector access to the whole fleet depends on the router host. Workloads keep serving.
+- **The fleet called down.** A router-host failure, or a `list_hosts` `vendor_error`, means connector access to the whole fleet depends on the router host. A `list_hosts` `uncertain` does not establish whether the call ran, and it does not say that. Workloads keep serving.
 
 ## Success
 
@@ -692,7 +695,7 @@ No credential, address, or hostname is asked for or printed as a field. An ident
 - Already in the requested state is `unchanged`, with no change and no gate. `restart` and `reload` of a unit that exists were changes. A loaded job was handled by the second-run questions before any decision to change: a running one stopped the run, a finished one was released and the run started over from its inspection at most once, and a stuck one was left to the person.
 - A change was sent only after `experts/DevOps Expert/` returned safe as planned, or safe with named conditions the person was told, and only after the person approved that call's stop. `skills/Connection Troubleshooter/` in `wiser` was the stop. A declined change had no further call. A `token-changed` start ran nothing, and a later start waited for a new inspection and a new gate.
 - Each package change was one job, sent at most once: install, remove, upgrade of one package, `apt-get update`, and Job 4. The `argv` was the `argv` the tool's `start` printed, sent unchanged: `/bin/sh`, `-c`, the starter the tool emits, `sh`, the unit name, the limit, the token the inspection read, the job script, the operation, and the package operands. The limit was 1800 seconds for one package, 600 for `update`, and 3600 for Job 4. Reads stayed direct. A unit change was `vm.units.service`, not a job, and it did not take the lock or renew the token.
-- A job was polled at most six times, each wait at most 40 seconds, each told to the person as a read. The read-back used the recorded invocation ID. Release followed a poll that read the job finished, and the person was told it unloads the finished job and removes no log. `release-exit:0` with `load-state:not-found` is the released outcome. A stuck job was not released.
+- A job was polled at most six times, each wait at most 10 seconds, each told to the person as a read. The read-back used the recorded invocation ID. Release followed a poll that read the job finished, and the person was told it unloads the finished job and removes no log. `release-exit:0` with `load-state:not-found` is the released outcome. A stuck job was not released.
 - A job's own success was not reported as the change's success. The re-inspection decided `changed`, `unchanged`, or failed. A `timeout` result, an unknown-history `not-found`, a stuck job, or a start whose outcome was unknown was re-inspected where a read was possible, and the change was not repeated. Past six polls, the report gave the last state a poll read, or unknown when none was read, never running unless a poll read it so, with its unit name, invocation ID and limit, and that a later ask reads it through the second-run rule.
 - A non-empty `dpkg --audit` before a change stopped the run. A non-empty audit after a change said the package database was left mid-change and named the pending packages. No repair was sent.
 - A path package was not removed, upgraded, or replaced through the router, and no path unit, or alias of one, was changed with any verb. On the router host, a package the person said is or carries their router was not changed, and a unit the person said is their router was not changed. The run did not stop a package change because the inspection ran inside the router's sandbox. A job that printed `not-writable:` and exited 3 installed nothing. A unit change that would reach another unit was stopped.

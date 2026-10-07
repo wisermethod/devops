@@ -3,7 +3,7 @@ name: Prepare VM
 type: skill
 category: operations
 description: Enroll an existing machine into a fleet reached over a tailnet through a router the person already runs, merge that tailnet's access policy, register the machine, and report whether it joined, or take the machine back out
-version: 0.1.0
+version: 0.1.1
 gaps:
   - a router this plugin does not ship, which enrollment requires the person to already run
 ---
@@ -23,6 +23,8 @@ Driving a provider console in a browser is `tools/Browser Control/` in `wiser`. 
 No session sees a credential value. The person generates, holds, and enters each one: the router's bearer, a Tailscale auth key if they choose to use one, and any key for the one-time path. This skill never asks for one. Nothing in a transcript, a file in a repository, or this skill carries one.
 
 Irreversible effects are the person's hands. This skill composes and explains. The person runs them: terminating an instance, deleting a tailnet device, and anything that destroys storage. The person saves the tailnet policy, after the console's Preview changes. Every reversible change on a machine is confirmed before it runs.
+
+Through the Wiser endpoint every call has 20 seconds. A call that outlasts that bound answers `status` `uncertain`, and the endpoint does not retry it. Read `uncertain` everywhere this skill reads `vendor_error`. It does not establish whether the call ran, or whether the router reached the machine.
 
 Classifier seam: none.
 
@@ -180,7 +182,7 @@ An idle path can be slow. A health `timeout` is retried up to three times, a few
 
 The outcomes are the ones `connectors/vm/CONNECTOR.md` in `wiser` names. `ok`, `remote_failure`, `timeout`, `busy`, `path_refused`, `unknown_machine`, `truncated`, `oversize`, and `quote_refused` are the router's results. An outer provider or transport failure is `vendor_error`. `needs_connect` means connect the named module. `denied` means the shipped default policy denies privilege `admin` for the runtime role, and no request was sent, until the gateway home policy allows service `vm` at privilege `admin`.
 
-The report says enrolled only when all three checks pass. Otherwise it says not enrolled, names the first failing check, and names the next step: `needs_connect`, `denied`, not offered on the hosted endpoint, `unknown_machine`, unreachable, or `vendor_error`. Any other router outcome is reported under the name the connector gives it, and the machine is not called enrolled.
+The report says enrolled only when all three checks pass. Otherwise it says not enrolled, names the first failing check, and names the next step: `needs_connect`, `denied`, not offered on the hosted endpoint, `unknown_machine`, unreachable, `vendor_error`, or `uncertain`. Any other router outcome is reported under the name the connector gives it, and the machine is not called enrolled.
 
 ### Running it twice
 
@@ -281,6 +283,7 @@ Call `vm.inventory.list_hosts` through the gateway. An accepted call returns a l
 - `needs_connect`. Next step: `needs_connect`. The person connects the `inventory` module through `skills/Connect Account/` in `wiser`. The bearer is entered on the provider's hosted page. Registration of the toolkit is `connectors/vm/auth.md` in `wiser`.
 - `denied`. Next step: `denied`. No request was sent. The gateway home policy has to allow service `vm` at privilege `admin`, as `connectors/vm/auth.md` in `wiser` states.
 - `vendor_error`. Next step: `vendor_error`. Do not treat it as a router outcome.
+- `uncertain`. Next step: `uncertain`. Do not treat it as a router outcome. It does not establish whether the call ran, or whether the router reached the machine.
 - The call is accepted. Continue.
 
 The toolkit recovery in the contract runs when the toolkit, its auth config, the connection, or the project is lost. Follow that order. Do not ask for the old value.
@@ -308,7 +311,7 @@ What did the command answer?
 Run the three checks in the contract, in order. Stop at the first failure.
 
 - All three pass. Report enrolled, and the `changed` line for each step above.
-- The first failure is `needs_connect`, `denied`, the hosted endpoint not offering the connector, `unknown_machine` (including an identifier `list_hosts` does not list), a health result that is still `timeout` after the retries (unreachable), or `vendor_error`. Report not enrolled, that check, and that next step.
+- The first failure is `needs_connect`, `denied`, the hosted endpoint not offering the connector, `unknown_machine` (including an identifier `list_hosts` does not list), a health result that is still `timeout` after the retries (unreachable), `vendor_error`, or `uncertain`. Report not enrolled, that check, and that next step.
 - The first failure is another router outcome. Report not enrolled and that outcome's name. Do not rename it.
 
 **11. Is anything left from the one-time path?**
@@ -358,7 +361,7 @@ Terminating the instance, or destroying its storage, is the person's act. It is 
 
 ## Success
 
-- The report says enrolled, or not enrolled with the first failing check and one next step: `needs_connect`, `denied`, not offered on the hosted endpoint, `unknown_machine`, unreachable, or `vendor_error`. Another router outcome is named as itself.
+- The report says enrolled, or not enrolled with the first failing check and one next step: `needs_connect`, `denied`, not offered on the hosted endpoint, `unknown_machine`, unreachable, `vendor_error`, or `uncertain`. Another router outcome is named as itself.
 - Each host step reports `changed` or `unchanged`. A re-run on an enrolled machine reports no change.
 - Once the machine is enrolled, no provisioning key from a computer the person works from is still accepted on it, and no inbound SSH rule opened for the one-time path is still open, or the report says which one remains and why.
 - The policy the person saved is a merge. The two blocks most likely already there are still present, verbatim, when they were present before. `experts/DevOps Expert/` gated the draft before the save and before a machine was changed, or the run wrote nothing and took no gate.

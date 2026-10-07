@@ -113,7 +113,7 @@ start:
 
 poll:
   --unit <unit>         The unit name start printed. Required.
-  --wait <seconds>      A whole number from 0 to 40, written in digits. Required.
+  --wait <seconds>      A whole number from 0 to 10, written in digits. Required.
 
 readback:
   --invocation <id>     32 lowercase hex characters. Required.
@@ -391,11 +391,11 @@ function invocationFrom(lines, unit) {
 }
 
 function classifyStart(answer, unit) {
-  if (typeof answer.status === 'string' && answer.status !== '' && answer.status !== 'vendor_error') {
-    return { class: 'gateway-status', facts: { status: answer.status } };
-  }
-  if (answer.status === 'vendor_error') {
+  if (answer.status === 'vendor_error' || answer.status === 'uncertain') {
     return { class: 'unknown', facts: unknownFacts(answer) };
+  }
+  if (typeof answer.status === 'string' && answer.status !== '') {
+    return { class: 'gateway-status', facts: { status: answer.status } };
   }
   const lines = linesOf(answer.output);
   const invocationId = invocationFrom(lines, unit);
@@ -605,7 +605,7 @@ function commandStart(values, operands) {
 
 function commandPoll(values) {
   const unit = checkUnit('--unit', requireFlag(values, '--unit'));
-  const wait = wholeNumber('--wait', requireFlag(values, '--wait'), 0, 40);
+  const wait = wholeNumber('--wait', requireFlag(values, '--wait'), 0, 10);
   return { command: 'poll', argv: ['/bin/sh', '-c', POLL, 'sh', unit, wait] };
 }
 

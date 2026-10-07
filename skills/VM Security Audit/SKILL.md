@@ -3,7 +3,7 @@ name: VM Security Audit
 type: skill
 category: operations
 description: Report listening ports, SSH configuration, pending updates and world-writable paths on one machine, flag the facts that match this skill's rules, and name what a guest cannot show, read through a router the person already runs
-version: 0.1.1
+version: 0.1.2
 gaps:
   - a router this plugin does not ship, which the audit reads through
   - security lists, network security groups, public IP assignment, IAM policy and encryption at rest, which are not visible from inside a guest
@@ -22,6 +22,8 @@ This plugin does not ship a router, and no primitive in this root provides one. 
 Security lists, network security groups, public IP assignment, IAM policy and encryption at rest are not visible from inside a guest. Every report this skill delivers names those five. A guest read that flags nothing is not a clean machine.
 
 Reaching the gateway is `skills/Set Up Connectors/` and `gateway/SETUP.md` in `wiser`. Connecting a module is `skills/Connect Account/` in `wiser`. The toolkit registration is `connectors/vm/auth.md` in `wiser`. Cite those files. Do not restate them. The outcome vocabulary is `connectors/vm/CONNECTOR.md` in `wiser`. The connector passes the router's outcome string through unchanged. A gateway status is `status` on the answer. A router result is `outcome`. Do not rename either.
+
+Through the Wiser endpoint every call has 20 seconds. A call that outlasts that bound answers `status` `uncertain`, and the endpoint does not retry it. Read `uncertain` everywhere this skill reads `vendor_error`. It does not establish whether the call ran, or whether the router reached the machine.
 
 `vm.command.run` runs the argument vector as root. Every call, a read included, is `confirmation: always`: the gateway answers `needs_confirmation` first and runs the call only when the identical call repeats with `confirm: true` after the person approves that stop. The gateway holds a stop for 15 minutes. An approval that arrives later is `unmatched_confirm` with a fresh stop for the same input. `skills/Connection Troubleshooter/` in `wiser` owns that stop.
 
@@ -126,7 +128,8 @@ Call it with `{}` before any machine. Do not retry this call, except the one re-
 - `outcome` is `ok` and `hosts` is an empty list. The map holds no machine. Point to `skills/Prepare VM/`. When the scope names identifiers, list each as not on the router's map. The count is zero machines in scope, and those named identifiers beside it. Stop.
 - `status` is `needs_confirmation`. The approval question. Take the repeated call's answer as this call's answer.
 - `status` is `needs_provider_capability` and the message says this connector is not offered on the hosted endpoint. No audit. The route is the local gateway in a command-line harness, through `skills/Set Up Connectors/` and `gateway/SETUP.md` in `wiser`. Do not say the endpoint will never offer the connector. Stop.
-- `status` is `needs_connect`, `denied`, or `vendor_error`, or any other gateway status. No audit. Hand that status to `skills/Connection Troubleshooter/` in `wiser` for its one next step. On `needs_connect`, the module is the one the answer names, and `inventory` when it names none. On `vendor_error`, say that connector access to the whole fleet depends on the router host. Do not say the fleet is down. Workloads keep serving while the router is unreachable. Stop.
+- `status` is `uncertain`. Not determined. No audit. The answer does not establish whether the call ran, or whether the router reached the machine. Do not hand it to `skills/Connection Troubleshooter/`. Do not say that connector access to the whole fleet depends on the router host. Stop.
+- `status` is `needs_connect`, `denied`, or `vendor_error`, or any other gateway status other than `uncertain`. No audit. Hand that status to `skills/Connection Troubleshooter/` in `wiser` for its one next step. On `needs_connect`, the module is the one the answer names, and `inventory` when it names none. On `vendor_error`, say that connector access to the whole fleet depends on the router host. Do not say the fleet is down. Workloads keep serving while the router is unreachable. Stop.
 - Any other answer. No audit. Name the `outcome` or the `status` verbatim. Do not call the map empty. Do not retry. Stop.
 
 ### Which rows are in scope?
@@ -473,7 +476,7 @@ A question beyond these rules was handed to `experts/DevOps Expert/`, which load
 - **A decline that erases a finished row or a decided health.** The finished row stands. A decided health stays decided. Later machines are not determined, declined.
 - **A stop confirmed that is a different call.** Do not confirm it. An `unmatched_confirm` is a fresh stop. Wait for approval of that stop.
 - **A credential, an address, or a hostname asked for or printed as a field.** Do not ask. Do not print one as a field. Copied output stays copied output.
-- **The fleet called down.** A router-host row that is unreachable, or a `list_hosts` `vendor_error`, means connector access to the whole fleet depends on the router host. Workloads keep serving.
+- **The fleet called down.** A router-host row that is unreachable, or a `list_hosts` `vendor_error`, means connector access to the whole fleet depends on the router host. A `list_hosts` `uncertain` does not establish whether the call ran, and it does not say that. Workloads keep serving.
 - **Another action used.** Do not call `vm.inventory.facts`, a file read, or a file write. The audit call is the one script.
 - **A read sent for a gate.** Do not ask for one. The audit takes no gate.
 

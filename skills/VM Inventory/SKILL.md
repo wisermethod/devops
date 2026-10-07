@@ -3,7 +3,7 @@ name: VM Inventory
 type: skill
 category: operations
 description: List every machine a person's router maps, or the machines they name, each with its role, whether it is reachable, and the facts the router returned, read through a router the person already runs
-version: 0.1.0
+version: 0.1.1
 gaps:
   - a router this plugin does not ship, which the inventory reads through
 ---
@@ -19,6 +19,8 @@ Not for creating a machine. The person provisions a machine by hand. Not for enr
 This plugin does not ship a router, and no primitive in this root provides one. The inventory reads through a router the person already runs. The calls are `vm.inventory.list_hosts`, `vm.inventory.health`, and `vm.inventory.facts`, and no other action.
 
 Reaching the gateway is `skills/Set Up Connectors/` and `gateway/SETUP.md` in `wiser`. Connecting the `inventory` module is `skills/Connect Account/` in `wiser`. The toolkit registration is `connectors/vm/auth.md` in `wiser`. Cite those files. Do not restate them. The outcome vocabulary is `connectors/vm/CONNECTOR.md` in `wiser`. The connector passes the router's outcome string through unchanged. A gateway status is `status` on the answer. A router result is `outcome`. Do not rename either.
+
+Through the Wiser endpoint every call has 20 seconds. A call that outlasts that bound answers `status` `uncertain`, and the endpoint does not retry it. Read `uncertain` everywhere this skill reads `vendor_error`. It does not establish whether the call ran, or whether the router reached the machine.
 
 No credential is asked for, printed, or written into a file in a repository. The report asks for no address and no hostname, and it prints none as a field of its own. The facts cell is the router's output copied verbatim.
 
@@ -75,7 +77,8 @@ Call it with `{}` before any machine. Do not retry this call.
 - `outcome` is `ok` and `hosts` is a list of one or more entries. Each entry has `id` and `self`. That list is the enrolled population, in the order it came back. A machine that is not on it is not enrolled. Continue.
 - `outcome` is `ok` and `hosts` is an empty list. The map holds no machine. Report that, state when the call was read, and point to `skills/Prepare VM/`. When the scope names identifiers, list each as not on the router's map, and say the report covered only those and the map holds no other identifier. The count is zero machines in scope, and those named identifiers beside it. Stop.
 - `status` is `needs_provider_capability` and the message says this connector is not offered on the hosted endpoint. No inventory. The route is the local gateway in a command-line harness, through `skills/Set Up Connectors/` and `gateway/SETUP.md` in `wiser`. Do not say the endpoint will never offer the connector. Stop.
-- `status` is `needs_connect`, `denied`, or `vendor_error`, or any other gateway status but `needs_confirmation`, which the approval question settles. No inventory. Hand that status to `skills/Connection Troubleshooter/` in `wiser` for its one next step. On `needs_connect`, the module is `inventory`. When the status is `vendor_error`, also say that connector access to the whole fleet depends on the router host. Do not say the fleet is down. Workloads keep serving while the router is unreachable. Stop.
+- `status` is `uncertain`. Not determined. No inventory. The answer does not establish whether the call ran, or whether the router reached the machine. Do not hand it to `skills/Connection Troubleshooter/`. Do not say that connector access to the whole fleet depends on the router host. Stop.
+- `status` is `needs_connect`, `denied`, or `vendor_error`, or any other gateway status other than `needs_confirmation` and other than `uncertain`. `needs_confirmation` is the approval question. No inventory. Hand that status to `skills/Connection Troubleshooter/` in `wiser` for its one next step. On `needs_connect`, the module is `inventory`. When the status is `vendor_error`, also say that connector access to the whole fleet depends on the router host. Do not say the fleet is down. Workloads keep serving while the router is unreachable. Stop.
 - Any other answer, including an `outcome` that is not a list of hosts. No inventory. Name the `outcome` or the `status` verbatim. Do not call the map empty. Do not retry. Stop.
 
 ### Which rows are in the report?
@@ -149,7 +152,7 @@ State when the first `list_hosts` was read. One row per machine in scope, in `ho
 - **A router failure called unreachable.** A failure outcome with no `machine` does not establish whether the router reached the machine. Not determined, with the outcome and any `reason`.
 - **A subset the map cannot show, guessed.** `list_hosts` carries identifiers and the router-host flag only. A request for the production machines, or any other subset not named by identifier or as the router host, is asked about before any call.
 - **A name the map does not hold, called unreachable.** Report it as not on the router's map. Do not call `health`. `connectors/vm/CONNECTOR.md` in `wiser` says what the list leaves out. Do not say the identifier was withdrawn.
-- **The fleet called down.** A router-host row that is unreachable, or a `list_hosts` that fails with `vendor_error`, means connector access to the whole fleet depends on the router host. Workloads keep serving. Do not say the fleet is down.
+- **The fleet called down.** A router-host row that is unreachable, or a `list_hosts` that fails with `vendor_error`, means connector access to the whole fleet depends on the router host. A `list_hosts` `uncertain` does not establish whether the call ran, and it does not say that. Workloads keep serving. Do not say the fleet is down.
 - **A fact the output does not carry.** Copy `output` verbatim. Do not state a memory, disk, package, or service figure.
 - **An identifier the connector cannot address, dropped.** `invalid_arguments` on `machine` still gets a row. Health is not determined. Nothing was sent.
 - **A retry that the answer did not earn.** Retry only `busy`, `timeout`, `connect_timeout`, `request_timeout`, `killed`, `remote_failure`, or `vendor_error`, and only on `health` or `facts`, at most three times. `unknown_machine`, `invalid_arguments`, `needs_connect`, and `denied` are not retried. `list_hosts` is not retried, except the one re-read after `unknown_machine`.
@@ -170,8 +173,8 @@ State when the first `list_hosts` was read. One row per machine in scope, in `ho
 - The only calls were `vm.inventory.list_hosts`, `vm.inventory.health`, and `vm.inventory.facts`. One machine at a time. A retry ran only for the outcomes Steps names, at most three times, and only on `health` or `facts`.
 - An empty map is reported as holding no machine, and the next step named is `skills/Prepare VM/`.
 - An answer that this connector is not offered on the hosted endpoint names the local gateway in a command-line harness, through `skills/Set Up Connectors/` and `gateway/SETUP.md` in `wiser`, and does not say the endpoint will never offer the connector.
-- `needs_connect`, `denied`, `vendor_error`, or another gateway status on `list_hosts` was handed to `skills/Connection Troubleshooter/` in `wiser`, and no inventory was reported from it.
-- A router-host row that is unreachable, or a `list_hosts` `vendor_error`, says that connector access to the whole fleet depends on the router host, and does not say the fleet is down.
+- `needs_connect`, `denied`, `vendor_error`, or another gateway status other than `uncertain` on `list_hosts` was handed to `skills/Connection Troubleshooter/` in `wiser`, and no inventory was reported from it. `uncertain` was not handed there. It does not establish whether the call ran, or whether the router reached the machine.
+- A router-host row that is unreachable, or a `list_hosts` `vendor_error`, says that connector access to the whole fleet depends on the router host, and does not say the fleet is down. A `list_hosts` `uncertain` does not establish whether the call ran, and it does not say that the fleet depends on the router host.
 - No gate was asked for, the skill added no confirmation, a call stopped by the person's own policy repeated only after they approved that stop, and nothing was written.
 - A hostname, a DNS record, or a zone was handed to `experts/IT Expert/` in `wiser`, which sequences `skills/Zone Publisher/`.
 - A request whose scope could not be read, or that narrowed the machines, in whole or in part, by anything but identifiers or the router host, was asked about, and nothing was called before the answer.

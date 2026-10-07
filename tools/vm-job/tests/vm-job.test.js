@@ -240,8 +240,8 @@ describe('refusals', () => {
       refused(['start', '--purpose', 'apt', '--limit', '1.5', '--token', 'none', '--script', path], /--limit must be a whole number from 1 to 86400/);
       refused(['start', '--purpose', 'apt', '--limit', '+1', '--token', 'none', '--script', path], /--limit must be a whole number from 1 to 86400/);
       refused(['poll', '--unit', UNIT, '--wait', '-1'], /--wait needs a value/);
-      refused(['poll', '--unit', UNIT, '--wait', '41'], /--wait must be a whole number from 0 to 40/);
-      refused(['poll', '--unit', UNIT, '--wait', '00'], /--wait must be a whole number from 0 to 40/);
+      refused(['poll', '--unit', UNIT, '--wait', '11'], /--wait must be a whole number from 0 to 10/);
+      refused(['poll', '--unit', UNIT, '--wait', '00'], /--wait must be a whole number from 0 to 10/);
       refused(['journal', '--unit', UNIT, '--lines', '0'], /--lines must be a whole number from 1 to 2000/);
       refused(['journal', '--unit', UNIT, '--lines', '2001'], /--lines must be a whole number from 1 to 2000/);
       refused(['readback', '--invocation', ID.slice(1), '--lines', '1'], /--invocation must be 32 lowercase hex/);
@@ -264,7 +264,7 @@ describe('refusals', () => {
       assert.equal(built.argv[6], TOKEN);
       ok(['start', '--purpose', 'apt', '--limit', '1', '--token', 'none', '--script', path]);
       ok(['poll', '--unit', UNIT, '--wait', '0']);
-      ok(['poll', '--unit', UNIT, '--wait', '40']);
+      ok(['poll', '--unit', UNIT, '--wait', '10']);
       ok(['journal', '--unit', UNIT, '--lines', '1']);
       ok(['journal', '--unit', UNIT, '--lines', '2000']);
       const purpose = 'a'.repeat(89);
@@ -729,6 +729,50 @@ describe('review round 2 boundaries', () => {
       assert.equal(result.class, 'unrecognized');
       assert.equal(result.facts.invocationId, null);
       assert.equal(result.facts.InvocationID, null);
+    });
+  });
+
+  it('classifies status uncertain on every step', () => {
+    const uncertain = {
+      status: 'uncertain',
+      action: 'vm.command.run',
+      reason: 'The outcome of this action could not be confirmed. It will not be retried.'
+    };
+    withDir((dir) => {
+      const start = ok(['classify', '--step', 'start', '--unit', UNIT, '--answer', writeAnswer(dir, {
+        ...uncertain,
+        exit_code: 0,
+        output: `Running as unit: ${UNIT}.service; invocation ID: ${ID}\nstart-exit:0\n`
+      })]);
+      assert.equal(start.class, 'unknown');
+      assert.deepEqual(start.facts, { status: 'uncertain' });
+      assert.equal(Object.hasOwn(start, 'finished'), false);
+
+      const poll = ok(['classify', '--step', 'poll', '--answer', writeAnswer(dir, uncertain)]);
+      assert.equal(poll.class, 'not-read');
+      assert.equal(poll.finished, false);
+      assert.equal(poll.facts.invocationId, null);
+      for (const field of ['LoadState', 'ActiveState', 'SubState', 'Result', 'ExecMainCode', 'ExecMainStatus', 'InvocationID', 'TasksCurrent', 'ExecMainStartTimestamp', 'ExecMainExitTimestamp']) {
+        assert.equal(poll.facts[field], null, field);
+      }
+
+      const recorded = ok(['classify', '--step', 'poll', '--recorded', ID, '--answer', writeAnswer(dir, uncertain)]);
+      assert.equal(recorded.class, 'not-read');
+      assert.equal(recorded.finished, false);
+      assert.equal(recorded.facts.recorded, ID);
+      assert.equal(Object.hasOwn(recorded.facts, 'invocationId'), false);
+
+      for (const step of ['readback', 'journal']) {
+        const result = ok(['classify', '--step', step, '--answer', writeAnswer(dir, uncertain)]);
+        assert.equal(result.class, 'not-read', step);
+        assert.deepEqual(result.facts, { lines: null });
+        assert.equal(Object.hasOwn(result, 'finished'), false);
+      }
+
+      const release = ok(['classify', '--step', 'release', '--answer', writeAnswer(dir, uncertain)]);
+      assert.equal(release.class, 'unknown');
+      assert.deepEqual(release.facts, { status: 'uncertain' });
+      assert.equal(Object.hasOwn(release, 'finished'), false);
     });
   });
 

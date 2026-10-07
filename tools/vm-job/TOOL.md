@@ -130,7 +130,7 @@ The outcome names are the ones `connectors/vm/CONNECTOR.md` in `wiser` publishes
 
 **Starting it** is one `vm.command.run` whose `argv` is the array `start` prints: `/bin/sh`, `-c`, the starter below, `sh`, the unit name, the limit in seconds, the token the inspection read, the job's script, and then any operands the job takes, which reach the job's script as `$1` onward. The script and its operands are never spliced into the starter's text, so a package name stays an operand all the way to the command that uses it.
 
-**Polling it** is one `vm.command.run` whose `argv` is the array `poll` prints. The wait is at most 10 seconds, so the call, the wait included, stays inside the Wiser endpoint's bound of 20 seconds. A call that outlasts that bound answers `status` `uncertain`, and the endpoint does not retry it. The router's own limit of 60 seconds is the looser bound.
+**Polling it** is one `vm.command.run` whose `argv` is the array `poll` prints. The wait is at most 10 seconds, which leaves the call headroom inside the Wiser endpoint's bound of 20 seconds without guaranteeing it: an SSH connection slower than usual can still carry a poll past it. That poll is `not-read`, and the next poll reads again. A call that outlasts that bound answers `status` `uncertain`, and the endpoint does not retry it. The router's own limit of 60 seconds is the looser bound.
 
 **Reading it back** is one `vm.command.run` whose `argv` is the array `readback` prints. It reads by the recorded invocation ID, not by the name's current one. A `truncated` answer is read again with fewer lines; the report says how many it shows. **The journal outlives release**, so the read-back can come before or after it.
 
@@ -202,7 +202,7 @@ The journal command, with no trailing newline, is `journalctl --no-pager -o shor
 
 Take the first match in the step. A marker class needs its marker line and its exit code together. A code without its marker, or a marker without its code, is not that class.
 
-On `start`, a non-empty `status` other than `vendor_error` and other than `uncertain` is `gateway-status` before any line is read, because a gateway stop is not a router result. `vendor_error` and `uncertain` are `unknown`, and their output is not read as a start. On `release`, any non-empty `status` is `unknown`, and its output is not read. On `poll`, the ten fields are read when `outcome` is `ok`, or `remote_failure` with a `machine`; any other outcome, a failure with no `machine`, or a gateway `status` is `not-read`. On `readback` and `journal`, an answer whose `outcome` is not `ok` is `not-read`, and `truncated` is its own class. A `needs_confirmation` answer is the caller's approval question. Classifying it does not say what the job did.
+On `start`, a non-empty `status` other than `vendor_error` and other than `uncertain` is `gateway-status` before any line is read, because a gateway stop is not a router result. `vendor_error` and `uncertain` are `unknown`, and their output is not read as a start. An `unknown` carries the answer's `action` when it is a string, because an `uncertain` can name an earlier call than this one. On `release`, any non-empty `status` is `unknown`, and its output is not read. On `poll`, the ten fields are read when `outcome` is `ok`, or `remote_failure` with a `machine`; any other outcome, a failure with no `machine`, or a gateway `status` is `not-read`. On `readback` and `journal`, an answer whose `outcome` is not `ok` is `not-read`, and `truncated` is its own class. A `needs_confirmation` answer is the caller's approval question. Classifying it does not say what the job did.
 
 ### start
 
@@ -211,7 +211,7 @@ Requires `--unit`, the unit this run's `start` printed. The started line has to 
 | Class | Means | Caller does next |
 |-------|-------|------------------|
 | `gateway-status` | `status` is a non-empty string other than `vendor_error` and other than `uncertain`. Facts are `{ status }`. Not a router result | The caller's approval question when the status is `needs_confirmation`. Any other status is the caller's gateway handling. Do not poll it as a start |
-| `unknown` from `vendor_error` or `uncertain` | `status` is `vendor_error` or `uncertain`. The output is not read. Facts carry `outcome` and `status` when those values are strings | Unknown whether it started. The `unknown` row below |
+| `unknown` from `vendor_error` or `uncertain` | `status` is `vendor_error` or `uncertain`. The output is not read. Facts carry `outcome`, `status` and `action` when those values are strings | Unknown whether it started. The `unknown` row below |
 | `started` | The line `Running as unit: <unit>.service; invocation ID: <32 hex>` and the line `start-exit:0`. Facts are `invocationId`, and `token` from the first line that begins `token:` and does not begin `token-changed:`. No such line leaves `token` null | Record the invocation ID. Poll |
 | `existing-job` | A line `existing-job` and `exit_code` 10. Facts `units` are the non-empty lines after that marker | Nothing was started. The second-run rule |
 | `lock-busy` | A line `lock-busy` and `exit_code` 11 | Nothing was started. Start again later with the same token. A token that moved is `token-changed` |
@@ -219,7 +219,7 @@ Requires `--unit`, the unit this run's `start` printed. The started line has to 
 | `token-changed` | A line beginning `token-changed:` and `exit_code` 15. Facts `token` is the text after the colon | Nothing was started. The plan is stale. Inspect again and gate again before any start |
 | `token-write-failed` | A line `token-write-failed` and `exit_code` 16 | Nothing was started. The token may have changed. Inspect again |
 | `refused-before-submission` | A line `start-exit:1` and a line containing `Failed to find executable` or `already loaded or has a fragment file` | Nothing was started. The token was renewed. Inspect again |
-| `unknown` | Any other answer: any other `start-exit`, `timeout`, `killed`, `request_timeout`, `connect_timeout`, `busy`, a failure with no `machine`, a `remote_failure` with no `start-exit:` line. Facts carry `outcome` and `status` when those values are strings, and otherwise `{}` | Unknown whether it started. `systemd-run` can fail after systemd has accepted the job. Poll by this run's name. A loaded class means it started, and the invocation ID that poll reads is the one to record. `not-loaded` is the history question. Never send the start again without a new inspection and a new approval |
+| `unknown` | Any other answer: any other `start-exit`, `timeout`, `killed`, `request_timeout`, `connect_timeout`, `busy`, a failure with no `machine`, a `remote_failure` with no `start-exit:` line. Facts carry `outcome`, `status` and `action` when those values are strings, and otherwise `{}` | Unknown whether it started. `systemd-run` can fail after systemd has accepted the job. Poll by this run's name. A loaded class means it started, and the invocation ID that poll reads is the one to record. `not-loaded` is the history question. Never send the start again without a new inspection and a new approval |
 
 ### poll
 
@@ -261,7 +261,7 @@ Without `--recorded`, facts also carry `invocationId`, the ID when it is set and
 | `invocation-mismatch` | A line beginning `invocation-mismatch:` and `exit_code` 13. Facts `invocationId` is the text after the colon | Released nothing. The token was left alone. Stop |
 | `not-finished` | A line beginning `not-finished:` and `exit_code` 14. Facts `state` is the text after the colon | Released nothing. The token was left alone |
 | `processes-remain` | A line beginning `processes-remain:` and `exit_code` 17. Facts `tasks` is the text after the colon | Released nothing. The token was left alone. Stuck: the person's, over the provider's console |
-| `unknown` | Any other answer. Facts carry `outcome` and `status` when those values are strings | Name it. Do not treat it as released |
+| `unknown` | Any other answer. Facts carry `outcome`, `status` and `action` when those values are strings | Name it. Do not treat it as released |
 
 ## Script Contract
 

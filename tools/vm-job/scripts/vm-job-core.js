@@ -377,6 +377,7 @@ function unknownFacts(answer) {
   const facts = {};
   if (typeof answer.outcome === 'string') facts.outcome = answer.outcome;
   if (typeof answer.status === 'string') facts.status = answer.status;
+  if (typeof answer.action === 'string') facts.action = answer.action;
   return facts;
 }
 

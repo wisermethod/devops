@@ -745,7 +745,7 @@ describe('review round 2 boundaries', () => {
         output: `Running as unit: ${UNIT}.service; invocation ID: ${ID}\nstart-exit:0\n`
       })]);
       assert.equal(start.class, 'unknown');
-      assert.deepEqual(start.facts, { status: 'uncertain' });
+      assert.deepEqual(start.facts, { status: 'uncertain', action: 'vm.command.run' });
       assert.equal(Object.hasOwn(start, 'finished'), false);
 
       const poll = ok(['classify', '--step', 'poll', '--answer', writeAnswer(dir, uncertain)]);
@@ -771,7 +771,7 @@ describe('review round 2 boundaries', () => {
 
       const release = ok(['classify', '--step', 'release', '--answer', writeAnswer(dir, uncertain)]);
       assert.equal(release.class, 'unknown');
-      assert.deepEqual(release.facts, { status: 'uncertain' });
+      assert.deepEqual(release.facts, { status: 'uncertain', action: 'vm.command.run' });
       assert.equal(Object.hasOwn(release, 'finished'), false);
     });
   });

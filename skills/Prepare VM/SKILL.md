@@ -24,7 +24,7 @@ No session sees a credential value. The person generates, holds, and enters each
 
 Irreversible effects are the person's hands. This skill composes and explains. The person runs them: terminating an instance, deleting a tailnet device, and anything that destroys storage. The person saves the tailnet policy, after the console's Preview changes. Every reversible change on a machine is confirmed before it runs.
 
-Through the Wiser endpoint every call has 20 seconds. A call that outlasts that bound answers `status` `uncertain`, and the endpoint does not retry it. Read `uncertain` everywhere this skill reads `vendor_error`. It does not establish whether the call ran, or whether the router reached the machine.
+Through the Wiser endpoint every call has 20 seconds. A call that outlasts that bound answers `status` `uncertain`, and the endpoint does not retry it. Read `uncertain` everywhere this skill reads `vendor_error`. It does not establish whether the call ran, or whether the router reached the machine. It can also be about an earlier call the endpoint failed to settle, and then the call just made did not run; `skills/Connection Troubleshooter/` in `wiser` names which call is in doubt.
 
 Classifier seam: none.
 
@@ -283,7 +283,7 @@ Call `vm.inventory.list_hosts` through the gateway. An accepted call returns a l
 - `needs_connect`. Next step: `needs_connect`. The person connects the `inventory` module through `skills/Connect Account/` in `wiser`. The bearer is entered on the provider's hosted page. Registration of the toolkit is `connectors/vm/auth.md` in `wiser`.
 - `denied`. Next step: `denied`. No request was sent. The gateway home policy has to allow service `vm` at privilege `admin`, as `connectors/vm/auth.md` in `wiser` states.
 - `vendor_error`. Next step: `vendor_error`. Do not treat it as a router outcome.
-- `uncertain`. Next step: `uncertain`. Do not treat it as a router outcome. It does not establish whether the call ran, or whether the router reached the machine.
+- `uncertain`. Next step: `uncertain`, which `skills/Connection Troubleshooter/` in `wiser` diagnoses. Do not treat it as a router outcome. It does not establish whether the call ran, or whether the router reached the machine.
 - The call is accepted. Continue.
 
 The toolkit recovery in the contract runs when the toolkit, its auth config, the connection, or the project is lost. Follow that order. Do not ask for the old value.

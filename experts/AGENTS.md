@@ -9,3 +9,9 @@ Personas that carry a perspective, judge work through it, and sequence the skill
 | Expert | Description | Owns |
 |--------|-------------|------|
 | `DevOps Expert/EXPERT.md` | Judge a proposed change to a running machine, a fleet of machines, a tailnet's access policy, or a cloud project a skill of this plugin changes, a workload deploy that also points a hostname at it included, for whether its reach passes its named target or it has no way back, gate the plan before anything is written, and hand the hostname or DNS part to IT Expert | `skills/Prepare VM/`; its gate runs on the plan, before the tailnet policy is saved or a machine is changed; `skills/VM Inventory/` is a read and takes no gate; `skills/VM Configure/`; its gate runs on the plan before any change call; `skills/VM Security Audit/` is a read and takes no gate; `skills/Deploy Workload/`; its gate runs on the plan before any change call |
+
+### CRM
+
+| Expert | Description | Owns |
+|--------|-------------|------|
+| `CRM Expert/EXPERT.md` | Judge an organisation's CRM design and a contact import for whether the pipeline, objects, fields, roles and sign-in serve the decisions it makes and the people who maintain them, and whether the import stays clean, sourced and the organisation's own, and hand a machine, address, list or account question to the expert or skill that owns it | None: it owns no skill yet; it judges a CRM design and a contact import, and no skill here runs a workspace setup, an export or another platform |

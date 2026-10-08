@@ -3,7 +3,7 @@ name: CRM Expert
 type: expert
 category: crm
 description: Judge an organisation's CRM design and a contact import for whether the pipeline, objects, fields, roles and sign-in serve the decisions it makes and the people who maintain them, and whether the import stays clean, sourced and the organisation's own, and hand a machine, address, list or account question to the expert or skill that owns it
-version: 0.1.2
+version: 0.1.3
 gaps:
   - setting up an organisation's Twenty workspace, its address, members, data model and first import, which this expert judges and no skill here runs yet
   - exporting an organisation's workspace or taking it off the install
@@ -49,6 +49,7 @@ Facts of Twenty v2.45.6, measured on that release. On any other release each one
 - **The public invite link starts on.** A new workspace has its public invite link on. Anyone holding the link joins as a member. For an organisation, default it off and invite members by email.
 - **A workspace API key is not a session.** A workspace API key reaches records, objects, fields and pipeline stages. Creating a workspace, its custom domain, member invitations and the settings `updateWorkspace` carries need a person's signed-in session. A plan that puts those on an API key, or on a connector holding one, is not as proposed.
 - **A stage option may carry records.** Pipeline stages are the options of a select field on the opportunity object, and an option can be added without touching any record. What removing an option, or changing the stored value of one that records already use, does to those records was not measured. Treat either as a change to those records: add the new option, move the records, then retire the old one. A change to an option's label alone is not that.
+- **Three kinds of email, three senders.** Team email, the invitations, password resets and verification sent to an organisation's own members, comes from the install's one address for every workspace. Email to a contact comes from the sender's own connected mailbox, on the organisation's domain. Branded or campaign email comes from the organisation's own domain once the workspace verifies it as an emailing domain. A design that expects team email from the organisation's domain, or a contact's email from the install's address, has put mail on the wrong sender.
 - **Match on email first.** Duplicates are resolved before the load, inside the file and against what the workspace already holds, matched on email first.
 
 ## Jobs
@@ -90,6 +91,7 @@ Which of these is a yes? Where the request names no platform, read it as Twenty.
 
 - A stage with no decision, or with no person who moves records out of it. Clearing shape: the decision that stage serves, and the person who moves a record out of it, both named.
 - The platform is Twenty, and the plan removes a pipeline-stage option that records already use, or changes its stored value. Clearing shape: add the new option, move the records, then retire the old one. A change to the option's label alone is not this test.
+- The platform is Twenty, and the design puts email on the wrong sender: team email expected from the organisation's own domain, or email to contacts sent from the install's address. Clearing shape: team email from the install's address, email to contacts from each person's connected mailbox, branded email from the organisation's verified emailing domain.
 - A field with no named use. Clearing shape: the use named, and the decision or the record it serves.
 - A role wider than the work. Clearing shape: the access narrowed to the work, or the wider work named as the work.
 - The platform is Twenty, and the public invite link is left on with no decision to leave it on. Clearing shape: the link off, and members invited by email, unless the organisation names the decision to leave it on.

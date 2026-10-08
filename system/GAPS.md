@@ -4,7 +4,7 @@ What this plugin does not do, declared by the primitive that names it.
 
 A gap is a capability this root does not provide that a primitive's own body names as missing (`wiser/standards/primitives.md`). This file collects every declared `gaps` entry, by hand, and is corrected whenever a primitive's gaps change. It carries capability gaps only, and names what is missing, never where it went.
 
-Counted 2026-10-08: 26 gaps across 7 primitives. Bullet count: `grep -E '^- ' system/GAPS.md | wc -l` returns 26, and the same count derived from the primitives' own `gaps:` frontmatter returns 26.
+Counted 2026-10-08: 32 gaps across 8 primitives. Bullet count: `grep -E '^- ' system/GAPS.md | wc -l` returns 32, and the same count derived from the primitives' own `gaps:` frontmatter returns 32.
 
 ## Experts
 
@@ -56,3 +56,12 @@ Counted 2026-10-08: 26 gaps across 7 primitives. Bullet count: `grep -E '^- ' sy
 - installing Docker on a distribution other than Ubuntu, or on a machine that already forwards IPv4 traffic
 - IPv6 ingress
 - installing Docker or pulling an image on a machine whose systemd is older than 254, which a background job needs
+
+### Deploy Twenty
+
+- installing a Twenty release other than v2.45.6, or upgrading an install to another release
+- a machine with no Docker, or with no Caddy running in the shape `skills/Deploy Workload/` runs it
+- backing up an install or restoring one
+- connecting Google or Microsoft mailboxes, which needs an OAuth client and the provider's approval
+- Cloudflare for SaaS's custom-hostname setting and fallback origin on a zone, which the person turns on in Cloudflare's dashboard
+- creating the bucket, the API tokens and the sending accounts the install uses, which the person does with each vendor

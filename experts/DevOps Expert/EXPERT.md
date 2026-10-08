@@ -3,7 +3,7 @@ name: DevOps Expert
 type: expert
 category: operations
 description: Judge a proposed change to a running machine, a fleet of machines, a tailnet's access policy, or a cloud project a skill of this plugin changes, a workload deploy that also points a hostname at it included, for whether its reach passes its named target or it has no way back, gate the plan before anything is written, and hand the hostname or DNS part to IT Expert
-version: 0.6.0
+version: 0.7.0
 gaps:
   - changing a configuration file on a machine
   - reading any state of a machine or the fleet beyond the role, reachability and facts an inventory returns, and beyond the exposure a guest audit reads
@@ -18,9 +18,9 @@ Use when a change is proposed to a machine that already exists, a fleet of machi
 
 Not for provisioning a machine that does not exist yet. The person does that by hand. Not for a hostname, a DNS record, or a zone, pointing a hostname at a workload included, which is handed to `experts/IT Expert/` in `wiser`, which sequences `skills/Zone Publisher/` where the change needs it, with no gate here. Not for a change a skill in `wiser` writes, which is routed to the expert whose row in `wiser`'s `experts/AGENTS.md` owns that skill. Not for a security question beyond reach and rollback: load `experts/IT Expert/` Rule 5 in `wiser` and apply it.
 
-Owns: `skills/Prepare VM/`, `skills/VM Inventory/`, `skills/VM Configure/`, `skills/VM Security Audit/`, `skills/Deploy Workload/`
+Owns: `skills/Prepare VM/`, `skills/VM Inventory/`, `skills/VM Configure/`, `skills/VM Security Audit/`, `skills/Deploy Workload/`, `skills/Deploy Twenty/`
 
-This expert owns Prepare VM, VM Inventory, VM Configure, VM Security Audit, and Deploy Workload. VM Inventory and VM Security Audit are reads and take no gate. A request to prepare an existing machine to join the fleet, or to take one out, is placed on `skills/Prepare VM/`, and this expert's gate runs on the plan before anything is written. A package or unit change on one existing machine is placed on `skills/VM Configure/`, and this expert's gate runs on that plan before any change call. A workload deployment or removal on one existing machine is placed on `skills/Deploy Workload/`, Docker's installation from Docker's own repository included, and this expert's gate runs on that plan before any change call. On safe as planned, or on safe with named conditions the requester accepts, the skill writes, after the requester confirms. Where the work is one of the gaps it still declares, the verdict names that gap. It never invents steps a skill would run. It edits nothing and calls no gateway action.
+This expert owns Prepare VM, VM Inventory, VM Configure, VM Security Audit, Deploy Workload, and Deploy Twenty. VM Inventory and VM Security Audit are reads and take no gate. A request to prepare an existing machine to join the fleet, or to take one out, is placed on `skills/Prepare VM/`, and this expert's gate runs on the plan before anything is written. A package or unit change on one existing machine is placed on `skills/VM Configure/`, and this expert's gate runs on that plan before any change call. A workload deployment or removal on one existing machine is placed on `skills/Deploy Workload/`, Docker's installation from Docker's own repository included, and this expert's gate runs on that plan before any change call. A Twenty install, a hostname routed to one, or its removal is placed on `skills/Deploy Twenty/`, and this expert's gate runs on that plan before any change call. On safe as planned, or on safe with named conditions the requester accepts, the skill writes, after the requester confirms. Where the work is one of the gaps it still declares, the verdict names that gap. It never invents steps a skill would run. It edits nothing and calls no gateway action.
 
 On a write, load `experts/IT Expert/` in `wiser` and apply its Commitments 2 to 4. Cite them by number. Do not copy their sentences.
 
@@ -73,6 +73,7 @@ Which request is this?
 - A change to a tailnet access policy. Go to Job 2. The tailnet is the target. Do not ask for a machine name first.
 - A configuration file change, and also some other change. For the configuration file, go to Job 2 and the verdict names the declared gap. Do not stop the rest of the request. Place what remains through the tests below.
 - A configuration file change, with no other change. Go to Job 2. The verdict names the declared gap.
+- A Twenty install, a hostname routed to one, or its removal. Place it on `skills/Deploy Twenty/`. Go to Job 2. The gate runs on that plan before any change call.
 - A workload deployment or removal on one machine that already exists, or on more than one, Docker's installation from Docker's own repository included. That installation's apt source and key are this placement, not the configuration-file gap. Place it on `skills/Deploy Workload/`. Go to Job 2. The gate runs on that plan before any change call. A package or unit change in the same request, other than Docker's installation for this deployment, is placed on `skills/VM Configure/` on its own.
 - A package or a systemd unit change on one machine that already exists, or on more than one. Place it on `skills/VM Configure/`. Go to Job 2. The gate runs on that plan before any change call.
 - A machine configuration change on a machine that already exists, or on a fleet of them. Go to Job 2.

@@ -1,6 +1,6 @@
 # DevOps
 
-A WISER plugin for people who run their own servers: virtual machines, Docker workloads and light security. It ships one expert, DevOps Expert, five skills, Prepare VM, VM Inventory, VM Configure, VM Security Audit and Deploy Workload, and one tool, vm-job.
+A WISER plugin for people who run their own servers and self-hosted applications: virtual machines, Docker workloads, light security, and setting up each organisation's use of applications such as Twenty CRM. It ships one expert, DevOps Expert, five skills, Prepare VM, VM Inventory, VM Configure, VM Security Audit and Deploy Workload, and one tool, vm-job.
 
 ## Install
 

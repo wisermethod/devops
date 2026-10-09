@@ -3,7 +3,7 @@ name: Deploy Twenty
 type: skill
 category: operations
 description: Install Twenty CRM v2.45.6 on one machine a person's router maps, behind the Caddy that machine already runs, or add or remove one hostname route for an install this skill made, or remove that install, and report the URL, what answered, and what is not configured.
-version: 0.1.1
+version: 0.1.2
 gaps:
   - installing a Twenty release other than v2.45.6, or upgrading an install to another release
   - a machine with no Docker, or with no Caddy running in the shape `skills/Deploy Workload/` runs it
@@ -17,7 +17,7 @@ gaps:
 
 ## Context
 
-Use when one Twenty install should be created on one existing machine, or one hostname should be routed to an install this skill made, or that hostname's route should be removed, or an install this skill made should be removed, and the machine is one a person's router maps. One run is one machine and one install. The release is Twenty v2.45.6 and no other. The server publishes no port. It is reached only through routes in the Caddy that machine already runs.
+Use when one Twenty install should be created on one existing machine, or one hostname should be routed to an install this skill made, or that hostname's route should be removed, or an install this skill made should be removed, and the machine is one a person's router maps. One run is one machine and one install. The release is Twenty v2.45.6 and no other. The server publishes no port. The first-contact call reaches it on the install's Docker network before any route exists. Visitors reach it only through routes in the Caddy that machine already runs.
 
 Not for a release other than v2.45.6, and not for upgrading an install to another release. That is missing: installing a Twenty release other than v2.45.6, or upgrading an install to another release. Not for a machine with no Docker, and not for a Caddy that is not already running in the shape `skills/Deploy Workload/` runs it. This skill does not install Docker, does not start Caddy, and does not write Caddy's first config. Not for backing up an install or restoring one. That is missing. Not for connecting Google or Microsoft mailboxes, which needs an OAuth client and the provider's approval. That is missing. Not for Cloudflare for SaaS's custom-hostname setting and fallback origin on a zone, which the person turns on in Cloudflare's dashboard. That is missing. Not for creating the bucket, the API tokens and the sending accounts the install uses, which the person does with each vendor. That is missing. Not for a hostname, a DNS record, or a zone. Hand that part to `experts/IT Expert/` in `wiser`, which sequences `skills/Zone Publisher/`. Not for enrolling a machine or taking one out, which is `skills/Prepare VM/`. Not for a package or a unit, which is `skills/VM Configure/`. Not for setting up an organisation's workspace beyond the first workspace's creation, its members, data model, domains and import. No skill here runs that yet. It is the gap `experts/CRM Expert/` declares for setting up an organisation's Twenty workspace. Saving or removing a custom domain in Twenty, which creates or deletes a hostname at Cloudflare, is that workspace setup, not this skill. Not for a security review. Load `experts/IT Expert/` Rule 5 in `wiser` and apply it. Not for a secret passed through the conversation or through a router call.
 
@@ -43,7 +43,7 @@ Classifier seam: none.
 
 ## Objective
 
-The named install is running on the named machine, behind the Caddy that machine already runs, or one hostname route has been added or removed, or the install has been removed, or it has not, and the report says which. A change is made only after a read of the live state, only after `experts/DevOps Expert/` gates the plan, and only after the person approves the stop. No route is written before that gate and that approval. The install is not reachable at its sign-in host until the same call that adds that route has created the server admin and the first workspace. A job's success is not the install's success. The re-inspection, and the checks from outside the machine, decide. Verified against Success.
+The named install is running on the named machine, behind the Caddy that machine already runs, or one hostname route has been added or removed, or the install has been removed, or it has not, and the report says which. A change is made only after a read of the live state, only after `experts/DevOps Expert/` gates the plan, and only after the person approves the stop. No route is written before that gate and that approval. The install is not reachable at its sign-in host until the server admin and the first workspace exist and the admin password file has been removed. A job's success is not the install's success. The re-inspection, and the checks from outside the machine, decide. Verified against Success.
 
 ## Inputs
 
@@ -67,7 +67,7 @@ An unnamed machine is asked about. It is never guessed. A value that does not ma
 
 ## Identity
 
-Someone who can get back onto the machine after the change, and who can reissue a vendor token. The inspection is the before-state. The re-inspection is what the machine shows now. A call that came back `timeout` or `uncertain` is not a reason to say the change was undone, and it is not a reason to send the change again.
+Someone who can get back onto the machine after the change, and who can reissue a vendor token. The inspection is the before-state. The re-inspection is what the machine shows now. A call that came back `timeout` or `uncertain` is not a reason to say the change was undone, and it is not a reason to send the change again. It is not a reason to remove a route.
 
 ## What the router does with a command
 
@@ -396,7 +396,7 @@ Job 1:
 4. The length read.
 5. The start job. Purpose `twenty-start`, limit 1800, one operand, the install name.
 6. A read of the server's published ports.
-7. The two writer calls that place the first-contact program, then the one first-contact call. That call adds the `app.<base>` route and the first workspace's route and creates the server admin and the first workspace. The way those three stay one call is the first-contact question.
+7. The three writer calls that place the first-contact program, then the one first-contact call. That call creates the server admin and the first workspace on the install's Docker network, and posts the `app.<base>` route and the first workspace's route only after `workspace:ok` and the password file is removed. The order is the first-contact question.
 8. The base route, one POST, only after first-contact has created the workspace.
 9. The checks from outside the machine, then the memory read, then a closing re-inspection.
 
@@ -662,7 +662,7 @@ Ask only after the start checks passed. One read. `argv` is `docker`, `inspect`,
 
 ### What writes the first-contact program?
 
-The program does not fit in one router argument. The connector bounds one `argv` element at 4096 code points, and the program is longer. Two reads-as-writes place it, and a third call runs it. The two writes contain no secret and add no route. Each is one `vm.command.run`. `argv` is `/bin/sh`, `-c`, the script, `sh`, and the install name. Send the first, then the second, once each. Do not send the run until both printed `writer-ok`.
+The program does not fit in one router argument. The connector bounds one `argv` element at 4096 code points, and the program is longer. Three reads-as-writes place it, and a fourth call runs it. The three writes contain no secret and add no route. Each is one `vm.command.run`. `argv` is `/bin/sh`, `-c`, the script, `sh`, and the install name. Send the first, then the second, then the third, once each. Do not send the run until each printed `writer-ok`. The third write parses the assembled program and sets its mode to 600. No `writer-ok` from it means the program was not assembled.
 
 `<script>` for the first write is this text and no other:
 
@@ -675,9 +675,36 @@ umask 077
 cat > "/opt/$install/first-contact.py" << 'FCEND'
 import json,os,socket,ssl,sys,time,http.client
 a=sys.argv
-if len(a)!=11 or a[1] not in ("full","create-only"):
+if len(a)!=11 or a[1] not in ("full","routes-only"):
  print("args:refused"); raise SystemExit(2)
 mode,install,addr,apph,appa,subh,suba,email,name,slug=a[1:]
+t0=time.monotonic()
+stf="/opt/"+install+"/first-contact.state"
+path="/opt/"+install+"/admin.password"
+owned={"ok":False}
+def quiet(t,v,tb):
+ print("program:fail")
+ print("owned:routes-incomplete" if owned["ok"] else "admin-password-file:kept")
+sys.excepthook=quiet
+def note(line):
+ fd=os.open(stf,os.O_WRONLY|os.O_CREAT|os.O_APPEND,0o600)
+ os.fchmod(fd,0o600)
+ os.write(fd,(line+"\n").encode()); os.fsync(fd); os.close(fd)
+def gate(step):
+ if time.monotonic()-t0>35:
+  print("deadline:"+step)
+  print("owned:routes-incomplete" if owned["ok"] else "admin-password-file:kept")
+  raise SystemExit(60)
+def private4(s):
+ p=s.split(".")
+ if len(p)!=4: return False
+ try: n=tuple(int(x) for x in p)
+ except Exception: return False
+ if any(x<0 or x>255 or (len(p[i])>1 and p[i][:1]=="0") for i,x in enumerate(n)): return False
+ a0,b=n[0],n[1]
+ if a0==10: return True
+ if a0==172 and 16<=b<=31: return True
+ return a0==192 and b==168
 ALPH="abcdefghijklmnopqrstuvwxyz0123456789-"
 def shap(c):
  try:
@@ -698,65 +725,11 @@ def shap(c):
   return False
 class U(http.client.HTTPConnection):
  def connect(self):
-  s=socket.socket(socket.AF_UNIX,socket.SOCK_STREAM); s.settimeout(15); s.connect("/var/lib/caddy-admin/admin.sock"); self.sock=s
+  s=socket.socket(socket.AF_UNIX,socket.SOCK_STREAM); s.settimeout(8); s.connect("/var/lib/caddy-admin/admin.sock"); self.sock=s
 def adm(m,p,b=None,h=None):
- c=U("localhost",timeout=15); c.request(m,p,body=b,headers=h or {}); r=c.getresponse(); d=r.read(); st,et=r.status,r.getheader("Etag"); c.close(); return st,et,d
-posted=[]
-def unpost():
- while posted:
-  alias=posted.pop(0)
-  try:
-   st,et,data=adm("GET","/config/")
-  except Exception:
-   print("route-removed:%s:fail"%alias); continue
-  if st!=200 or not et:
-   print("route-removed:%s:config-%s"%(alias,st)); continue
-  try:
-   cfg=json.loads(data.decode())
-  except Exception:
-   print("route-removed:%s:config-not-json"%alias); continue
-  if not shap(cfg):
-   print("route-removed:%s:shape-refused"%alias); continue
-  try:
-   st2,_,_=adm("DELETE","/id/workload-"+alias,None,{"If-Match":et})
-  except Exception:
-   print("route-removed:%s:fail"%alias); continue
-  print("route-removed:%s:%s"%(alias,st2))
-def post(alias,host):
- st,et,data=adm("GET","/config/")
- if st!=200 or not et:
-  print("route:%s:config-%s"%(alias,st)); unpost(); raise SystemExit(50)
- try: cfg=json.loads(data.decode())
- except Exception:
-  print("route:%s:config-not-json"%alias); unpost(); raise SystemExit(50)
- if not shap(cfg):
-  print("route:%s:shape-refused"%alias); unpost(); raise SystemExit(52)
- body=json.dumps({"@id":"workload-"+alias,"match":[{"host":[host]}],"handle":[{"handler":"reverse_proxy","upstreams":[{"dial":alias+":3000"}]}],"terminal":True},separators=(",",":")).encode()
- st2,_,_=adm("POST","/config/apps/http/servers/workloads/routes",body,{"Content-Type":"application/json","If-Match":et})
- print("route:%s:%s"%(alias,st2))
- if st2==200: posted.append(alias)
- return st2
-if mode=="full":
- if post(appa,apph)!=200:
-  print("admin-password-file:kept"); unpost(); raise SystemExit(53)
- if post(suba,subh)!=200:
-  print("route-sub-failed"); unpost(); print("admin-password-file:kept"); raise SystemExit(56)
-ctx=ssl.create_default_context()
-def tls():
- ok=0
- for i in range(20):
-  raw=None
-  try:
-   raw=socket.create_connection((addr,443),5)
-   ss=ctx.wrap_socket(raw,server_hostname=apph)
-   ss.close(); ok=1; break
-  except Exception:
-   if raw is not None:
-    try: raw.close()
-    except Exception: pass
-   if i<19: time.sleep(1)
- print("tls:ready" if ok else "tls:not-ready")
- return ok
+ c=U("localhost",timeout=8); c.request(m,p,body=b,headers=h or {}); r=c.getresponse(); d=r.read(); st,et=r.status,r.getheader("Etag"); c.close(); return st,et,d
+def obj(alias,host):
+ return {"@id":"workload-"+alias,"match":[{"host":[host]}],"handle":[{"handler":"reverse_proxy","upstreams":[{"dial":alias+":3000"}]}],"terminal":True}
 FCEND
 echo writer-ok
 ```
@@ -770,28 +743,102 @@ install=$1
 test -s "/opt/$install/first-contact.py"
 umask 077
 cat >> "/opt/$install/first-contact.py" << 'FCEND'
-path="/opt/"+install+"/admin.password"
+def fail(alias,status):
+ print("route:%s:%s"%(alias,status))
+ try: note("route:%s:%s"%(alias,status))
+ except Exception: pass
+ print("owned:routes-incomplete"); raise SystemExit(50)
+def load():
+ gate("route")
+ try: st,et,data=adm("GET","/config/")
+ except Exception: return None
+ if st!=200 or not et: return ("bad","config-%s"%st)
+ try: cfg=json.loads(data.decode())
+ except Exception: return ("bad","config-not-json")
+ if not shap(cfg): return ("bad","shape-refused")
+ return ("ok",cfg,et)
+def post(alias,host):
+ got=load()
+ if got is None: fail(alias,"fail")
+ if got[0]!="ok": fail(alias,got[1])
+ body=json.dumps(obj(alias,host),separators=(",",":")).encode()
+ gate("route")
+ try: st2,_,_=adm("POST","/config/apps/http/servers/workloads/routes",body,{"Content-Type":"application/json","If-Match":got[2]})
+ except Exception: fail(alias,"fail")
+ print("route:%s:%s"%(alias,st2))
+ try: note("route:%s:%s"%(alias,st2))
+ except Exception: pass
+ if st2!=200:
+  print("owned:routes-incomplete"); raise SystemExit(53)
+def present(alias,host):
+ got=load()
+ if not got or got[0]!="ok": return False
+ return obj(alias,host) in got[1]["apps"]["http"]["servers"]["workloads"]["routes"]
+def routes(missing):
+ for alias,host in ((appa,apph),(suba,subh)):
+  if missing and present(alias,host):
+   print("route:%s:200"%alias); note("route:%s:200"%alias)
+  else: post(alias,host)
+def tls():
+ left=35-(time.monotonic()-t0)
+ if left<=0.2:
+  print("tls:pending"); return
+ cap=8 if left>8 else left
+ ctx=ssl.create_default_context(); raw=None; ok=False
+ try:
+  raw=socket.create_connection((addr,443),cap); raw.settimeout(cap)
+  ss=ctx.wrap_socket(raw,server_hostname=apph); ss.close(); ok=True
+ except Exception:
+  if raw is not None:
+   try: raw.close()
+   except Exception: pass
+ print("tls:ready" if ok else "tls:pending")
+def finish():
+ routes(mode=="routes-only"); note("done"); print("done"); tls(); raise SystemExit(0)
+srv=os.environ.get("TWENTY_SERVER","")
+if mode=="routes-only":
+ try: pre=open(stf,encoding="utf-8").read().split()
+ except Exception: pre=[]
+ if "workspace:ok" not in pre or os.path.exists(path):
+  print("routes-only:refused"); raise SystemExit(2)
+ owned["ok"]=True; note("start"); print("start"); finish()
+if not private4(srv):
+ print("server-address:refused"); raise SystemExit(2)
+note("start"); print("start")
 try: pw=open(path,encoding="utf-8").read()
 except Exception:
- print("admin-password:absent"); unpost(); raise SystemExit(54)
+ print("admin-password:absent"); print("admin-password-file:kept"); raise SystemExit(54)
 if pw.endswith("\n"): pw=pw[:-1]
 if not pw or any(ch.isspace() for ch in pw):
- print("admin-password:refused"); unpost(); print("admin-password-file:kept"); raise SystemExit(55)
-def gql(host,q,v,tok=None):
+ print("admin-password:refused"); print("admin-password-file:kept"); raise SystemExit(55)
+def gql(host,q,v,tok,step):
+ gate(step)
  try:
-  raw=socket.create_connection((addr,443),20); ss=ctx.wrap_socket(raw,server_hostname=host)
-  c=http.client.HTTPSConnection(host,443,timeout=20,context=ctx); c.sock=ss
-  hd={"Content-Type":"application/json","Origin":"https://"+host,"Host":host}
+  c=http.client.HTTPConnection(srv,3000,timeout=8)
+  hd={"Content-Type":"application/json","Host":host,"X-Forwarded-Host":host,"X-Forwarded-Proto":"https","Origin":"https://"+host}
   if tok: hd["Authorization"]="Bearer "+tok
   c.request("POST","/metadata",json.dumps({"query":q,"variables":v}).encode(),hd)
   r=c.getresponse(); b=r.read(); code=r.status; c.close()
  except Exception:
-  print("graphql:tls-or-connect-fail"); return None
+  print("graphql:connect-fail"); return None
  if code!=200:
   print("graphql:http:%s"%code); return None
  try: return json.loads(b.decode())
  except Exception:
   print("graphql:not-json"); return None
+FCEND
+echo writer-ok
+```
+
+`<script>` for the third write is this text and no other:
+
+```
+set -eu
+export LC_ALL=C
+install=$1
+test -s "/opt/$install/first-contact.py"
+umask 077
+cat >> "/opt/$install/first-contact.py" << 'FCEND'
 def dig(d,*ps):
  cur=d.get("data") if isinstance(d,dict) else None
  for k in ps:
@@ -804,55 +851,53 @@ def known(d):
  e=d.get("errors") if isinstance(d,dict) else None
  if not isinstance(e,list) or not e or not isinstance(e[0],dict): return ""
  m=e[0].get("message"); return m if m=="User already exists" else "withheld"
-def keep():
- unpost(); print("admin-password-file:kept"); raise SystemExit(56)
+def keep(msg,code):
+ print(msg); print("admin-password-file:kept"); raise SystemExit(code)
 F="{tokens{accessOrWorkspaceAgnosticToken{token}}}"
 S="mutation($e:String!,$p:String!){signUp(email:$e,password:$p)"+F+"}"
 N="mutation($e:String!,$p:String!){signIn(email:$e,password:$p)"+F+"}"
 W="mutation($i:SignUpInNewWorkspaceInput){signUpInNewWorkspace(input:$i){loginToken{token} workspace{id}}}"
 T="mutation($t:String!,$o:String!){getAuthTokensFromLoginToken(loginToken:$t,origin:$o)"+F+"}"
 A="mutation($d:ActivateWorkspaceInput!){activateWorkspace(data:$d){id activationStatus}}"
-if mode=="full" and not tls():
- keep()
-doc=gql(apph,S,{"e":email,"p":pw}); token=box(doc,"signUp") if doc else None
+doc=gql(apph,S,{"e":email,"p":pw},None,"signup"); token=box(doc,"signUp") if doc else None
 if isinstance(token,str) and token: print("signup:ok")
 elif known(doc)=="User already exists":
- print("signup:exists"); doc=gql(apph,N,{"e":email,"p":pw}); token=box(doc,"signIn") if doc else None
- if not (isinstance(token,str) and token):
-  print("signin:fail"); keep()
+ print("signup:exists"); doc=gql(apph,N,{"e":email,"p":pw},None,"signin"); token=box(doc,"signIn") if doc else None
+ if not (isinstance(token,str) and token): keep("signin:fail",56)
  print("signin:ok")
-else:
- print("signup:fail:withheld"); keep()
-doc=gql(apph,W,{"i":{"displayName":name,"subdomain":slug}},token)
+else: keep("signup:fail:withheld",56)
+doc=gql(apph,W,{"i":{"displayName":name,"subdomain":slug}},token,"workspace")
 ws=dig(doc,"signUpInNewWorkspace","workspace","id") if doc else None
 login=dig(doc,"signUpInNewWorkspace","loginToken","token") if doc else None
-if not (isinstance(ws,str) and ws and isinstance(login,str) and login):
- print("workspace:fail"); keep()
-print("workspace:ok")
-try: os.remove(path); print("admin-password-file:removed")
-except Exception: print("admin-password-file:kept")
-pw=token=""
-doc=gql(subh,T,{"t":login,"o":"https://"+subh})
+if not (isinstance(ws,str) and ws and isinstance(login,str) and login): keep("workspace:fail",56)
+print("workspace:ok"); note("workspace:ok"); pw=""
+try: os.remove(path); print("admin-password-file:removed"); note("password-file:removed")
+except Exception:
+ print("admin-password-file:kept"); raise SystemExit(56)
+owned["ok"]=True
+doc=gql(subh,T,{"t":login,"o":"https://"+subh},None,"token")
 access=box(doc,"getAuthTokensFromLoginToken") if doc else None
-if not (isinstance(access,str) and access):
- print("activate:token-fail"); raise SystemExit(0)
-doc=gql(subh,A,{"d":{"displayName":name}},access)
-print("activate:ok" if dig(doc,"activateWorkspace","activationStatus") else "activate:fail")
-raise SystemExit(0)
+act=False
+if isinstance(access,str) and access:
+ doc=gql(subh,A,{"d":{"displayName":name}},access,"activate")
+ act=bool(dig(doc,"activateWorkspace","activationStatus"))
+login=access=""
+print("activate:ok" if act else "activate:fail"); note("activate:ok" if act else "activate:fail")
+finish()
 FCEND
 python3 -c 'import ast,sys; ast.parse(open(sys.argv[1],encoding="utf-8").read())' "/opt/$install/first-contact.py"
 chmod 600 "/opt/$install/first-contact.py"
 echo writer-ok
 ```
 
-- Both answers came back naming this identifier, and each printed `writer-ok`. Continue.
-- Either did not. Do not run first-contact. Do not add a route. The directory stays. Name Job 3. A new plan is gated before the writes are sent again.
+- Each answer came back naming this identifier, and each printed `writer-ok`. Continue.
+- Any did not. Do not run first-contact. Do not add a route. The directory stays. Name Job 3. A new plan is gated before the writes are sent again.
 
 ### What does the first-contact call do?
 
-One `vm.command.run`. It is not a job. It can outlast the endpoint's 20 seconds. `uncertain`, `timeout`, `killed`, or `request_timeout` is not a retry. Do not send this call again in this run.
+One `vm.command.run`. It is not a job. It can outlast the endpoint's 20 seconds. Do not send this call again in this run. A later `routes-only` plan is a new plan, gated again, not a repeat of this call.
 
-`argv` is `/bin/sh`, `-c`, the script, `sh`, then the mode, the install name, the source address, the app hostname `app.<base>`, the app alias `<install>-app`, the workspace hostname `<sub>.<base>`, the workspace alias `<install>-<subdomain>`, the admin email, the display name, and the subdomain. The password is not an operand. The mode is `full` on Job 1. The mode `create-only` is a different plan, gated again, and it is sent only when a fresh config read shows both routes already present and exactly the generated object, and `admin.password` is still present. It does not post a route.
+`argv` is `/bin/sh`, `-c`, the script, `sh`, then the mode, the install name, the source address, the app hostname `app.<base>`, the app alias `<install>-app`, the workspace hostname `<sub>.<base>`, the workspace alias `<install>-<subdomain>`, the admin email, the display name, and the subdomain. The password is not an operand and it is not an environment value. The program reads it from the file. The server's address is not an operand. The mode is `full` on Job 1. The mode `routes-only` is a different plan, gated again, and it is sent only when a fresh read shows the state file contains `workspace:ok`, the admin password file is absent, and one or both of the two routes are absent. It posts only the missing routes, appends to the state file, and never signs anyone up.
 
 `<script>` is this text and no other:
 
@@ -869,19 +914,69 @@ while [ "$i" -lt 3 ]; do
  sleep 2
 done
 test "$ok" = 1
+cid=$(docker compose -p "$2" ps -q server)
+TWENTY_SERVER=$(docker inspect --format '{{with index .NetworkSettings.Networks "'"$2"'-proxy"}}{{.IPAddress}}{{end}}' "$cid")
+export TWENTY_SERVER
 exec python3 "/opt/$2/first-contact.py" "$@"
 ```
 
-Inside that one call the program checks `/healthz` from inside the server, then, in `full` mode, posts the app route and stops before any signup when that post is not 200, then posts the workspace route. A workspace post that is not 200 prints `route-sub-failed`, removes the app route this call posted, prints `admin-password-file:kept`, and exits before signup. The program checks the admin password. In `full` mode, after that check and before `signUp`, it waits for a verified TLS certificate for `app.<base>`. The wait polls a TLS handshake about once a second, at most 20 attempts: TCP to the source address on port 443, SNI `app.<base>`, verified with `ssl.create_default_context()`, the same way the GraphQL call connects. It prints `tls:ready` or `tls:not-ready` once. It does not print the certificate. The program then signs up on the app origin and creates the workspace, then activates on the workspace origin only when that route returned 200. A 412 posts nothing and signs nobody up. There is no second post inside the script. The route body is `{"@id":"workload-<alias>","match":[{"host":["<hostname>"]}],"handle":[{"handler":"reverse_proxy","upstreams":[{"dial":"<alias>:3000"}]}],"terminal":true}`. The program also refuses a config that is not the shape, on the same GET that supplies `If-Match`.
+The shell checks `/healthz` from inside the server, up to three times. Each curl is limited to 5 seconds, with 2 seconds between tries. The loop can take about 21 seconds. It then reads the server container with `docker compose -p "$2" ps -q server` and that container's address on the network `$2-proxy` with `docker inspect`, and exports the address as `TWENTY_SERVER`. Then it runs the program.
 
-Any exit after this call has posted a route and before `workspace:ok` removes each route this call posted with status 200, then exits. Those exits are `tls:not-ready`, `signup:fail:withheld`, `signin:fail`, `workspace:fail`, an admin password that is absent or refused, `route-sub-failed` when the app route was posted, and a config or shape refusal while posting a later route. Removal prints `route-removed:<alias>:<status>`. For each alias this call posted with 200, removal GETs `/config/` over the admin socket for a fresh `Etag`, checks the shape the same way the post does, and sends `DELETE /id/workload-<alias>` with `If-Match` set to that `Etag`. It never removes a route this call did not post. After `workspace:ok` the routes stay. The exit codes stay the ones those paths already use, and `admin-password-file:kept` stays on the exits that already print it. `route-sub-failed` exits 56, which is the code `keep()` already uses, and it prints `admin-password-file:kept`.
+The program records its start time. Before every network operation except the TLS probe, it stops with `deadline:<step>` when more than 35 seconds have passed. The step is `signup`, `signin`, `workspace`, `token`, `activate`, or `route`. Every socket timeout is at most 8 seconds. An operation that starts just before 35 seconds can run 8 seconds more, so with about 21 seconds of healthz loop a slow run can pass the router's 60 second limit and be killed. A kill before `workspace:ok` leaves no route and nothing public. A kill after it leaves an owned install, and the later read classifies it from the state file.
 
-GraphQL is `POST /metadata` on the origin, with `Origin` set to that origin, TLS verified, SNI equal to the hostname, and TCP to the source address. `signUp` and, only when the error message is exactly `User already exists`, `signIn`, then `signUpInNewWorkspace`, run on `https://app.<base>/metadata`. `getAuthTokensFromLoginToken` and `activateWorkspace` run on `https://<sub>.<base>/metadata`. No token, no password, and no other error message is printed. Any other error is `signup:fail:withheld` or `signin:fail`, the password file stays, and the routes this call posted are removed before the exit.
+The program writes `/opt/<install>/first-contact.state`, mode 600. The file holds no secret. It appends one line and flushes that line before it continues. A `full` run that gets past the address check appends `start`, then `workspace:ok`, `password-file:removed`, `activate:ok` or `activate:fail`, `route:<alias>:<status>` for each route it settles, and `done`. `done` is written after the route lines and before the TLS probe, so a probe that is killed does not drop a finished route write.
 
-- The call came back naming this identifier, `healthz:200` was printed, `route:<app alias>:200` was printed, `tls:ready` was printed, `workspace:ok` was printed, and `admin-password-file:removed` was printed. The workspace exists. `activate:ok` means it was activated. `activate:fail` means the workspace exists and activation did not finish. Report that. Do not send the call again. Continue to the base route only when `workspace:ok` was printed.
-- `route:<app alias>:412`, or any route line that is not 200 for the app alias, and no `signup:` line was printed. The call changed no route. Stop. Do not post again in this run. A new plan is gated before another post.
-- The call's outcome is `uncertain`, `timeout`, `killed`, or `request_timeout`, or `status` is `vendor_error`, or the answer carries no `machine`. Do not send the call again. One later read, the config script and the length script, after about 30 seconds. The password file absent means the workspace line was reached. The app route absent and the password file present means the failure path ran and removed the app route. The app route present and the password file present means the program did not finish. Stop. Say that the install may be claimable, and that removing that route is Job 2's removal, gated by the person.
-- Any other answer. Do not send the call again. Report the lines that were printed. `tls:not-ready`, `signup:fail:withheld`, `signin:fail`, `workspace:fail`, `admin-password:absent`, `admin-password:refused`, and `route-sub-failed` mean this call exited before `workspace:ok` and removed each route it had posted with status 200. `route-removed:<alias>:<status>` is that removal. A status of `200` means the delete was accepted. Any other status means that alias may still be in place. Do not claim the workspace exists unless `workspace:ok` was printed or the later read shows the password file absent.
+In `full` mode the program refuses `TWENTY_SERVER` unless it is a private IPv4 address in `10.0.0.0/8`, `172.16.0.0/12`, or `192.168.0.0/16`, and no octet has a leading zero. A refusal prints `server-address:refused`, writes no state line, posts no route, and exits nonzero. An accepted address is the server container on the install's Docker network `<install>-proxy`, which is an ordinary bridge and is reachable from the host. The program calls that address with plain HTTP on port 3000. Every request sets `Host` and `X-Forwarded-Host` to the hostname it stands for, `X-Forwarded-Proto` to `https`, and `Origin` to `https://` plus that hostname. `signUp`, `signIn`, and `signUpInNewWorkspace` use `app.<base>`. `getAuthTokensFromLoginToken` and `activateWorkspace` use `<sub>.<base>`. Twenty v2.45.6 trusts those forwarded headers when the peer is in the `TRUST_PROXY` default `loopback, linklocal, uniquelocal`, which covers this bridge. A call that issues a session cookie is allowed only when `Origin` equals the request's own origin. This path is unproved on the live install. A refusal fails before any route exists.
+
+GraphQL is `POST /metadata`. The documents are `signUp`, and `signIn` only when the error message is exactly `User already exists`, then `signUpInNewWorkspace`, then `getAuthTokensFromLoginToken`, then `activateWorkspace`. No token, no password, and no other error message is printed. Any other error is `signup:fail:withheld` or `signin:fail`. The password file stays. No route has been posted.
+
+The program posts no route until it has printed `workspace:ok` and removed the admin password file. It then records activation. `activate:ok` means the workspace was activated. `activate:fail` means the workspace exists and activation did not finish. Either way it goes on to the routes when the deadline has not stopped it. A deadline during activation prints `deadline:activate` and `owned:routes-incomplete`, posts no route, and exits nonzero. `routes-only` does not retry activation.
+
+The route post is a fresh `GET /config/` for the `Etag`, the shape check, and a `POST` with `If-Match` set to that `Etag`. The app route is first, then the workspace route. The body is `{"@id":"workload-<alias>","match":[{"host":["<hostname>"]}],"handle":[{"handler":"reverse_proxy","upstreams":[{"dial":"<alias>:3000"}]}],"terminal":true}`. A post that fails after ownership prints `route:<alias>:<status>` and `owned:routes-incomplete` and exits nonzero. It removes nothing. The program never deletes a route.
+
+After the route lines the program appends `done` and probes TLS for `app.<base>`. The probe is one verified handshake to the source address on port 443, SNI `app.<base>`, with `ssl.create_default_context()`. Its socket timeout is the time left under the 35 seconds, and at most 8 seconds. It prints `tls:ready` or `tls:pending`. It does not print the certificate. It does not change the outcome, and it does not open a socket when no time is left. Certificate issuance is checked later by the outside checks.
+
+`routes-only` posts nothing unless the state file already contains `workspace:ok` and the password file is absent. Otherwise it prints `routes-only:refused`, writes no new state line, and exits nonzero. It never signs anyone up. For each of the two routes, a fresh read that already holds the exact generated object prints `route:<alias>:200`, appends that line, and does not post again. A route that is absent is posted the same way as in `full`. An unexpected exception prints `program:fail` and either `owned:routes-incomplete` or `admin-password-file:kept`, and does not print the exception text. It removes nothing.
+
+What did the call answer? Take the first match.
+
+- The outcome is `uncertain`, `timeout`, `killed`, or `request_timeout`, or `status` is `vendor_error`, or the answer carries no `machine`. Do not classify the call from partial output. Do not send the call again. One later read, no sooner than 70 seconds after the call was sent. The 70 seconds cover the router's 60 second limit, the 5 second kill grace, and a margin. Then ask what the later read showed.
+- The outcome is `ok`, `truncated`, or `remote_failure`, the answer names this identifier, and `healthz:200` was not printed. The program did not start. No route was posted. Nothing is public. Stop. A new plan is gated before another call.
+- The mode was `routes-only`, the outcome is one of those three, the answer names this identifier, and the output contains `route:<app alias>:200` and `route:<workspace alias>:200`. It contains no `signup:` line, no `owned:routes-incomplete`, no `deadline:`, and no `program:fail`. The missing routes are in place. Do not send the call again. Continue to the base route.
+- The outcome is one of those three, the answer names this identifier, and the output contains `workspace:ok`, `admin-password-file:removed`, `route:<app alias>:200`, and `route:<workspace alias>:200`. It does not contain `owned:routes-incomplete`, `deadline:`, or `program:fail`. The workspace exists and both routes are in place. `activate:ok` means it was activated. `activate:fail` means the workspace exists and activation did not finish. `tls:ready` and `tls:pending` do not change this. Do not send the call again. Continue to the base route.
+- The output contains `owned:routes-incomplete`. The install is owned. A `routes-only` plan is gated again. Do not send it in this run. Do not remove a route. Removing the install is Job 3.
+- The output contains `workspace:ok` and `admin-password-file:kept`. The workspace exists. The password file stays. No route was posted. Stop. A new plan is gated before another call. `routes-only` is not that plan while the password file is present.
+- The output contains `server-address:refused` or `routes-only:refused`. No route was posted. A refused address writes no state line. Stop. A new plan is gated before another call.
+- The output contains `signup:fail:withheld`, `signin:fail`, `workspace:fail`, `admin-password:absent`, `admin-password:refused`, or `deadline:` together with `admin-password-file:kept`, or `program:fail` together with `admin-password-file:kept`. The failure is before ownership. No route was posted. Nothing is public. The password file stays. Stop. A new plan is gated before another call.
+- Any other answer. Do not send the call again. Report the lines that were printed. Do not claim the workspace exists unless `workspace:ok` was printed or a later read's state file contains it. Do not remove a route. Removing the install is Job 3.
+
+What did the later read show?
+
+Ask only after the unknown-outcome bullet. One `vm.command.run`. `argv` is `/bin/sh`, `-c`, the script, `sh`, and the install name. The person is told it is a read. `<script>` is this text and no other:
+
+```
+export LC_ALL=C
+install=$1
+printf '%s\n' '--- process ---'
+if pgrep -f "/opt/$install/first-contact[.]py" >/dev/null; then printf '%s\n' process:running; else printf '%s\n' process:absent; fi
+printf '%s\n' '--- state ---'
+if [ -f "/opt/$install/first-contact.state" ]; then cat "/opt/$install/first-contact.state"; else printf '%s\n' state:absent; fi
+printf '%s\n' '--- password ---'
+if [ -e "/opt/$install/admin.password" ]; then printf '%s\n' password-file:present; else printf '%s\n' password-file:absent; fi
+printf '%s\n' '--- config ---'
+curl -sS -D - --max-time 10 --unix-socket /var/lib/caddy-admin/admin.sock http://localhost/config/
+printf '%s\n' "config-exit:$?"
+exit 0
+```
+
+The pattern is `/opt/<install>/first-contact[.]py`. The brackets keep the read's own command line from matching, so the read does not report itself as the program. The read prints the state file and whether the password file exists. It does not print the password file. Take the first match.
+
+- `process:running`. Do not classify the call yet. Read once more, no sooner than 70 seconds after this read, with the same script. If the process is still running, stop. Say the program was still running and the state is not settled. Do not remove a route. Do not send the call again.
+- `state:absent`. The program never started. Nothing is public. Stop. A new plan is gated before another call.
+- The state has `start` and does not have `workspace:ok`. The program failed before ownership. Nothing is public. The password file stays. Stop. A new plan is gated before another call.
+- The state has `workspace:ok` and does not have both `route:<app alias>:200` and `route:<workspace alias>:200`. The install is owned. When the read printed `password-file:absent`, `routes-only` is the next plan, gated again. When the password file is present, stop for a new plan. `routes-only` is not that plan. Do not post from this run. Do not remove a route.
+- The state has `done`, or it has both of those route lines at 200. The route writes finished. `activate:ok` means the workspace was activated. Any other activate line, or none, means activation did not finish. Continue to the base route only when both route lines are 200 and the state has `workspace:ok`.
+- Any other state text. Stop. Report the lines. Do not remove a route. Removing the install is Job 3.
 
 ### What adds the base route?
 
@@ -1245,7 +1340,7 @@ For each job, also: its unit name, its invocation ID and its limit, the last pol
 - **A secret in an `argv`, a journal line, or the report.** Withhold the line. The helper prints a length. The checks print a length, a boolean, a count, or a status.
 - **A Deploy Workload workload given one of this install's alias names.** The aliases carry the install name as a prefix so they are not free workload names. A workload must not take one of them. `caddy` is not an install name and not an alias.
 - **A whole-config write.** This skill does not POST to `/config/`. A route POST, and its one retry after a `412`, carry `If-Match` set to the `Etag` from the same `GET /config/` whose body passed the shape check, not the routes path's `Etag`. A `412` means the config changed anywhere. Whenever the shape is checked, the config's top-level keys are exactly `apps`, `apps` holds exactly `http`, `http` holds exactly `servers`, and `servers` has exactly one key, `workloads`. Anything else stops the run. Every route is exactly the generated object. Any other route stops the run.
-- **A route added before the workspace exists.** The app route and the workspace creation are one call. A call boundary between them would leave an install the first visitor can claim. Do not split them.
+- **A route added before the workspace exists.** The first-contact call creates the server admin and the first workspace on the install's Docker network before it posts a route. A failure before `workspace:ok` has posted nothing. Do not post either route in an earlier call. Do not remove the app route to recover. Removing the install is Job 3.
 - **A route, a container, or a volume removed that is not this install's.** Job 3 matches the marker, the project label, the full container id, the network id, the volume name and its `CreatedAt`, and the directory's device and inode. A name alone is not ownership. `docker compose down` is not sent. Images stay. `caddy-config` and `caddy-data` stay.
 - **Caddy's saved config not read back before the data is deleted.** After the route deletes, the live config and the saved config have to equal the before-state with only this install's routes removed. A difference stops the run before the removal job.
 - **A second job started while one is loaded.** The second-run questions. A running job stops the run. A finished one is released and the run starts over from its inspection, once.
@@ -1268,7 +1363,7 @@ For each job, also: its unit name, its invocation ID and its limit, the last pol
 - A change was sent only after `experts/DevOps Expert/` returned safe as planned, or safe with named conditions the person was told, and only after the person approved that call's stop. No route was written before that gate and that approval.
 - The pull was one job, purpose `twenty-pull`, limit 1800, the three digest references the operands, and a digest that did not match was not installed. The install job, purpose `twenty-install`, limit 300, wrote the directory, checked the compose file's hash, and started nothing. The start job, purpose `twenty-start`, limit 1800, was not sent until the length read matched.
 - The server published no port. The four containers matched the start checks before any route. A failed check added no route.
-- The app route and the creation of the server admin and the first workspace were one `vm.command.run`. The base route was a later call. An `uncertain` or `timeout` on the first-contact call was not retried.
+- The first-contact call created the server admin and the first workspace before it posted a route, in one `vm.command.run`. No route was posted before `workspace:ok` and the password file was removed. The base route was a later call. An `uncertain` or `timeout` on that call was not retried, and no route was removed to recover.
 - Job 2 added an alias by reattaching the full list and then posting the route, or removed the route, confirmed the saved config, and then removed the alias. A half-finished pair was reported and not repaired in the same run.
 - Job 3 ran only after the person confirmed by naming the install, and the report says the removal destroys every organisation's data on the install. It deleted only objects whose identity was read back, routes first, and it read Caddy's live and saved config back to the before-state with those routes removed, before it deleted data. Images stayed.
 - The report names each check's answer, both URLs, what is configured and what is not, the three kinds of email, the base name's direct path when the zone applies, the no-real-contact rule, and every gap that applies.

@@ -3,7 +3,7 @@ name: Deploy Twenty
 type: skill
 category: operations
 description: Install Twenty CRM v2.45.6 on one machine a person's router maps, behind the Caddy that machine already runs, or add or remove one hostname route for an install this skill made, or remove that install, and report the URL, what answered, and what is not configured.
-version: 0.1.4
+version: 0.1.5
 gaps:
   - installing a Twenty release other than v2.45.6, or upgrading an install to another release
   - a machine with no Docker, or with no Caddy running in the shape `skills/Deploy Workload/` runs it
@@ -369,13 +369,21 @@ A hostname is present when some route's host list contains it, compared case-ins
 Job 1. Take the first match.
 
 - `dir-absent`, `project-exit` is 0 and the project section is empty, `volumes-exit` is 0 and the volumes section is empty, and `network-exit` is not 0 and the network section contains `not found`, compared without regard to case. The name is free. Continue.
-- The directory is present, or any container, volume, or network was read for this install name. Stop. The name is taken. Do not remove it in this run. Name Job 3 only when the marker section contains the lines `skill=deploy-twenty`, `release=v2.45.6`, and `project=` followed by this install name, each as a whole line. Otherwise say the name is taken by something this skill did not mark. Change nothing.
+- The directory is present, or any container, volume, or network was read for this install name. Stop. The name is taken. Do not remove it in this run. Name Job 3 only when the marker section contains the lines `skill=deploy-twenty`, `release=v2.45.6`, and `project=` followed by this install name, each as a whole line. A `compose-sha256=` line and a `stage=` line may be present. They do not by themselves change that. Otherwise say the name is taken by something this skill did not mark. Change nothing.
 - A section was not read. Stop. Copy the section. Change nothing.
 
-Job 2 and Job 3. Take the first match.
+Job 2. Take the first match.
 
-- The marker section's lines include `skill=deploy-twenty`, `release=v2.45.6`, `compose-sha256=bacd817fcef85abbcb6a603a6c093375313460037fae67d73d45c16f6d85bc7d`, and `project=` followed by this install name, each as a whole line, and `stat:` was read. This is an install this skill made. Continue.
-- The directory is absent, or the marker is absent, or a line does not match. Stop. This skill does not change an install it did not mark. Change nothing.
+- The marker section's lines include `skill=deploy-twenty`, `release=v2.45.6`, `compose-sha256=bacd817fcef85abbcb6a603a6c093375313460037fae67d73d45c16f6d85bc7d`, and `project=` followed by this install name, each as a whole line, and `stat:` was read. A whole line `stage=created` or `stage=files-written` may be present. It does not replace a required line and it does not fail this check. This is a complete install this skill made. Continue.
+- The directory is absent, or the marker is absent, or a required line does not match. Stop. This skill does not change an install it did not mark. Change nothing.
+
+Job 3. Take the first match.
+
+- The marker section's lines include `skill=deploy-twenty`, `release=v2.45.6`, `compose-sha256=bacd817fcef85abbcb6a603a6c093375313460037fae67d73d45c16f6d85bc7d`, and `project=` followed by this install name, each as a whole line, and `stat:` was read, and a container, a volume, or the network was read for this install name. A whole line `stage=created` or `stage=files-written` may be present. It does not replace a required line and it does not fail this check. This is a complete install this skill made. The full removal. Continue.
+- The marker section's lines include `skill=deploy-twenty`, `release=v2.45.6`, and `project=` followed by this install name, each as a whole line, with or without the `compose-sha256` line, and `stat:` was read, and `project-exit` is 0 and the project section is empty, and `volumes-exit` is 0 and the volumes section is empty, and `network-exit` is not 0 and the network section contains `not found`, compared without regard to case. A whole line `stage=created` or `stage=files-written` may be present. This is a partial install this skill made. The partial branch. Continue.
+- A container, a volume, or the network was read for this install name, and the marker does not contain the whole line `compose-sha256=bacd817fcef85abbcb6a603a6c093375313460037fae67d73d45c16f6d85bc7d`. Stop. Name what was read. Change nothing.
+- A section this question needs was not read. Stop. Copy the section. Change nothing.
+- The directory is absent, or the marker is absent, or a required line does not match. Stop. This skill does not change an install it did not mark. Change nothing.
 
 ### Has the person confirmed Cloudflare for SaaS, before the plan?
 
@@ -391,7 +399,7 @@ One plan, the calls that apply, in this order. A call that the questions skipped
 Job 1:
 
 1. The pull job. Purpose `twenty-pull`, limit 1800, three operands, the references below, in this order. `twentycrm/twenty@sha256:dca6d82985901468b391c0335aa8f0519a52b9809709e66f2de1dbff04351e53`, then `postgres@sha256:65b16a8b326e0cfbdf33fa7e783f2a0cb352a61448616ccccfd616ef42aa0f65`, then `redis@sha256:c94085d298b738be22c9ccdc0ac3761fa6649df7dd82ad1d42367f3cb9714935`.
-2. The install job. Purpose `twenty-install`, limit 300, the sixteen operands below. It writes the directory and starts nothing.
+2. The install job. Purpose `twenty-install`, limit 300, the sixteen operands below. It writes the marker before any download or secret, then the rest of the directory, and starts nothing.
 3. The person runs the helper over a shell they hold on the machine, outside the router. On Oracle, that shell is the route `skills/Prepare VM/providers/oracle.md` names, Cloud Shell's ephemeral private network. The plan names the helper path and the key names. It does not name a secret value.
 4. The length read.
 5. The start job. Purpose `twenty-start`, limit 1800, one operand, the install name.
@@ -402,7 +410,7 @@ Job 1:
 
 Job 2's plan is the route question. Job 3's plan is the removal question. Neither sends a pull.
 
-The way back for Job 1 is Job 3, named and not sent in this run. The way back for one route is Job 2 with the word `remove`, named and not sent in this run. Images are not removed by either.
+The way back for Job 1 is Job 3, named and not sent in this run. A stop after the install job and before the start job is undone by Job 3's partial branch. The way back for one route is Job 2 with the word `remove`, named and not sent in this run. Images are not removed by either.
 
 A re-inspection between two planned jobs reads the token the next start uses. The calls stay the ones this plan named. A re-inspection whose facts change a later call, a token renewal alone excluded, stops. The changed calls are a new plan, gated again. Do not start them on the old gate.
 
@@ -437,7 +445,7 @@ The pull counts only when the job's class is `succeeded` and, for each reference
 
 ### The install job
 
-The operands, in order, are the install name, the server URL `https://<base>` with no path and no trailing slash, the region, the bucket, the endpoint, the from address, the from name, the SMTP host, the SMTP port, the SMTP user, the base hostname, the driver, the word `saas` or the word `none`, the zone id or the single character `x` when the word is `none`, the DCV delegation id or `x` when the word is `none`, and the alias list. The alias list is `<install>-base,<install>-app,<install>-<subdomain>` with commas and no spaces. The zone and the DCV id are not secrets. The character `x` is unused when the word is `none`, and it is not written into `.env`.
+The operands, in order, are the install name, the server URL `https://<base>` with no path and no trailing slash, the region, the bucket, the endpoint, the from address, the from name, the SMTP host, the SMTP port, the SMTP user, the base hostname, the driver, the word `saas` or the word `none`, the zone id or the single character `x` when the word is `none`, the DCV delegation id or `x` when the word is `none`, and the alias list. The alias list is `<install>-base,<install>-app,<install>-<subdomain>` with commas and no spaces. The zone and the DCV id are not secrets. The character `x` is unused when the word is `none`, and it is not written into `.env`. In the script those operands are `install`, `u`, `r`, `b`, `e`, `f`, `n`, `h`, `p`, `s`, `m`, `d`, `a`, `z`, `c`, and `l`, in that order. The short names keep the script within 4096 code points.
 
 Write the script verbatim. Run `start` with `--purpose twenty-install`, `--limit 300`, `--token` the token the latest inspection read, `--script` that file, and those operands. Send the `argv` it prints, unchanged. Then the job question.
 
@@ -446,17 +454,21 @@ Write the script verbatim. Run `start` with `--purpose twenty-install`, `--limit
 ```
 set -eu
 export LC_ALL=C
-install=$1 url=$2 region=$3 bucket=$4 endpoint=$5 from=$6 fname=$7
-smtphost=$8 smtpport=$9 smtpuser=${10} smtpname=${11} driver=${12}
-saas=${13} zone=${14} dcv=${15} aliases=${16}
+install=$1 u=$2 r=$3 b=$4 e=$5 f=$6 n=$7
+h=$8 p=$9 s=${10} m=${11} d=${12}
+a=${13} z=${14} c=${15} l=${16}
 dir=/opt/$install
-if [ -e "$dir" ]; then echo exists; exit 20; fi
+[ -e "$dir" ]&&{ echo exists; exit 20; }
 mkdir -m 700 "$dir"
 cd "$dir"
+printf 'skill=deploy-twenty\nrelease=v2.45.6\nproject=%s\nstage=created\n' "$install">INSTALL
+chmod 644 INSTALL
+echo marker-written
 curl -fsSL --max-time 60 -o compose.yml "https://raw.githubusercontent.com/twentyhq/twenty/6007ad5a7f6cb676fd8a9ff0c2a86a2e3d4c260e/packages/twenty-docker/docker-compose.yml"
-got=$(sha256sum compose.yml | awk 'NR==1{print $1}')
+got=$(sha256sum compose.yml|awk 'NR==1{print $1}')
 [ "$got" = bacd817fcef85abbcb6a603a6c093375313460037fae67d73d45c16f6d85bc7d ] || { echo compose-sha-mismatch; exit 21; }
 echo compose-sha:ok
+printf 'compose-sha256=%s\n' "$got">>INSTALL
 envb='      IS_MULTIWORKSPACE_ENABLED: "true"
       DEFAULT_SUBDOMAIN: app
       STORAGE_S3_ACCESS_KEY_ID: ${STORAGE_S3_ACCESS_KEY_ID:-}
@@ -486,7 +498,7 @@ $envb
     networks:
       default: {}
       proxy:
-        aliases: [$aliases]
+        aliases: [$l]
   worker:
     image: \${TWENTY_IMAGE}
     environment:
@@ -503,17 +515,17 @@ umask 077
 pg=$(openssl rand -hex 24)
 enc=$(openssl rand -base64 32)
 {
-  printf '%s\n' "TWENTY_IMAGE=twentycrm/twenty@sha256:dca6d82985901468b391c0335aa8f0519a52b9809709e66f2de1dbff04351e53" "PG_IMAGE=postgres@sha256:65b16a8b326e0cfbdf33fa7e783f2a0cb352a61448616ccccfd616ef42aa0f65" "REDIS_IMAGE=redis@sha256:c94085d298b738be22c9ccdc0ac3761fa6649df7dd82ad1d42367f3cb9714935"
-  printf 'SERVER_URL=%s\nSTORAGE_TYPE=s3\nSTORAGE_S3_REGION=%s\nSTORAGE_S3_NAME=%s\nSTORAGE_S3_ENDPOINT=%s\n' "$url" "$region" "$bucket" "$endpoint"
-  printf 'PG_DATABASE_PASSWORD=%s\nENCRYPTION_KEY=%s\n' "$pg" "$enc"
-  printf 'EMAIL_FROM_ADDRESS=%s\nEMAIL_FROM_NAME="%s"\nEMAIL_SMTP_HOST=%s\nEMAIL_SMTP_PORT=%s\nEMAIL_SMTP_USER=%s\nEMAIL_SMTP_NAME=%s\nEMAILING_DOMAIN_DRIVER=%s\n' "$from" "$fname" "$smtphost" "$smtpport" "$smtpuser" "$smtpname" "$driver"
-  if [ "$saas" = saas ]; then printf 'CLOUDFLARE_ZONE_ID=%s\nCLOUDFLARE_DCV_DELEGATION_ID=%s\n' "$zone" "$dcv"; fi
+printf '%s\n' "TWENTY_IMAGE=twentycrm/twenty@sha256:dca6d82985901468b391c0335aa8f0519a52b9809709e66f2de1dbff04351e53" "PG_IMAGE=postgres@sha256:65b16a8b326e0cfbdf33fa7e783f2a0cb352a61448616ccccfd616ef42aa0f65" "REDIS_IMAGE=redis@sha256:c94085d298b738be22c9ccdc0ac3761fa6649df7dd82ad1d42367f3cb9714935"
+printf 'SERVER_URL=%s\nSTORAGE_TYPE=s3\nSTORAGE_S3_REGION=%s\nSTORAGE_S3_NAME=%s\nSTORAGE_S3_ENDPOINT=%s\n' "$u" "$r" "$b" "$e"
+printf 'PG_DATABASE_PASSWORD=%s\nENCRYPTION_KEY=%s\n' "$pg" "$enc"
+printf 'EMAIL_FROM_ADDRESS=%s\nEMAIL_FROM_NAME="%s"\nEMAIL_SMTP_HOST=%s\nEMAIL_SMTP_PORT=%s\nEMAIL_SMTP_USER=%s\nEMAIL_SMTP_NAME=%s\nEMAILING_DOMAIN_DRIVER=%s\n' "$f" "$n" "$h" "$p" "$s" "$m" "$d"
+if [ "$a" = saas ]; then printf 'CLOUDFLARE_ZONE_ID=%s\nCLOUDFLARE_DCV_DELEGATION_ID=%s\n' "$z" "$c"; fi
 } > .env
 unset pg enc
 chmod 600 .env
 { echo STORAGE_S3_ACCESS_KEY_ID; echo STORAGE_S3_SECRET_ACCESS_KEY; echo EMAIL_SMTP_PASSWORD
-  if [ "$driver" = RESEND ]; then echo RESEND_API_KEY; fi
-  if [ "$saas" = saas ]; then echo CLOUDFLARE_API_KEY; fi
+if [ "$d" = RESEND ]; then echo RESEND_API_KEY; fi
+if [ "$a" = saas ]; then echo CLOUDFLARE_API_KEY; fi
   echo ADMIN_PASSWORD; } > secrets.list
 chmod 600 secrets.list
 cat > set-secrets <<'EOF'
@@ -536,17 +548,18 @@ done < secrets.list
 echo helper-done
 EOF
 chmod 700 set-secrets
-printf 'skill=deploy-twenty\nrelease=v2.45.6\ncompose-sha256=%s\nproject=%s\n' "$got" "$install" > INSTALL
-chmod 644 INSTALL
 docker compose -p "$install" config --quiet
 echo "env-keys:$(cut -d= -f1 .env | tr '\n' ' ')"
-echo "aliases:$aliases"
+echo "aliases:$l"
+awk '{c+=sub(/^stage=created$/,"stage=files-written")}1;END{exit c!=1}' INSTALL>INSTALL.new
+mv INSTALL.new INSTALL
+chmod 644 INSTALL
 echo install-files-written
 ```
 
 The job generates `PG_DATABASE_PASSWORD` with `openssl rand -hex 24`, which is 48 hex characters, and `ENCRYPTION_KEY` with `openssl rand -base64 32`, which is 44 characters and does not wrap, the trailing newline removed by the command substitution. It writes them into `.env` and prints only key names. A line of the read-back that contains `PG_DATABASE_PASSWORD=`, `ENCRYPTION_KEY=`, `CLOUDFLARE_API_KEY=`, `EMAIL_SMTP_PASSWORD=`, `RESEND_API_KEY=`, `STORAGE_S3_SECRET_ACCESS_KEY=`, `STORAGE_S3_ACCESS_KEY_ID=`, or `ADMIN_PASSWORD=` is withheld. Say that the line was withheld. Do not copy it.
 
-The install counts only when the job's class is `succeeded` and the text after `]: ` includes `compose-sha:ok`, `install-files-written`, and an `env-keys:` line whose names are the keys and not the values. `compose-sha-mismatch` or `exists` is a failed install. Do not start the helper. Do not start containers. The directory may already exist. A new plan is gated before anything further is written. Do not delete the directory in this run. Name Job 3 only when a later inspection shows the marker.
+The install counts only when the job's class is `succeeded` and the text after `]: ` includes `marker-written`, `compose-sha:ok`, `install-files-written`, and an `env-keys:` line whose names are the keys and not the values. `compose-sha-mismatch` or `exists` is a failed install. Do not start the helper. Do not start containers. The directory may already exist. A new plan is gated before anything further is written. Do not delete the directory in this run. The marker is written before the download and before any secret. It first holds the whole lines `skill=deploy-twenty`, `release=v2.45.6`, `project=` followed by the install name, and `stage=created`. After the compose hash matches, the whole line `compose-sha256=` followed by that hash is appended. At the end `stage=created` is replaced with `stage=files-written`, by writing `INSTALL.new` and then `mv`. A counted install's marker holds `skill=deploy-twenty`, `release=v2.45.6`, `compose-sha256=bacd817fcef85abbcb6a603a6c093375313460037fae67d73d45c16f6d85bc7d`, `project=` followed by the install name, and `stage=files-written`, each as a whole line. A job that printed `marker-written` and did not print `install-files-written` left that directory. Name Job 3's partial branch when a later inspection shows the marker and no project container, volume, or network. Name the full removal only when that inspection also shows the `compose-sha256` line and a container, a volume, or the network.
 
 The override maps into both server and worker every variable the shipped compose file does not set: `IS_MULTIWORKSPACE_ENABLED`, `DEFAULT_SUBDOMAIN`, `STORAGE_S3_ACCESS_KEY_ID`, `STORAGE_S3_SECRET_ACCESS_KEY`, `EMAIL_DRIVER`, `EMAIL_FROM_ADDRESS`, `EMAIL_FROM_NAME`, `EMAIL_SMTP_HOST`, `EMAIL_SMTP_PORT`, `EMAIL_SMTP_USER`, `EMAIL_SMTP_PASSWORD`, `EMAIL_SMTP_NAME`, `EMAILING_DOMAIN_DRIVER`, `RESEND_API_KEY`, `CLOUDFLARE_API_KEY`, `CLOUDFLARE_ZONE_ID`, and `CLOUDFLARE_DCV_DELEGATION_ID`. It pins the three images by digest, removes the server's published port, gives the server's health check a start period of 900 seconds, and joins the server to the proxy network under the aliases. `STORAGE_TYPE` is `s3`. `STORAGE_S3_REGION`, `STORAGE_S3_NAME`, and `STORAGE_S3_ENDPOINT` are in `.env`, which the shipped compose file already interpolates. `EMAIL_DRIVER` is `smtp`. `EMAIL_SMTP_NAME` is the base hostname. `IS_EMAIL_VERIFICATION_REQUIRED` stays at Twenty's default, off. `IS_IMAP_SMTP_CALDAV_ENABLED` stays at Twenty's default, on. The report says so. Google and Microsoft mail and sign-in stay off. `RESEND_WEBHOOK_SIGNING_SECRET` and `RESEND_DOMAIN_REGION` stay unset. Leaving the signing secret unset means signatures on `/webhooks/messaging/resend` are not verified. Leaving the region unset means Resend provisions a new emailing domain in its default region.
 
@@ -1119,14 +1132,47 @@ A failed route POST after a successful add leaves the alias without a route. A f
 
 ### Has the person confirmed the removal?
 
-Ask on Job 3, before the gate and before any removal call. Job 3 destroys every organisation's data on the install: the database volume, the local volume, and the directory.
+Ask on Job 3, before the gate and before any removal call, the partial branch included. The full removal destroys every organisation's data on the install: the database volume, the local volume, and the directory. The partial branch removes the directory alone. There is no container, no volume, no network, and no route.
 
 - The person's words name the install and say to remove it. Record that confirmation in the plan. Continue to the gate.
 - The words do not name the install, or they do not say to remove it. Ask once, naming the install. No answer, or an answer that does not name it: stop. Send nothing.
 
 ### Job 3. Remove an install this skill made
 
-The marker question has already said this is an install this skill made. Read identities before the gate, with one read. `argv` is `/bin/sh`, `-c`, the script, `sh`, and the install name. The person is told it is a read. `<script>` is this text and no other:
+The marker question has already said which branch this is.
+
+The partial branch removes the directory alone, as one job. It does not delete a route, an image, a network, or a volume. A partial install has no route: routes are posted only after `workspace:ok`. The person's confirmation naming the install still applies before the job is sent. The plan for this branch is that one job and no other change call. The operands are the install name, the device, and the inode, taken from the inspection's `stat:` line. That line is `stat:` followed by the device, the inode, and the mode. The mode is not an operand.
+
+Write the script verbatim. Run `start` with `--purpose twenty-remove-partial`, `--limit 60`, `--token` the token the latest inspection read, `--script` that file, and those operands. Then the job question.
+
+`<script>` is this text and no other:
+
+```
+set -eu
+export LC_ALL=C
+install=$1
+dev=$2
+ino=$3
+d=/opt/$install
+mark=$(cat "$d/INSTALL")
+printf '%s\n' "$mark" | grep -qx 'skill=deploy-twenty' || { echo marker-mismatch; exit 30; }
+printf '%s\n' "$mark" | grep -qx 'release=v2.45.6' || { echo marker-mismatch; exit 30; }
+printf '%s\n' "$mark" | grep -qx "project=$install" || { echo marker-mismatch; exit 30; }
+test "$(realpath -e "$d")" = "$d"
+test -d "$d"
+test "$(stat -c '%d %i' "$d")" = "$dev $ino"
+m=$(awk -v o="$d" '$2 == o || index($2, o "/") == 1 { print }' /proc/mounts)
+test -z "$m"
+echo identities-match
+test "$(stat -c '%d %i' "$d")" = "$dev $ino"
+rm -rf --one-file-system "$d"
+test ! -e "$d"
+echo directory-removed
+```
+
+The partial removal counts only when the job's class is `succeeded` and the text after `]: ` includes `identities-match` and `directory-removed`, in that order, and a closing re-inspection shows the directory absent. `changed` requires both. A job that exits after `identities-match` and before `directory-removed` is not run again. Re-read. A new plan is gated before any further delete.
+
+The full removal applies when the marker question named it. Read identities before the gate, with one read. `argv` is `/bin/sh`, `-c`, the script, `sh`, and the install name. The person is told it is a read. `<script>` is this text and no other:
 
 ```
 export LC_ALL=C
@@ -1174,7 +1220,7 @@ The removal job is sent only when the directory, the containers, the network, an
 
 The operands are the install name, the device number, the inode, the network id, the Caddy container id, the container count, each full container id, the volume count, and then each volume as a pair: the volume name, then its `CreatedAt` as one operand. `CreatedAt` may contain spaces. It is one operand, never split. More than 56 operands stops the run. Do not choose which to omit.
 
-The job verifies every identity before it deletes anything. A mismatch exits before a delete. Enumeration that fails is a failure, not an absence. The directory is removed only when its device and inode still match, `realpath` is `/opt/<install>`, and nothing is mounted on or under it. The removal uses `rm -rf --one-file-system`.
+The job verifies every identity before it deletes anything. The marker checks require `skill=deploy-twenty`, `release=v2.45.6`, the `compose-sha256` line, and `project=` followed by the install name, each as a whole line. A `stage=` line may be present. Those checks do not reject it. A mismatch exits before a delete. Enumeration that fails is a failure, not an absence. The directory is removed only when its device and inode still match, `realpath` is `/opt/<install>`, and nothing is mounted on or under it. The removal uses `rm -rf --one-file-system`.
 
 Write the script verbatim. Run `start` with `--purpose twenty-remove`, `--limit 600`, `--token` the token the latest inspection read, `--script` that file, and those operands. Then the job question.
 
@@ -1251,7 +1297,7 @@ test ! -e "$d"
 echo directory-removed
 ```
 
-The removal counts only when the job's class is `succeeded` and the text after `]: ` includes `identities-match`, `containers-removed`, `network-removed`, `volumes-removed`, and `directory-removed`, in that order, and a closing re-inspection shows the directory absent, the project containers absent, the project volumes absent, the project network absent, and the live config and the saved config still equal to the post-route before-state. `changed` requires all of that. A job that exits after `identities-match` and before `directory-removed` is not run again. Re-read. A new plan is gated before any further delete.
+The full removal counts only when the job's class is `succeeded` and the text after `]: ` includes `identities-match`, `containers-removed`, `network-removed`, `volumes-removed`, and `directory-removed`, in that order, and a closing re-inspection shows the directory absent, the project containers absent, the project volumes absent, the project network absent, and the live config and the saved config still equal to the post-route before-state. `changed` requires all of that. A job that exits after `identities-match` and before `directory-removed` is not run again. Re-read. A new plan is gated before any further delete.
 
 ### What did the job do?
 
@@ -1306,13 +1352,13 @@ This question is for a `vm.command.run` that is not a job start, poll, read-back
 
 ### What did the re-inspection show?
 
-After a job, re-inspect when the job question says to. After the base route, after Job 2's last change, or after Job 3's removal job, inspect again with the same inspection script. The approval question applies, and the person is told it is a read. A job that exited 0 is not yet `changed`.
+After a job, re-inspect when the job question says to. After the base route, after Job 2's last change, or after either of Job 3's removal jobs, inspect again with the same inspection script. The approval question applies, and the person is told it is a read. A job that exited 0 is not yet `changed`.
 
 Job 1's requested state: the four containers match the start checks, the app route and the base route are present and are exactly the generated object, `workspace:ok` was printed or the password file is absent after a call whose outcome was unknown, and both outside checks returned `200` over verified TLS. A `-k` answer is served and not verified, and it is not this state.
 
 Job 2 add's requested state: the new route is present and is exactly the generated object, and the aliases line contains the new alias. Job 2 remove's requested state: that route is absent from the live config and from the saved config, and the aliases line does not contain that alias.
 
-Job 3's requested state is the one its question states.
+Job 3's full removal requested state is the one its question states. Job 3's partial branch requested state is the directory absent.
 
 - The re-inspection is incomplete, `truncated`, absent, or not a state. Do not claim `changed` or `unchanged`. Report failed, with the change call's outcome and the re-inspection's outcome. Do not repeat the change.
 - The requested state holds, and it did not hold in the before-state. `changed`.
@@ -1347,6 +1393,7 @@ For each job, also: its unit name, its invocation ID and its limit, the last pol
 - **A whole-config write.** This skill does not POST to `/config/`. A route POST, and its one retry after a `412`, carry `If-Match` set to the `Etag` from the same `GET /config/` whose body passed the shape check, not the routes path's `Etag`. A `412` means the config changed anywhere. Whenever the shape is checked, the config's top-level keys are exactly `apps`, `apps` holds exactly `http`, `http` holds exactly `servers`, and `servers` has exactly one key, `workloads`. Anything else stops the run. Every route is exactly the generated object. Any other route stops the run.
 - **A route added before the workspace exists.** The first-contact call creates the server admin and the first workspace on the install's Docker network before it posts a route. A failure before `workspace:ok` has posted nothing. Do not post either route in an earlier call. Do not remove the app route to recover. Removing the install is Job 3.
 - **A route, a container, or a volume removed that is not this install's.** Job 3 matches the marker, the project label, the full container id, the network id, the volume name and its `CreatedAt`, and the directory's device and inode. A name alone is not ownership. `docker compose down` is not sent. Images stay. `caddy-config` and `caddy-data` stay.
+- **A partial install left with secrets and no way back.** The install job writes the marker before any download or secret. A stop after the install job and before the start job is Job 3's partial branch: the directory alone, after the person names the install. The partial job checks the marker lines `skill=deploy-twenty`, `release=v2.45.6`, and `project=` with the install name, checks that `realpath` is `/opt/<install>`, that the path is a directory, that the device and inode match the inspection, and that no mount is on or under it, then removes that directory with `rm -rf --one-file-system`. It does not change a route, an image, a network, or a volume, and it does not read Caddy. A container, a volume, or a network read while the marker lacks `compose-sha256`, or an absent marker, stops the run. Name what was read. Change nothing.
 - **Caddy's saved config not read back before the data is deleted.** After the route deletes, the live config and the saved config have to equal the before-state with only this install's routes removed. A difference stops the run before the removal job.
 - **A second job started while one is loaded.** The second-run questions. A running job stops the run. A finished one is released and the run starts over from its inspection, once.
 - **A start sent again after `token-changed`, with no new inspection and no new gate.** Nothing was started. Inspect again and gate again before any start.
@@ -1366,11 +1413,11 @@ For each job, also: its unit name, its invocation ID and its limit, the last pol
 - Headroom was read before the pull. Below 3927 MiB available, or below 8589934592 bytes free on Docker's filesystem, the run stopped and pulled nothing.
 - No Docker, or a Caddy that was not running in the shape `skills/Deploy Workload/` runs, stopped the run, and the report names that gap. This skill did not install Docker and did not start Caddy.
 - A change was sent only after `experts/DevOps Expert/` returned safe as planned, or safe with named conditions the person was told, and only after the person approved that call's stop. No route was written before that gate and that approval.
-- The pull was one job, purpose `twenty-pull`, limit 1800, the three digest references the operands, and a digest that did not match was not installed. The install job, purpose `twenty-install`, limit 300, wrote the directory, checked the compose file's hash, and started nothing. The start job, purpose `twenty-start`, limit 1800, was not sent until the length read matched.
+- The pull was one job, purpose `twenty-pull`, limit 1800, the three digest references the operands, and a digest that did not match was not installed. The install job, purpose `twenty-install`, limit 300, created the directory, wrote the marker before any download or secret, appended `compose-sha256` after the compose hash matched, replaced `stage=created` with `stage=files-written`, and started nothing. The start job, purpose `twenty-start`, limit 1800, was not sent until the length read matched.
 - The server published no port. The four containers matched the start checks before any route. A failed check added no route.
 - The first-contact call created the server admin and the first workspace before it posted a route, in one `vm.command.run`. No route was posted before `workspace:ok` and the password file was removed. The base route was a later call. An `uncertain` or `timeout` on that call was not retried, and no route was removed to recover.
 - Job 2 added an alias by reattaching the full list and then posting the route, or removed the route, confirmed the saved config, and then removed the alias. A half-finished pair was reported and not repaired in the same run.
-- Job 3 ran only after the person confirmed by naming the install, and the report says the removal destroys every organisation's data on the install. It deleted only objects whose identity was read back, routes first, and it read Caddy's live and saved config back to the before-state with those routes removed, before it deleted data. Images stayed.
+- Job 3's full removal ran only after the person confirmed by naming the install, and the report says the removal destroys every organisation's data on the install. It deleted only objects whose identity was read back, routes first, and it read Caddy's live and saved config back to the before-state with those routes removed, before it deleted data. Images stayed. Job 3's partial branch ran only after the person confirmed by naming the install. It removed the directory alone when the marker held `skill=deploy-twenty`, `release=v2.45.6`, and the project line, with or without `compose-sha256`, and the inspection showed no container, no volume, and no network. The job required the path `/opt/<install>`, a directory, the inspection's device and inode, and no mount on or under the directory. The re-inspection showed the directory absent. A project container, volume, or network with no `compose-sha256` line, or an absent marker, was named and left unchanged.
 - The report names each check's answer, both URLs, what is configured and what is not, the three kinds of email, the base name's direct path when the zone applies, the no-real-contact rule, and every gap that applies.
 - Per job the report names the unit name, the invocation ID, the limit, the last poll's state, the read-back lines it may show, and the release outcome. A job was polled at most six times, each wait at most 10 seconds. A stuck job was not released.
 - DNS was handed to `experts/IT Expert/` in `wiser`, which sequences `skills/Zone Publisher/`. A package was handed to `skills/VM Configure/`. Workspace setup beyond the first workspace was not invented.

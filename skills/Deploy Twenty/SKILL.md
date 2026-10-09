@@ -3,7 +3,7 @@ name: Deploy Twenty
 type: skill
 category: operations
 description: Install Twenty CRM v2.45.6 on one machine a person's router maps, behind the Caddy that machine already runs, or add or remove one hostname route for an install this skill made, or remove that install, and report the URL, what answered, and what is not configured.
-version: 0.1.5
+version: 0.1.6
 gaps:
   - installing a Twenty release other than v2.45.6, or upgrading an install to another release
   - a machine with no Docker, or with no Caddy running in the shape `skills/Deploy Workload/` runs it
@@ -536,7 +536,7 @@ cd "$(dirname "$0")"
 umask 077
 while IFS= read -r k || [ -n "$k" ]; do
   [ -n "$k" ] || continue
-  read -rsp "Type ${k} and press Enter. Nothing will show. " v || true
+  read -rsp "Type ${k}, then Enter (hidden): " v </dev/tty || true
   echo
   case "$v" in ''|*[[:space:]]*) echo "refused:$k:empty-or-whitespace"; exit 1 ;; esac
   n=${#v}
@@ -567,7 +567,7 @@ Every compose command passes `-p` and the install name, because the fetched file
 
 ### What does the person run?
 
-Ask only after the install job counted. The helper is `/opt/<install>/set-secrets`, mode 700, run with sudo, over the shell the person holds. It prompts with `read -rsp`, one key at a time, for exactly the keys in `secrets.list`: `STORAGE_S3_ACCESS_KEY_ID`, `STORAGE_S3_SECRET_ACCESS_KEY`, `EMAIL_SMTP_PASSWORD`, `RESEND_API_KEY` when the driver is `RESEND`, `CLOUDFLARE_API_KEY` when `<cloudflare_saas>` is not `none`, and `ADMIN_PASSWORD`. `EMAIL_SMTP_PASSWORD` is a Cloudflare API token with Email Sending: Edit, on the account where the from address's domain is onboarded for sending. `RESEND_API_KEY` is a full-access key, because Twenty creates, verifies and deletes domains through it as well as sending. `CLOUDFLARE_API_KEY` is a token with Zone, SSL and Certificates, Edit on that zone. The server admin's password goes to `admin.password`, mode 600, which the first-contact call deletes after the workspace exists.
+Ask only after the install job counted. The helper is `/opt/<install>/set-secrets`, mode 700, run with sudo, over the shell the person holds. It reads the key names from `secrets.list` and each value from the person's terminal (`/dev/tty`), never from that list, prompting with `read -rsp`, one key at a time, for exactly the keys in `secrets.list`: `STORAGE_S3_ACCESS_KEY_ID`, `STORAGE_S3_SECRET_ACCESS_KEY`, `EMAIL_SMTP_PASSWORD`, `RESEND_API_KEY` when the driver is `RESEND`, `CLOUDFLARE_API_KEY` when `<cloudflare_saas>` is not `none`, and `ADMIN_PASSWORD`. `EMAIL_SMTP_PASSWORD` is a Cloudflare API token with Email Sending: Edit, on the account where the from address's domain is onboarded for sending. `RESEND_API_KEY` is a full-access key, because Twenty creates, verifies and deletes domains through it as well as sending. `CLOUDFLARE_API_KEY` is a token with Zone, SSL and Certificates, Edit on that zone. The server admin's password goes to `admin.password`, mode 600, which the first-contact call deletes after the workspace exists.
 
 The helper refuses an empty value or a value that contains whitespace. It writes under umask 077, it never echoes, and it prints `saved:<key>:length:<n>` and then `helper-done`. The person reads those lines back. A value is not repeated into the conversation.
 

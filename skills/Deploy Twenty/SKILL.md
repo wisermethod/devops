@@ -3,7 +3,7 @@ name: Deploy Twenty
 type: skill
 category: operations
 description: Install Twenty CRM v2.45.6 on one machine a person's router maps, behind the Caddy that machine already runs, or add or remove one hostname route for an install this skill made, or remove that install, and report the URL, what answered, and what is not configured.
-version: 0.1.0
+version: 0.1.1
 gaps:
   - installing a Twenty release other than v2.45.6, or upgrading an install to another release
   - a machine with no Docker, or with no Caddy running in the shape `skills/Deploy Workload/` runs it
@@ -629,7 +629,7 @@ for svc in server worker db redis; do
   echo "container:$svc:$id:$line"
 done
 for svc in server worker; do
-  docker compose -p "$install" exec -T "$svc" sh -c 'for k in PG_DATABASE_PASSWORD ENCRYPTION_KEY STORAGE_S3_ACCESS_KEY_ID STORAGE_S3_SECRET_ACCESS_KEY EMAIL_SMTP_PASSWORD RESEND_API_KEY CLOUDFLARE_API_KEY CLOUDFLARE_ZONE_ID CLOUDFLARE_DCV_DELEGATION_ID; do eval "n=\${#$k}"; echo "length:'"$svc"':$k:$n"; done'
+  docker compose -p "$install" exec -T "$svc" sh -c 'u=$PG_DATABASE_URL; u=${u#*://}; u=${u%@*}; u=${u#*:}; echo "length:'"$svc"':PG_DATABASE_URL_PASSWORD:${#u}"; for k in ENCRYPTION_KEY STORAGE_S3_ACCESS_KEY_ID STORAGE_S3_SECRET_ACCESS_KEY EMAIL_SMTP_PASSWORD RESEND_API_KEY CLOUDFLARE_API_KEY CLOUDFLARE_ZONE_ID CLOUDFLARE_DCV_DELEGATION_ID; do eval "n=\${#$k}"; echo "length:'"$svc"':$k:$n"; done'
 done
 docker compose -p "$install" exec -T server node -e 'const https=require("https"),tls=require("tls"),E=process.env,L=console.log;function get(h,p,k,ok){return new Promise(r=>{if(!k)return r("skipped");const q=https.get({hostname:h,path:p,headers:{Authorization:"Bearer "+k},timeout:2e4},s=>{let b="";s.on("data",d=>b+=d);s.on("end",()=>r(ok(s.statusCode,b)))});q.on("error",()=>r("fail"));q.on("timeout",()=>{q.destroy();r("fail")})})}function smtp(){return new Promise(r=>{let s=0,b="";const c=tls.connect({host:E.EMAIL_SMTP_HOST,port:+E.EMAIL_SMTP_PORT,servername:E.EMAIL_SMTP_HOST});const W=x=>c.write(x+"\r\n");const z=(m)=>{L(m);c.destroy();r()};c.setTimeout(15e3,()=>z("smtp-auth:fail:timeout"));c.on("error",()=>z("smtp-auth:fail:connect"));c.on("data",d=>{b+=d;let i;while((i=b.indexOf("\n"))>=0){const l=b.slice(0,i).replace(/\r/,"");b=b.slice(i+1);const k=l.slice(0,3);if(!s&&k=="220"){s=1;W("EHLO "+E.EMAIL_SMTP_NAME)}else if(s==1&&k=="250"&&l[3]==" "){s=2;W("AUTH LOGIN")}else if(s==2&&k=="334"){s=3;W(Buffer.from(E.EMAIL_SMTP_USER).toString("base64"))}else if(s==3&&k=="334"){s=4;W(Buffer.from(E.EMAIL_SMTP_PASSWORD).toString("base64"))}else if(s==4&&k=="235")z("smtp-auth:ok");else if(s>1&&k[0]>"3")z("smtp-auth:fail:"+k)}})})}(async()=>{const cf=await get("api.cloudflare.com","/client/v4/zones/"+E.CLOUDFLARE_ZONE_ID+"/custom_hostnames",E.CLOUDFLARE_API_KEY,(c,b)=>{const m=b.match(/"total_count": *([0-9]+)/);return c===200&&/"success": *true/.test(b)&&m?"true:"+m[1]:"fail"});L("cloudflare-list:"+cf);const rs=await get("api.resend.com","/domains",E.RESEND_API_KEY,(c,b)=>c===200?String((b.match(/"id"/g)||[]).length):"fail");L("resend-domains:"+rs);await smtp();let A;for(const p of["@aws-sdk/client-s3","/app/packages/twenty-server/node_modules/@aws-sdk/client-s3"]){try{A=require(p);break}catch(e){}}if(!A){L("s3-client:absent");return}const s3=new A.S3Client({region:E.STORAGE_S3_REGION,endpoint:E.STORAGE_S3_ENDPOINT,forcePathStyle:true,credentials:{accessKeyId:E.STORAGE_S3_ACCESS_KEY_ID,secretAccessKey:E.STORAGE_S3_SECRET_ACCESS_KEY}});const B=E.STORAGE_S3_NAME,K="dt-probe",D=Buffer.from(K);try{await s3.send(new A.PutObjectCommand({Bucket:B,Key:K,Body:D}));L("s3-put:ok");const g=await s3.send(new A.GetObjectCommand({Bucket:B,Key:K}));const x=Buffer.from(await g.Body.transformToByteArray());L("s3-get:"+(x.equals(D)?"match":"mismatch"));await s3.send(new A.DeleteObjectCommand({Bucket:B,Key:K}));L("s3-delete:ok")}catch(e){L("s3-fail:"+(e.name||"error"))}})().catch(()=>L("checks:fail"))' || echo checks:fail
 echo done
@@ -641,7 +641,7 @@ The checks, read from the text after `]: `, and never from a value:
 
 - `network:` lists an id and the project label equals the install name. `caddy:` lists an id and the label is `caddy`.
 - `container:server:`, `container:db:`, and `container:redis:` each show status `running`, health `healthy`, and restart count `0`. `container:worker:` shows status `running`, health `none`, and restart count `0`. The worker has no health check of its own. A restart count above 0 does not pass.
-- For server and worker, `PG_DATABASE_PASSWORD`, `ENCRYPTION_KEY`, `STORAGE_S3_ACCESS_KEY_ID`, `STORAGE_S3_SECRET_ACCESS_KEY`, and `EMAIL_SMTP_PASSWORD` each have a length above 0. `RESEND_API_KEY` has a length above 0 when the driver is `RESEND`, and 0 when the driver is `LOG`. `CLOUDFLARE_API_KEY`, `CLOUDFLARE_ZONE_ID`, and `CLOUDFLARE_DCV_DELEGATION_ID` each have a length above 0 when `<cloudflare_saas>` is not `none`, and 0 when it is `none`. The line is `length:<service>:<key>:<n>`. A line that shows a value instead of a number is withheld.
+- For server and worker, `PG_DATABASE_URL_PASSWORD` has length exactly 48, which is the job's generated password (`openssl rand -hex 24`), so the compose default `postgres` (8) fails it. `ENCRYPTION_KEY`, `STORAGE_S3_ACCESS_KEY_ID`, `STORAGE_S3_SECRET_ACCESS_KEY`, and `EMAIL_SMTP_PASSWORD` each have a length above 0. `RESEND_API_KEY` has a length above 0 when the driver is `RESEND`, and 0 when the driver is `LOG`. `CLOUDFLARE_API_KEY`, `CLOUDFLARE_ZONE_ID`, and `CLOUDFLARE_DCV_DELEGATION_ID` each have a length above 0 when `<cloudflare_saas>` is not `none`, and 0 when it is `none`. The line is `length:<service>:<key>:<n>`. A line that shows a value instead of a number is withheld.
 - `cloudflare-list:skipped` passes only when `<cloudflare_saas>` is `none`. Otherwise the line is `cloudflare-list:true:<digits>`. Any other line fails. The count is the zone's custom-hostname total. The token is not printed.
 - `resend-domains:skipped` passes only when the driver is `LOG`. Otherwise the line is `resend-domains:` and a whole number, `0` included. `resend-domains:fail` fails.
 - `smtp-auth:ok` passes. Any other `smtp-auth:` line fails.
@@ -673,7 +673,7 @@ install=$1
 test -d "/opt/$install"
 umask 077
 cat > "/opt/$install/first-contact.py" << 'FCEND'
-import json,os,socket,ssl,sys,http.client
+import json,os,socket,ssl,sys,time,http.client
 a=sys.argv
 if len(a)!=11 or a[1] not in ("full","create-only"):
  print("args:refused"); raise SystemExit(2)
@@ -701,24 +701,62 @@ class U(http.client.HTTPConnection):
   s=socket.socket(socket.AF_UNIX,socket.SOCK_STREAM); s.settimeout(15); s.connect("/var/lib/caddy-admin/admin.sock"); self.sock=s
 def adm(m,p,b=None,h=None):
  c=U("localhost",timeout=15); c.request(m,p,body=b,headers=h or {}); r=c.getresponse(); d=r.read(); st,et=r.status,r.getheader("Etag"); c.close(); return st,et,d
+posted=[]
+def unpost():
+ while posted:
+  alias=posted.pop(0)
+  try:
+   st,et,data=adm("GET","/config/")
+  except Exception:
+   print("route-removed:%s:fail"%alias); continue
+  if st!=200 or not et:
+   print("route-removed:%s:config-%s"%(alias,st)); continue
+  try:
+   cfg=json.loads(data.decode())
+  except Exception:
+   print("route-removed:%s:config-not-json"%alias); continue
+  if not shap(cfg):
+   print("route-removed:%s:shape-refused"%alias); continue
+  try:
+   st2,_,_=adm("DELETE","/id/workload-"+alias,None,{"If-Match":et})
+  except Exception:
+   print("route-removed:%s:fail"%alias); continue
+  print("route-removed:%s:%s"%(alias,st2))
 def post(alias,host):
  st,et,data=adm("GET","/config/")
  if st!=200 or not et:
-  print("route:%s:config-%s"%(alias,st)); raise SystemExit(50)
+  print("route:%s:config-%s"%(alias,st)); unpost(); raise SystemExit(50)
  try: cfg=json.loads(data.decode())
  except Exception:
-  print("route:%s:config-not-json"%alias); raise SystemExit(50)
+  print("route:%s:config-not-json"%alias); unpost(); raise SystemExit(50)
  if not shap(cfg):
-  print("route:%s:shape-refused"%alias); raise SystemExit(52)
+  print("route:%s:shape-refused"%alias); unpost(); raise SystemExit(52)
  body=json.dumps({"@id":"workload-"+alias,"match":[{"host":[host]}],"handle":[{"handler":"reverse_proxy","upstreams":[{"dial":alias+":3000"}]}],"terminal":True},separators=(",",":")).encode()
  st2,_,_=adm("POST","/config/apps/http/servers/workloads/routes",body,{"Content-Type":"application/json","If-Match":et})
- print("route:%s:%s"%(alias,st2)); return st2
-subok=1
+ print("route:%s:%s"%(alias,st2))
+ if st2==200: posted.append(alias)
+ return st2
 if mode=="full":
  if post(appa,apph)!=200:
-  print("admin-password-file:kept"); raise SystemExit(53)
+  print("admin-password-file:kept"); unpost(); raise SystemExit(53)
  if post(suba,subh)!=200:
-  subok=0; print("route-sub-failed")
+  print("route-sub-failed"); unpost(); print("admin-password-file:kept"); raise SystemExit(56)
+ctx=ssl.create_default_context()
+def tls():
+ ok=0
+ for i in range(20):
+  raw=None
+  try:
+   raw=socket.create_connection((addr,443),5)
+   ss=ctx.wrap_socket(raw,server_hostname=apph)
+   ss.close(); ok=1; break
+  except Exception:
+   if raw is not None:
+    try: raw.close()
+    except Exception: pass
+   if i<19: time.sleep(1)
+ print("tls:ready" if ok else "tls:not-ready")
+ return ok
 FCEND
 echo writer-ok
 ```
@@ -735,11 +773,10 @@ cat >> "/opt/$install/first-contact.py" << 'FCEND'
 path="/opt/"+install+"/admin.password"
 try: pw=open(path,encoding="utf-8").read()
 except Exception:
- print("admin-password:absent"); raise SystemExit(54)
+ print("admin-password:absent"); unpost(); raise SystemExit(54)
 if pw.endswith("\n"): pw=pw[:-1]
 if not pw or any(ch.isspace() for ch in pw):
- print("admin-password:refused"); print("admin-password-file:kept"); raise SystemExit(55)
-ctx=ssl.create_default_context()
+ print("admin-password:refused"); unpost(); print("admin-password-file:kept"); raise SystemExit(55)
 def gql(host,q,v,tok=None):
  try:
   raw=socket.create_connection((addr,443),20); ss=ctx.wrap_socket(raw,server_hostname=host)
@@ -768,13 +805,15 @@ def known(d):
  if not isinstance(e,list) or not e or not isinstance(e[0],dict): return ""
  m=e[0].get("message"); return m if m=="User already exists" else "withheld"
 def keep():
- print("admin-password-file:kept"); raise SystemExit(56)
+ unpost(); print("admin-password-file:kept"); raise SystemExit(56)
 F="{tokens{accessOrWorkspaceAgnosticToken{token}}}"
 S="mutation($e:String!,$p:String!){signUp(email:$e,password:$p)"+F+"}"
 N="mutation($e:String!,$p:String!){signIn(email:$e,password:$p)"+F+"}"
 W="mutation($i:SignUpInNewWorkspaceInput){signUpInNewWorkspace(input:$i){loginToken{token} workspace{id}}}"
 T="mutation($t:String!,$o:String!){getAuthTokensFromLoginToken(loginToken:$t,origin:$o)"+F+"}"
 A="mutation($d:ActivateWorkspaceInput!){activateWorkspace(data:$d){id activationStatus}}"
+if mode=="full" and not tls():
+ keep()
 doc=gql(apph,S,{"e":email,"p":pw}); token=box(doc,"signUp") if doc else None
 if isinstance(token,str) and token: print("signup:ok")
 elif known(doc)=="User already exists":
@@ -793,8 +832,6 @@ print("workspace:ok")
 try: os.remove(path); print("admin-password-file:removed")
 except Exception: print("admin-password-file:kept")
 pw=token=""
-if not subok:
- print("activate:skipped"); raise SystemExit(0)
 doc=gql(subh,T,{"t":login,"o":"https://"+subh})
 access=box(doc,"getAuthTokensFromLoginToken") if doc else None
 if not (isinstance(access,str) and access):
@@ -835,14 +872,16 @@ test "$ok" = 1
 exec python3 "/opt/$2/first-contact.py" "$@"
 ```
 
-Inside that one call the program checks `/healthz` from inside the server, then, in `full` mode, posts the app route and stops before any signup when that post is not 200, then posts the workspace route, then signs up on the app origin and creates the workspace, then activates on the workspace origin only when that route returned 200. A 412 posts nothing and signs nobody up. There is no second post inside the script. The route body is `{"@id":"workload-<alias>","match":[{"host":["<hostname>"]}],"handle":[{"handler":"reverse_proxy","upstreams":[{"dial":"<alias>:3000"}]}],"terminal":true}`. The program also refuses a config that is not the shape, on the same GET that supplies `If-Match`.
+Inside that one call the program checks `/healthz` from inside the server, then, in `full` mode, posts the app route and stops before any signup when that post is not 200, then posts the workspace route. A workspace post that is not 200 prints `route-sub-failed`, removes the app route this call posted, prints `admin-password-file:kept`, and exits before signup. The program checks the admin password. In `full` mode, after that check and before `signUp`, it waits for a verified TLS certificate for `app.<base>`. The wait polls a TLS handshake about once a second, at most 20 attempts: TCP to the source address on port 443, SNI `app.<base>`, verified with `ssl.create_default_context()`, the same way the GraphQL call connects. It prints `tls:ready` or `tls:not-ready` once. It does not print the certificate. The program then signs up on the app origin and creates the workspace, then activates on the workspace origin only when that route returned 200. A 412 posts nothing and signs nobody up. There is no second post inside the script. The route body is `{"@id":"workload-<alias>","match":[{"host":["<hostname>"]}],"handle":[{"handler":"reverse_proxy","upstreams":[{"dial":"<alias>:3000"}]}],"terminal":true}`. The program also refuses a config that is not the shape, on the same GET that supplies `If-Match`.
 
-GraphQL is `POST /metadata` on the origin, with `Origin` set to that origin, TLS verified, SNI equal to the hostname, and TCP to the source address. `signUp` and, only when the error message is exactly `User already exists`, `signIn`, then `signUpInNewWorkspace`, run on `https://app.<base>/metadata`. `getAuthTokensFromLoginToken` and `activateWorkspace` run on `https://<sub>.<base>/metadata`. No token, no password, and no other error message is printed. Any other error is `signup:fail:withheld` or `signin:fail`, and the password file stays.
+Any exit after this call has posted a route and before `workspace:ok` removes each route this call posted with status 200, then exits. Those exits are `tls:not-ready`, `signup:fail:withheld`, `signin:fail`, `workspace:fail`, an admin password that is absent or refused, `route-sub-failed` when the app route was posted, and a config or shape refusal while posting a later route. Removal prints `route-removed:<alias>:<status>`. For each alias this call posted with 200, removal GETs `/config/` over the admin socket for a fresh `Etag`, checks the shape the same way the post does, and sends `DELETE /id/workload-<alias>` with `If-Match` set to that `Etag`. It never removes a route this call did not post. After `workspace:ok` the routes stay. The exit codes stay the ones those paths already use, and `admin-password-file:kept` stays on the exits that already print it. `route-sub-failed` exits 56, which is the code `keep()` already uses, and it prints `admin-password-file:kept`.
 
-- The call came back naming this identifier, `healthz:200` was printed, `route:<app alias>:200` was printed, `workspace:ok` was printed, and `admin-password-file:removed` was printed. The workspace exists. `activate:ok` means it was activated. `activate:skipped` or `activate:fail` means the workspace exists and activation did not finish. Report that. Do not send the call again. Continue to the base route only when `workspace:ok` was printed.
+GraphQL is `POST /metadata` on the origin, with `Origin` set to that origin, TLS verified, SNI equal to the hostname, and TCP to the source address. `signUp` and, only when the error message is exactly `User already exists`, `signIn`, then `signUpInNewWorkspace`, run on `https://app.<base>/metadata`. `getAuthTokensFromLoginToken` and `activateWorkspace` run on `https://<sub>.<base>/metadata`. No token, no password, and no other error message is printed. Any other error is `signup:fail:withheld` or `signin:fail`, the password file stays, and the routes this call posted are removed before the exit.
+
+- The call came back naming this identifier, `healthz:200` was printed, `route:<app alias>:200` was printed, `tls:ready` was printed, `workspace:ok` was printed, and `admin-password-file:removed` was printed. The workspace exists. `activate:ok` means it was activated. `activate:fail` means the workspace exists and activation did not finish. Report that. Do not send the call again. Continue to the base route only when `workspace:ok` was printed.
 - `route:<app alias>:412`, or any route line that is not 200 for the app alias, and no `signup:` line was printed. The call changed no route. Stop. Do not post again in this run. A new plan is gated before another post.
-- The call's outcome is `uncertain`, `timeout`, `killed`, or `request_timeout`, or `status` is `vendor_error`, or the answer carries no `machine`. Do not send the call again. One later read, the config script and the length script, after about 30 seconds. The password file absent means the workspace line was reached. The password file present and the app route present means the install may be reachable and the workspace may be unclaimed. Stop. Say that. A continuation is a new plan, gated again, mode `create-only`, whose only change is the workspace creation. Do not run it under this approval. The app route absent means the route was not added. Stop.
-- Any other answer. Do not send the call again. Report the lines that were printed. Do not claim the workspace exists unless `workspace:ok` was printed or the later read shows the password file absent.
+- The call's outcome is `uncertain`, `timeout`, `killed`, or `request_timeout`, or `status` is `vendor_error`, or the answer carries no `machine`. Do not send the call again. One later read, the config script and the length script, after about 30 seconds. The password file absent means the workspace line was reached. The app route absent and the password file present means the failure path ran and removed the app route. The app route present and the password file present means the program did not finish. Stop. Say that the install may be claimable, and that removing that route is Job 2's removal, gated by the person.
+- Any other answer. Do not send the call again. Report the lines that were printed. `tls:not-ready`, `signup:fail:withheld`, `signin:fail`, `workspace:fail`, `admin-password:absent`, `admin-password:refused`, and `route-sub-failed` mean this call exited before `workspace:ok` and removed each route it had posted with status 200. `route-removed:<alias>:<status>` is that removal. A status of `200` means the delete was accepted. Any other status means that alias may still be in place. Do not claim the workspace exists unless `workspace:ok` was printed or the later read shows the password file absent.
 
 ### What adds the base route?
 

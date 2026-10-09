@@ -3,7 +3,7 @@ name: Deploy Twenty
 type: skill
 category: operations
 description: Install Twenty CRM v2.45.6 on one machine a person's router maps, behind the Caddy that machine already runs, or add or remove one hostname route for an install this skill made, or remove that install, and report the URL, what answered, and what is not configured.
-version: 0.1.3
+version: 0.1.4
 gaps:
   - installing a Twenty release other than v2.45.6, or upgrading an install to another release
   - a machine with no Docker, or with no Caddy running in the shape `skills/Deploy Workload/` runs it
@@ -280,7 +280,7 @@ else
 fi
 if command -v docker >/dev/null 2>&1; then
   printf '%s\n' '--- project ---'
-  docker ps -aq --no-trunc --filter "label=com.docker.compose.project=$install" --format '{{.ID}} {{.Label "com.docker.compose.service"}} {{.Label "com.docker.compose.project"}}'
+  docker ps -a --no-trunc --filter "label=com.docker.compose.project=$install" --format '{{.ID}} {{.Label "com.docker.compose.service"}} {{.Label "com.docker.compose.project"}}'
   printf '%s\n' "project-exit:$?"
   printf '%s\n' '--- project-volumes ---'
   docker volume ls --filter "label=com.docker.compose.project=$install" --format '{{.Name}}'
@@ -1034,7 +1034,7 @@ One `vm.command.run`, a read, after the routes. The person is told it is a read.
 export LC_ALL=C
 install=$1
 printf '%s\n' '--- ids ---'
-docker ps -aq --no-trunc --filter "label=com.docker.compose.project=$install" --format '{{.ID}} {{.Label "com.docker.compose.service"}}'
+docker ps -a --no-trunc --filter "label=com.docker.compose.project=$install" --format '{{.ID}} {{.Label "com.docker.compose.service"}}'
 printf '%s\n' '--- memory ---'
 docker stats --no-stream --format '{{.ID}} {{.MemUsage}}'
 printf '%s\n' "stats-exit:$?"
@@ -1132,7 +1132,7 @@ The marker question has already said this is an install this skill made. Read id
 export LC_ALL=C
 install=$1
 printf '%s\n' '--- ids ---'
-docker ps -aq --no-trunc --filter "label=com.docker.compose.project=$install" --format '{{.ID}} {{.Label "com.docker.compose.service"}} {{.Label "com.docker.compose.project"}}'
+docker ps -a --no-trunc --filter "label=com.docker.compose.project=$install" --format '{{.ID}} {{.Label "com.docker.compose.service"}} {{.Label "com.docker.compose.project"}}'
 printf '%s\n' "ids-exit:$?"
 printf '%s\n' '--- volumes ---'
 names=$(docker volume ls -q --filter "label=com.docker.compose.project=$install")

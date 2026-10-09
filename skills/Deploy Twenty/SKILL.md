@@ -3,7 +3,7 @@ name: Deploy Twenty
 type: skill
 category: operations
 description: Install Twenty CRM v2.45.6 on one machine a person's router maps, behind the Caddy that machine already runs, or add or remove one hostname route for an install this skill made, or remove that install, and report the URL, what answered, and what is not configured.
-version: 0.1.2
+version: 0.1.3
 gaps:
   - installing a Twenty release other than v2.45.6, or upgrading an install to another release
   - a machine with no Docker, or with no Caddy running in the shape `skills/Deploy Workload/` runs it
@@ -748,7 +748,7 @@ def fail(alias,status):
  try: note("route:%s:%s"%(alias,status))
  except Exception: pass
  print("owned:routes-incomplete"); raise SystemExit(50)
-def load():
+def load(alias,host):
  gate("route")
  try: st,et,data=adm("GET","/config/")
  except Exception: return None
@@ -756,9 +756,12 @@ def load():
  try: cfg=json.loads(data.decode())
  except Exception: return ("bad","config-not-json")
  if not shap(cfg): return ("bad","shape-refused")
+ want=obj(alias,host)
+ for rt in cfg["apps"]["http"]["servers"]["workloads"]["routes"]:
+  if (rt["@id"]==want["@id"] or rt["match"][0]["host"][0]==host) and rt!=want: return ("bad","host-conflict")
  return ("ok",cfg,et)
 def post(alias,host):
- got=load()
+ got=load(alias,host)
  if got is None: fail(alias,"fail")
  if got[0]!="ok": fail(alias,got[1])
  body=json.dumps(obj(alias,host),separators=(",",":")).encode()
@@ -771,7 +774,7 @@ def post(alias,host):
  if st2!=200:
   print("owned:routes-incomplete"); raise SystemExit(53)
 def present(alias,host):
- got=load()
+ got=load(alias,host)
  if not got or got[0]!="ok": return False
  return obj(alias,host) in got[1]["apps"]["http"]["servers"]["workloads"]["routes"]
 def routes(missing):
@@ -904,6 +907,7 @@ One `vm.command.run`. It is not a job. It can outlast the endpoint's 20 seconds.
 ```
 set -eu
 export LC_ALL=C
+cd "/opt/$2"
 ok=0
 i=0
 while [ "$i" -lt 3 ]; do
@@ -920,11 +924,11 @@ export TWENTY_SERVER
 exec python3 "/opt/$2/first-contact.py" "$@"
 ```
 
-The shell checks `/healthz` from inside the server, up to three times. Each curl is limited to 5 seconds, with 2 seconds between tries. The loop can take about 21 seconds. It then reads the server container with `docker compose -p "$2" ps -q server` and that container's address on the network `$2-proxy` with `docker inspect`, and exports the address as `TWENTY_SERVER`. Then it runs the program.
+The shell first changes to `/opt/<install>`, so Compose finds the install's project from any working directory the router starts in. It checks `/healthz` from inside the server, up to three times. Each curl is limited to 5 seconds, with 2 seconds between tries. The loop can take about 21 seconds. It then reads the server container with `docker compose -p "$2" ps -q server` and that container's address on the network `$2-proxy` with `docker inspect`, and exports the address as `TWENTY_SERVER`. Then it runs the program.
 
 The program records its start time. Before every network operation except the TLS probe, it stops with `deadline:<step>` when more than 35 seconds have passed. The step is `signup`, `signin`, `workspace`, `token`, `activate`, or `route`. Every socket timeout is at most 8 seconds. An operation that starts just before 35 seconds can run 8 seconds more, so with about 21 seconds of healthz loop a slow run can pass the router's 60 second limit and be killed. A kill before `workspace:ok` leaves no route and nothing public. A kill after it leaves an owned install, and the later read classifies it from the state file.
 
-The program writes `/opt/<install>/first-contact.state`, mode 600. The file holds no secret. It appends one line and flushes that line before it continues. A `full` run that gets past the address check appends `start`, then `workspace:ok`, `password-file:removed`, `activate:ok` or `activate:fail`, `route:<alias>:<status>` for each route it settles, and `done`. `done` is written after the route lines and before the TLS probe, so a probe that is killed does not drop a finished route write.
+The program writes `/opt/<install>/first-contact.state`, mode 600. The file holds no secret. It appends one line and flushes that line before it continues. A `full` run that gets past the address check appends `start`, then `workspace:ok`, `password-file:removed`, `activate:ok` or `activate:fail`, `route:<alias>:<status>` for each route it settles, and `done`. `done` is written after the route lines and before the TLS probe, so a probe that is killed does not drop a finished route write. Every run, `full` or `routes-only`, begins its lines with `start`, and the file keeps every run's lines, so a route line may be an earlier run's.
 
 In `full` mode the program refuses `TWENTY_SERVER` unless it is a private IPv4 address in `10.0.0.0/8`, `172.16.0.0/12`, or `192.168.0.0/16`, and no octet has a leading zero. A refusal prints `server-address:refused`, writes no state line, posts no route, and exits nonzero. An accepted address is the server container on the install's Docker network `<install>-proxy`, which is an ordinary bridge and is reachable from the host. The program calls that address with plain HTTP on port 3000. Every request sets `Host` and `X-Forwarded-Host` to the hostname it stands for, `X-Forwarded-Proto` to `https`, and `Origin` to `https://` plus that hostname. `signUp`, `signIn`, and `signUpInNewWorkspace` use `app.<base>`. `getAuthTokensFromLoginToken` and `activateWorkspace` use `<sub>.<base>`. Twenty v2.45.6 trusts those forwarded headers when the peer is in the `TRUST_PROXY` default `loopback, linklocal, uniquelocal`, which covers this bridge. A call that issues a session cookie is allowed only when `Origin` equals the request's own origin. This path is unproved on the live install. A refusal fails before any route exists.
 
@@ -932,7 +936,7 @@ GraphQL is `POST /metadata`. The documents are `signUp`, and `signIn` only when 
 
 The program posts no route until it has printed `workspace:ok` and removed the admin password file. It then records activation. `activate:ok` means the workspace was activated. `activate:fail` means the workspace exists and activation did not finish. Either way it goes on to the routes when the deadline has not stopped it. A deadline during activation prints `deadline:activate` and `owned:routes-incomplete`, posts no route, and exits nonzero. `routes-only` does not retry activation.
 
-The route post is a fresh `GET /config/` for the `Etag`, the shape check, and a `POST` with `If-Match` set to that `Etag`. The app route is first, then the workspace route. The body is `{"@id":"workload-<alias>","match":[{"host":["<hostname>"]}],"handle":[{"handler":"reverse_proxy","upstreams":[{"dial":"<alias>:3000"}]}],"terminal":true}`. A post that fails after ownership prints `route:<alias>:<status>` and `owned:routes-incomplete` and exits nonzero. It removes nothing. The program never deletes a route.
+The route post is a fresh `GET /config/` for the `Etag`, the shape check, and a `POST` with `If-Match` set to that `Etag`. That same read is refused with `route:<alias>:host-conflict` when any route already in it has this route's `@id` or routes this hostname and is not exactly the generated object, so a route another writer added cannot keep this hostname's traffic while this call reports success. The app route is first, then the workspace route. The body is `{"@id":"workload-<alias>","match":[{"host":["<hostname>"]}],"handle":[{"handler":"reverse_proxy","upstreams":[{"dial":"<alias>:3000"}]}],"terminal":true}`. A post that fails after ownership prints `route:<alias>:<status>` and `owned:routes-incomplete` and exits nonzero. It removes nothing. The program never deletes a route.
 
 After the route lines the program appends `done` and probes TLS for `app.<base>`. The probe is one verified handshake to the source address on port 443, SNI `app.<base>`, with `ssl.create_default_context()`. Its socket timeout is the time left under the 35 seconds, and at most 8 seconds. It prints `tls:ready` or `tls:pending`. It does not print the certificate. It does not change the outcome, and it does not open a socket when no time is left. Certificate issuance is checked later by the outside checks.
 
@@ -974,8 +978,9 @@ The pattern is `/opt/<install>/first-contact[.]py`. The brackets keep the read's
 - `process:running`. Do not classify the call yet. Read once more, no sooner than 70 seconds after this read, with the same script. If the process is still running, stop. Say the program was still running and the state is not settled. Do not remove a route. Do not send the call again.
 - `state:absent`. The program never started. Nothing is public. Stop. A new plan is gated before another call.
 - The state has `start` and does not have `workspace:ok`. The program failed before ownership. Nothing is public. The password file stays. Stop. A new plan is gated before another call.
-- The state has `workspace:ok` and does not have both `route:<app alias>:200` and `route:<workspace alias>:200`. The install is owned. When the read printed `password-file:absent`, `routes-only` is the next plan, gated again. When the password file is present, stop for a new plan. `routes-only` is not that plan. Do not post from this run. Do not remove a route.
-- The state has `done`, or it has both of those route lines at 200. The route writes finished. `activate:ok` means the workspace was activated. Any other activate line, or none, means activation did not finish. Continue to the base route only when both route lines are 200 and the state has `workspace:ok`.
+- The state has `workspace:ok`. The install is owned. Judge the routes from the config this read printed, never from route lines in the state, which may be an earlier run's. Report the lines after the last `start`, which say what the last attempt did.
+  - The config read succeeded and holds both exact generated route objects, the app route for `app.<base>` with the app alias and the workspace route for `<sub>.<base>` with the workspace alias. The routes are in place. `activate:ok` in the state means the workspace was activated. No such line means activation did not finish. Continue to the base route.
+  - Anything else: a route is missing, a route for one of these hostnames is not the generated object, or the config was not read. When the read printed `password-file:absent`, `routes-only` is the next plan, gated again. When the password file is present, stop for a new plan. `routes-only` is not that plan. Do not post from this run. Do not remove a route.
 - Any other state text. Stop. Report the lines. Do not remove a route. Removing the install is Job 3.
 
 ### What adds the base route?

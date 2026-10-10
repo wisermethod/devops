@@ -3,7 +3,7 @@ name: Deploy Twenty
 type: skill
 category: operations
 description: Install Twenty CRM v2.45.6 on one machine a person's router maps, behind the Caddy that machine already runs, or add or remove one hostname route for an install this skill made, or remove that install, or take that install offline or bring it back online, and report the URL, what answered, and what is not configured.
-version: 0.1.10
+version: 0.1.11
 gaps:
   - installing a Twenty release other than v2.45.6, or upgrading an install to another release
   - a machine with no Docker, or with no Caddy running in the shape `skills/Deploy Workload/` runs it
@@ -400,6 +400,18 @@ Job 4. Take the first match.
 
 - The marker section's lines include `skill=deploy-twenty`, `release=v2.45.6`, `compose-sha256=bacd817fcef85abbcb6a603a6c093375313460037fae67d73d45c16f6d85bc7d`, and `project=` followed by this install name, each as a whole line, and `stat:` was read, and the aliases line was read. A whole line `stage=created` or `stage=files-written` may be present. It does not replace a required line and it does not fail this check. This is a complete install this skill made. Continue.
 - The directory is absent, or the marker is absent, or a required line does not match, or the aliases line was not read. Stop. This skill does not change an install it did not mark. Change nothing.
+
+### Who answers to this install's aliases?
+
+Ask on Job 1 once the name is free, and on Job 2 before an alias is added. Caddy reaches this install's server by its aliases, and another container, running or stopped, can already answer to one of those names, by its own name or an alias another skill gave it. Send the read `skills/Deploy Workload/` sends for its question who answers to the workload name: the same script, `argv` `/bin/sh`, `-c`, that script, and `sh`, a read, read by that question's rules for a successful read and for Caddy's links. Caddy is never absent here, since the Caddy question already found it running.
+
+The names asked about are, on Job 1, `<install>-base`, `<install>-app`, and `<install>-<subdomain>`; on Job 2, the one alias being added. Take the first match.
+
+- The read is not successful. Stop. Change nothing.
+- Caddy carries a link. Stop. Change nothing.
+- On Job 1, a container answers to any of those names. Stop. Name its ID and its name. Those names are taken, and Caddy could reach that container instead of this install's server. Change nothing.
+- On Job 2, a container other than this install's server answers to the alias. The server is the container whose ID the inspection's project section gave for service `server` and this install. Stop. Name it. Change nothing.
+- Otherwise continue.
 
 ### Has the person confirmed Cloudflare for SaaS, before the plan?
 
@@ -1090,7 +1102,7 @@ Report `MemUsage` for the ids whose service label is `server`, `worker`, `db`, o
 
 The map, the health, the role, the inspection, the token, the loaded-job, the Caddy, and the marker questions are the ones above. The alias label and the hostname matched before any call. The gate runs before any change call.
 
-Adding. Read the aliases line from the inspection. It is one line. The names inside the brackets, split on commas, are the current aliases. The new alias is not already in that list, and the hostname is not already present. When either is present, stop. Do not post a second route. When the list cannot be read, stop.
+Adding. Read the aliases line from the inspection. It is one line. The names inside the brackets, split on commas, are the current aliases. The new alias is not already in that list, the hostname is not already present, and the question who answers to this install's aliases found no other container answering to the new alias. When either is present, stop. Do not post a second route. When the list cannot be read, stop.
 
 The new list is the current names plus the new alias, in that order. One `vm.command.run`. `argv` is `/bin/sh`, `-c`, the script, `sh`, the install name, the server container id, the proxy network id, and then each alias as its own operand. The server id is the container whose service label is `server` and whose project label is the install name. The network id is the id on the `${install}-proxy` inspect line in the project-network section, and that line's project label is the install name. A missing id stops the run. `<script>` is this text and no other:
 
@@ -1520,7 +1532,7 @@ For each job, also: its unit name, its invocation ID and its limit, the last pol
 - **`busy` treated as a down machine.** The machine was not asked. Do not repeat the change.
 - **A value that fails its pattern, sent anyway.** Ask. Never send the other form. The install name, the hostnames, the aliases, and every secret stay out of the script text. Secrets are not operands either.
 - **A secret in an `argv`, a journal line, or the report.** Withhold the line. The helper prints a length. The checks print a length, a boolean, a count, or a status.
-- **A Deploy Workload workload given one of this install's alias names.** The aliases carry the install name and a hyphen as a prefix so they are not free workload names. A workload must not take one of them. Job 1 refuses an install name whose prefix a route already carries. `caddy` is not an install name and not an alias.
+- **A Deploy Workload workload given one of this install's alias names.** The aliases carry the install name and a hyphen as a prefix so they are not free workload names. A workload must not take one of them. Job 1 refuses an install name whose prefix a route already carries. Job 1 and Job 2 also ask who answers to this install's aliases, and refuse a name another container, running or stopped, already answers to. `caddy` is not an install name and not an alias.
 - **A whole-config write.** This skill does not POST to `/config/`. A route POST, and its one retry after a `412`, carry `If-Match` set to the `Etag` from the same `GET /config/` whose body passed the shape check, not the routes path's `Etag`. A `412` means the config changed anywhere. Whenever the shape is checked, the config's top-level keys are exactly `apps`, `apps` holds exactly `http`, `http` holds exactly `servers`, and `servers` has exactly one key, `workloads`. Anything else stops the run. Every route is exactly the generated object. Any other route stops the run.
 - **A route added before the workspace exists.** The first-contact call creates the server admin and the first workspace on the install's Docker network before it posts a route. A failure before `workspace:ok` has posted nothing. Do not post either route in an earlier call. Do not remove the app route to recover. Removing the install is Job 3.
 - **A route, a container, or a volume removed that is not this install's.** Job 3 matches the marker, the project label, the full container id, each full project-network id, the volume name and its `CreatedAt`, and the directory's device and inode. A name alone is not ownership. A project network with a container attached that is neither this install's nor Caddy is not removed. The removal order is containers, then volumes, then project networks, then the directory, its marker last. A stopped removal is not re-sent. A fresh identity read chooses the continuation. `docker compose down` is not sent. Images stay. `caddy-config` and `caddy-data` stay.

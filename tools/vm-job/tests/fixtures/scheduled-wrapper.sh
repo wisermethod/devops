@@ -63,12 +63,17 @@ if [ "$rs" -ne 0 ]; then
 first=$(printf '%s\n' "$release_out" | head -n 1)
 echo "scheduled:release-refused:$first"
 else
-tries=0
-while [ "$tries" -lt 30 ]; do
-load=$(systemctl show -p LoadState --value "$u.service") || load=
+now=$(date +%s) || exit 1
+end=$((now + 30))
+while [ "$now" -lt "$end" ]; do
+left=$((end - now))
+if [ "$left" -gt 5 ]; then left=5; fi
+load=$(timeout "$left" systemctl show -p LoadState --value "$u.service") || load=
 if [ "$load" = not-found ]; then released=1; echo "scheduled:released:$u"; break; fi
-tries=$((tries + 1))
-[ "$tries" -lt 30 ] && sleep 1
+now=$(date +%s) || exit 1
+if [ "$now" -ge "$end" ]; then break; fi
+if [ "$((end - now))" -gt 1 ]; then sleep 1; fi
+now=$(date +%s) || exit 1
 done
 if [ -z "$released" ]; then
 active=$(systemctl show -p ActiveState --value "$u.service") || active=

@@ -5,12 +5,14 @@ import { createHash } from 'node:crypto';
 import {
   chmodSync,
   existsSync,
+  lstatSync,
   mkdirSync,
   mkdtempSync,
   readdirSync,
   readFileSync,
   rmSync,
   statSync,
+  symlinkSync,
   writeFileSync
 } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -893,6 +895,9 @@ case "$1" in
         *) shift ;;
       esac
     done
+    if [ "$prop" = LoadState ] && [ -f ${q(join(root, 'slow-load'))} ]; then
+      exec /bin/sleep 60
+    fi
     if [ -f ${q(join(root, 'state'))}/$prop ]; then /bin/cat ${q(join(root, 'state'))}/$prop; fi
     exit 0 ;;
   stop|reset-failed)
@@ -926,6 +931,27 @@ printf 'Running as unit: %s.service; invocation ID: %s\\n' "$unit" "$id"
 exit 0
 `);
   writeBin('sleep', `#!/bin/sh\n${logger}\nlog sleep "$@"\nexit 0\n`);
+  // Polls, because this Mac has no timeout(1). A finished child is not a zombie
+  // kill -0 can see, which the probe below relies on.
+  writeBin('timeout', `#!/bin/sh
+dur=$1
+shift
+"$@" &
+child=$!
+ticks=$((dur * 10))
+i=0
+while [ "$i" -lt "$ticks" ]; do
+  if ! kill -0 "$child" 2>/dev/null; then
+    wait "$child"
+    exit $?
+  fi
+  /bin/sleep 0.1
+  i=$((i + 1))
+done
+kill -TERM "$child" 2>/dev/null
+wait "$child"
+exit 124
+`);
   writeBin('cat', `#!/bin/sh
 for arg do
   case "$arg" in
@@ -952,6 +978,12 @@ if [ "$1" = -u ] && [ "$2" = '+%Y%m%dT%H%M%SZ' ]; then
   if [ -f ${q(join(root, 'date-n'))} ]; then n=$(/bin/cat ${q(join(root, 'date-n'))}); fi
   printf '%s\\n' "$((n + 1))" > ${q(join(root, 'date-n'))}
   printf '20261010T00000%dZ\\n' "$n"
+  exit 0
+fi
+if [ "$1" = '+%s' ] && [ -f ${q(join(root, 'clock'))} ]; then
+  n=$(/bin/cat ${q(join(root, 'clock'))})
+  printf '%s\\n' "$n"
+  printf '%s\\n' "$((n + 10))" > ${q(join(root, 'clock'))}
   exit 0
 fi
 exec /bin/date "$@"
@@ -1073,7 +1105,7 @@ function systemdRun(unit) {
   ];
 }
 
-describe('vm-job 0.3.1', () => {
+describe('vm-job 0.3.2', () => {
   it('pins a start without stop-post to the 0.2.0 argv', () => {
     withDir((dir) => {
       const built = ok(startArgs(dir, ['--', 'install', 'tree=2.1.1']));
@@ -1214,6 +1246,14 @@ describe('vm-job 0.3.1', () => {
     const checked = spawnSync('/bin/dash', ['-n', copy], { encoding: 'utf8' });
     rmSync(copy, { force: true });
     assert.equal(checked.status, 0, checked.stderr);
+    for (const extra of [SCHEDULED, scheduledArgs(['--', 'dump'])]) {
+      const built = ok(extra);
+      const generated = join(tmpdir(), `vm-job-gen-${built.sha256.wrapper.slice(0, 8)}.sh`);
+      writeFileSync(generated, built.wrapper);
+      const generatedChecked = spawnSync('/bin/dash', ['-n', generated], { encoding: 'utf8' });
+      rmSync(generated, { force: true });
+      assert.equal(generatedChecked.status, 0, generatedChecked.stderr);
+    }
   });
 
   it('adopts a finished scheduled unit with the existing poll and release classes', () => {
@@ -1478,21 +1518,53 @@ describe('vm-job 0.3.1', () => {
         LoadState: 'loaded'
       });
       writeFileSync(join(box.root, 'stay-loaded'), '1');
+      // Each date +%s advances 10 seconds, so the 30-second deadline ends the wait
+      // after two reads. A counted loop of 30 would still call LoadState 30 times.
+      writeFileSync(join(box.root, 'clock'), '1000');
     });
     assert.equal(seen.status, 0, seen.stderr);
     assert.equal(seen.stdout, `scheduled:release-incomplete:${SCHEDULED_UNIT}:failed\n`);
     assert.equal(seen.record, `${SCHEDULED_UNIT}\n${RUN_ID}\n1\n`);
-    const expected = [
+    assert.match(ok(SCHEDULED).wrapper, /now=\$\(date \+%s\)/);
+    assert.match(ok(SCHEDULED).wrapper, /end=\$\(\(now \+ 30\)\)/);
+    assert.match(ok(SCHEDULED).wrapper, /timeout "\$left" systemctl show -p LoadState/);
+    assert.equal(ok(SCHEDULED).wrapper.includes('[ "$tries" -lt 30 ]'), false);
+    assert.deepEqual(seen.calls, [
       ['flock', '-w', '20', '9'],
       listCall(),
       ...shows(),
-      ['systemctl', 'reset-failed', `${SCHEDULED_UNIT}.service`]
-    ];
-    for (let attempt = 0; attempt < 29; attempt += 1) {
-      expected.push(loadStateCall(), ['sleep', '1']);
-    }
-    expected.push(loadStateCall(), showCall('ActiveState'));
-    assert.deepEqual(seen.calls, expected);
+      ['systemctl', 'reset-failed', `${SCHEDULED_UNIT}.service`],
+      loadStateCall(),
+      ['sleep', '1'],
+      loadStateCall(),
+      showCall('ActiveState')
+    ]);
+    assert.equal(seen.calls.some((call) => call[0] === 'systemd-run'), false);
+  });
+
+  it('bounds a sleeping LoadState read and reports release-incomplete', { timeout: 90000 }, () => {
+    const started = Date.now();
+    const seen = runBox(ok(SCHEDULED).wrapper, (box) => {
+      box.seed(`${SCHEDULED_UNIT}\n${RUN_ID}\n0\n`);
+      box.setUnits(`${SCHEDULED_UNIT}.service loaded failed failed\n`);
+      box.setState({
+        InvocationID: RUN_ID,
+        ActiveState: 'failed',
+        SubState: 'failed',
+        TasksCurrent: '0',
+        LoadState: 'loaded'
+      });
+      writeFileSync(join(box.root, 'stay-loaded'), '1');
+      writeFileSync(join(box.root, 'slow-load'), '1');
+    });
+    const elapsed = Date.now() - started;
+    assert.equal(seen.status, 0, seen.stderr);
+    assert.equal(seen.stdout, `scheduled:release-incomplete:${SCHEDULED_UNIT}:failed\n`);
+    assert.equal(seen.record, `${SCHEDULED_UNIT}\n${RUN_ID}\n1\n`);
+    assert.ok(elapsed >= 20000, `elapsed ${elapsed}`);
+    assert.ok(elapsed < 45000, `elapsed ${elapsed}`);
+    const loads = seen.calls.filter((call) => call[0] === 'systemctl' && call[3] === 'LoadState');
+    assert.ok(loads.length >= 2 && loads.length <= 12, `load reads ${loads.length} in ${elapsed}ms`);
     assert.equal(seen.calls.some((call) => call[0] === 'systemd-run'), false);
   });
 
@@ -1608,6 +1680,8 @@ function retargetWriter(script, pairs) {
   for (const [from, to] of pairs) {
     next = next.replaceAll(`'${from}.part'`, `'${to}.part'`);
     next = next.replaceAll(`writer:sha-mismatch:${from}`, `writer:sha-mismatch:${to}`);
+    next = next.replaceAll(`writer:part-refused:${from}`, `writer:part-refused:${to}`);
+    next = next.replaceAll(`writer:destination-refused:${from}`, `writer:destination-refused:${to}`);
     next = next.replaceAll(`installed:${from}`, `installed:${to}`);
     next = next.replaceAll(`'${from}'`, `'${to}'`);
   }
@@ -1618,7 +1692,7 @@ function writerEnv(bin) {
   return { ...process.env, PATH: `${bin}:/bin:/usr/bin:/sbin` };
 }
 
-describe('vm-job 0.3.1 writers and stop-post', () => {
+describe('vm-job 0.3.2 writers and stop-post', () => {
   it('fails closed when stop-post.sh cannot execute its shim', () => {
     const root = mkdtempSync(join(tmpdir(), 'vm-job-stop-'));
     try {
@@ -1713,6 +1787,9 @@ describe('vm-job 0.3.1 writers and stop-post', () => {
       // The writer's sh -n is the target's sh. This Mac's /bin/sh is bash 3.2, which rejects a case inside $( ).
       writeFileSync(join(bin, 'sh'), '#!/bin/dash\nexec /bin/dash "$@"\n');
       chmodSync(join(bin, 'sh'), 0o755);
+      // This Mac's mv rejects -T. The shim accepts the GNU form and calls /bin/mv.
+      writeFileSync(join(bin, 'mv'), '#!/bin/sh\nwhile [ $# -gt 0 ]; do\n  case "$1" in\n    -T|-- ) shift ;;\n    *) break ;;\n  esac\ndone\nexec /bin/mv "$@"\n');
+      chmodSync(join(bin, 'mv'), 0o755);
       const wrapperDest = join(root, 'opt/twenty/backup/wrapper');
       const serviceDest = join(root, 'etc/systemd/system', built.serviceName);
       const timerDest = join(root, 'etc/systemd/system', built.timerName);
@@ -1759,6 +1836,8 @@ describe('vm-job 0.3.1 writers and stop-post', () => {
       mkdirSync(bin);
       writeFileSync(join(bin, 'chown'), '#!/bin/sh\nexit 0\n');
       chmodSync(join(bin, 'chown'), 0o755);
+      writeFileSync(join(bin, 'mv'), '#!/bin/sh\nwhile [ $# -gt 0 ]; do\n  case "$1" in\n    -T|-- ) shift ;;\n    *) break ;;\n  esac\ndone\nexec /bin/mv "$@"\n');
+      chmodSync(join(bin, 'mv'), 0o755);
       const wrapperDest = join(root, 'wrapper');
       const serviceDest = join(root, 'service');
       const timerDest = join(root, 'timer');
@@ -1849,4 +1928,168 @@ describe('vm-job 0.3.1 writers and stop-post', () => {
     assertNoSlashStar('max wrapper', max.wrapper);
     max.writers.forEach((argv, index) => assertNoSlashStar(`max writer ${index}`, argv[2]));
   });
+
+  it('replays the wrapper from its first writer after an interruption following writer 2', () => {
+    const built = ok(SCHEDULED);
+    const root = mkdtempSync(join(tmpdir(), 'vm-job-writers-'));
+    try {
+      const bin = armWriterBin(root);
+      const laid = layDestinations(root, built);
+      const scripts = writersFor(built.writers, '/opt/twenty/backup/wrapper')
+        .map((argv) => retargetWriter(argv[2], laid.pairs));
+      assert.ok(scripts.length >= 2, `wrapper writers: ${scripts.length}`);
+      const run = (script) => spawnSync('/bin/dash', ['-c', script], { encoding: 'utf8', env: writerEnv(bin) });
+      const first = run(scripts[0]);
+      assert.equal(first.status, 0, first.stderr);
+      let secondScript = scripts[1];
+      // Writer 2 both appends and finalizes. Stop it after the append, which is
+      // the interruption: the part holds the chunk, and the destination was not moved.
+      if (secondScript.includes('sha256sum')) {
+        const marker = '\nVMJOB_EOF\n';
+        const at = secondScript.indexOf(marker);
+        assert.ok(at > 0);
+        secondScript = `${secondScript.slice(0, at + marker.length)}exit 0\n`;
+      }
+      const second = run(secondScript);
+      assert.equal(second.status, 0, second.stderr);
+      assert.equal(existsSync(laid.wrapperDest), false);
+      assert.equal(statSync(`${laid.wrapperDest}.part`).isFile(), true);
+      const installed = [];
+      for (const script of scripts) {
+        const result = run(script);
+        assert.equal(result.status, 0, `${result.stderr}\n${result.stdout}`);
+        if (result.stdout !== '') installed.push(result.stdout.trim());
+      }
+      assert.deepEqual(installed, [`installed:${laid.wrapperDest}`]);
+      assert.equal(readFileSync(laid.wrapperDest, 'utf8'), built.wrapper);
+      assert.equal(existsSync(`${laid.wrapperDest}.part`), false);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('refuses a symlinked part and leaves its target untouched', () => {
+    const built = ok(SCHEDULED);
+    const root = mkdtempSync(join(tmpdir(), 'vm-job-writers-'));
+    try {
+      const bin = armWriterBin(root);
+      const laid = layDestinations(root, built);
+      const script = retargetWriter(writersFor(built.writers, '/opt/twenty/backup/wrapper')[0][2], laid.pairs);
+      const live = join(root, 'live-wrapper');
+      const part = `${laid.wrapperDest}.part`;
+      writeFileSync(live, 'keep-me\n');
+      symlinkSync(live, part);
+      const result = spawnSync('/bin/dash', ['-c', script], { encoding: 'utf8', env: writerEnv(bin) });
+      assert.equal(result.status, 1, result.stderr);
+      assert.equal(result.stdout, `writer:part-refused:${laid.wrapperDest}\n`);
+      assert.equal(readFileSync(live, 'utf8'), 'keep-me\n');
+      assert.equal(lstatSync(part).isSymbolicLink(), true);
+      assert.equal(existsSync(laid.wrapperDest), false);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('refuses a directory standing in for the part and writes nothing there', () => {
+    const built = ok(SCHEDULED);
+    const root = mkdtempSync(join(tmpdir(), 'vm-job-writers-'));
+    try {
+      const bin = armWriterBin(root);
+      const laid = layDestinations(root, built);
+      const script = retargetWriter(writersFor(built.writers, '/opt/twenty/backup/wrapper')[0][2], laid.pairs);
+      const part = `${laid.wrapperDest}.part`;
+      mkdirSync(part);
+      const result = spawnSync('/bin/dash', ['-c', script], { encoding: 'utf8', env: writerEnv(bin) });
+      assert.equal(result.status, 1, result.stderr);
+      assert.equal(result.stdout, `writer:part-refused:${laid.wrapperDest}\n`);
+      assert.equal(lstatSync(part).isDirectory(), true);
+      assert.deepEqual(readdirSync(part), []);
+      assert.equal(existsSync(laid.wrapperDest), false);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('refuses a later writer unless the part is a regular file', () => {
+    const built = ok(SCHEDULED);
+    const root = mkdtempSync(join(tmpdir(), 'vm-job-writers-'));
+    try {
+      const bin = armWriterBin(root);
+      const laid = layDestinations(root, built);
+      const scripts = writersFor(built.writers, '/opt/twenty/backup/wrapper')
+        .map((argv) => retargetWriter(argv[2], laid.pairs));
+      assert.ok(scripts.length >= 2);
+      const result = spawnSync('/bin/dash', ['-c', scripts[1]], { encoding: 'utf8', env: writerEnv(bin) });
+      assert.equal(result.status, 1, result.stderr);
+      assert.equal(result.stdout, `writer:part-refused:${laid.wrapperDest}\n`);
+      assert.equal(existsSync(laid.wrapperDest), false);
+      assert.equal(existsSync(`${laid.wrapperDest}.part`), false);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('refuses a directory at the destination and prints nothing installed', () => {
+    const built = ok(SCHEDULED);
+    const root = mkdtempSync(join(tmpdir(), 'vm-job-writers-'));
+    try {
+      const bin = armWriterBin(root);
+      const laid = layDestinations(root, built);
+      mkdirSync(laid.serviceDest);
+      const scripts = writersFor(built.writers, `/etc/systemd/system/${built.serviceName}`)
+        .map((argv) => retargetWriter(argv[2], laid.pairs));
+      assert.ok(scripts.length >= 1);
+      let stdout = '';
+      let failed = null;
+      for (const script of scripts) {
+        const result = spawnSync('/bin/dash', ['-c', script], { encoding: 'utf8', env: writerEnv(bin) });
+        stdout += result.stdout;
+        if (result.status !== 0) {
+          failed = result;
+          break;
+        }
+      }
+      assert.ok(failed);
+      assert.equal(failed.status, 1, failed.stderr);
+      assert.equal(failed.stdout, `writer:destination-refused:${laid.serviceDest}\n`);
+      assert.equal(stdout.includes('installed:'), false);
+      assert.equal(lstatSync(laid.serviceDest).isDirectory(), true);
+      assert.deepEqual(readdirSync(laid.serviceDest), []);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
 });
+
+function armWriterBin(root) {
+  const bin = join(root, 'bin');
+  mkdirSync(bin);
+  writeFileSync(join(bin, 'chown'), '#!/bin/sh\n[ "$1" = root:root ] || exit 1\nexit 0\n');
+  writeFileSync(join(bin, 'sh'), '#!/bin/dash\nexec /bin/dash "$@"\n');
+  writeFileSync(join(bin, 'mv'), '#!/bin/sh\nwhile [ $# -gt 0 ]; do\n  case "$1" in\n    -T|-- ) shift ;;\n    *) break ;;\n  esac\ndone\nexec /bin/mv "$@"\n');
+  for (const name of ['chown', 'sh', 'mv']) chmodSync(join(bin, name), 0o755);
+  return bin;
+}
+
+function layDestinations(root, built) {
+  const wrapperDest = join(root, 'opt/twenty/backup/wrapper');
+  const serviceDest = join(root, 'etc/systemd/system', built.serviceName);
+  const timerDest = join(root, 'etc/systemd/system', built.timerName);
+  mkdirSync(dirname(wrapperDest), { recursive: true });
+  mkdirSync(dirname(serviceDest), { recursive: true });
+  return {
+    wrapperDest,
+    serviceDest,
+    timerDest,
+    pairs: [
+      ['/opt/twenty/backup/wrapper', wrapperDest],
+      [`/etc/systemd/system/${built.serviceName}`, serviceDest],
+      [`/etc/systemd/system/${built.timerName}`, timerDest]
+    ]
+  };
+}
+
+function writersFor(writers, path) {
+  const marker = `p='${path}.part'`;
+  return writers.filter((argv) => argv[2].includes(marker));
+}

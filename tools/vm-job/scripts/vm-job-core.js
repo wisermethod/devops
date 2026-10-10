@@ -206,6 +206,8 @@ scheduled:
 
 Writers install the wrapper, the service and the timer. Each writer script is at most 4096 code points.
 The wrapper text may be longer. A single line that cannot fit in one writer is refused.
+A writer whose call was uncertain or failed is never re-sent alone. That file's writers are sent
+again from the first, once the earlier call has ended.
 
 classify:
   --step <step>         start, poll, readback, journal, release, or scheduled-record. Required.
@@ -817,12 +819,19 @@ function buildWrapper(purpose, limit, scriptPath, stop, operands) {
     'first=$(printf \'%s\\n\' "$release_out" | head -n 1)',
     'echo "scheduled:release-refused:$first"',
     'else',
-    'tries=0',
-    'while [ "$tries" -lt 30 ]; do',
-    'load=$(systemctl show -p LoadState --value "$u.service") || load=',
+    // Elapsed time, not a read count. A read still running is cut at 5 seconds,
+    // and a read is not started after the 30 seconds have elapsed.
+    'now=$(date +%s) || exit 1',
+    'end=$((now + 30))',
+    'while [ "$now" -lt "$end" ]; do',
+    'left=$((end - now))',
+    'if [ "$left" -gt 5 ]; then left=5; fi',
+    'load=$(timeout "$left" systemctl show -p LoadState --value "$u.service") || load=',
     'if [ "$load" = not-found ]; then released=1; echo "scheduled:released:$u"; break; fi',
-    'tries=$((tries + 1))',
-    '[ "$tries" -lt 30 ] && sleep 1',
+    'now=$(date +%s) || exit 1',
+    'if [ "$now" -ge "$end" ]; then break; fi',
+    'if [ "$((end - now))" -gt 1 ]; then sleep 1; fi',
+    'now=$(date +%s) || exit 1',
     'done',
     'if [ -z "$released" ]; then',
     'active=$(systemctl show -p ActiveState --value "$u.service") || active=',
@@ -897,6 +906,11 @@ function buildWrapper(purpose, limit, scriptPath, stop, operands) {
 
 // Each writer script is at most 4096 code points. The installed text may be longer:
 // it is split on line boundaries, and the last writer of each file checks the sha256.
+// The first writer of a file removes a regular <path>.part and refuses any other
+// kind of path there. A later writer refuses unless the part is a regular file.
+// An uncertain or failed writer is not re-sent alone; the file starts again at
+// its first writer, once the earlier call has ended. The last writer uses mv -T
+// and refuses when the destination is a directory.
 const WRITER_MAX = 4096;
 const WRITER_DELIM = 'VMJOB_EOF';
 
@@ -919,20 +933,31 @@ function fileLines(text) {
 
 function writerFrame(path, mode, body, sha, options) {
   const part = `${path}.part`;
-  let script = '';
+  const qpath = shQuote(path);
+  const refused = shQuote(`writer:part-refused:${path}`);
+  let script = `p=${shQuote(part)}\n`;
+  if (options.first) {
+    script += `if [ -L "$p" ]; then echo ${refused}; exit 1; fi\n`;
+    script += `if [ -e "$p" ] && [ ! -f "$p" ]; then echo ${refused}; exit 1; fi\n`;
+    script += `if [ -f "$p" ]; then rm -f -- "$p" || exit 1; fi\n`;
+  } else {
+    script += `if [ -L "$p" ] || [ ! -f "$p" ]; then echo ${refused}; exit 1; fi\n`;
+  }
   if (body !== '') {
     const redir = options.first ? '>' : '>>';
-    script += `cat ${redir} ${shQuote(part)} << '${WRITER_DELIM}'\n${body}${WRITER_DELIM}\n`;
+    script += `cat ${redir} "$p" << '${WRITER_DELIM}'\n${body}${WRITER_DELIM}\n`;
   }
   if (options.last) {
     const mismatch = shQuote(`writer:sha-mismatch:${path}`);
-    script += `got=$(sha256sum ${shQuote(part)}) || { echo ${mismatch}; exit 1; }\n`;
+    const destRefused = shQuote(`writer:destination-refused:${path}`);
+    script += `got=$(sha256sum "$p") || { echo ${mismatch}; exit 1; }\n`;
     script += 'got=${got%% *}\n';
     script += `[ "$got" = ${shQuote(sha)} ] || { echo ${mismatch}; exit 1; }\n`;
-    if (options.syntax) script += `sh -n ${shQuote(part)} || exit 1\n`;
-    script += `chmod ${mode} ${shQuote(part)} || exit 1\n`;
-    script += `chown root:root ${shQuote(part)} || exit 1\n`;
-    script += `mv ${shQuote(part)} ${shQuote(path)} || exit 1\n`;
+    if (options.syntax) script += 'sh -n "$p" || exit 1\n';
+    script += `chmod ${mode} "$p" || exit 1\n`;
+    script += `chown root:root "$p" || exit 1\n`;
+    script += `if [ -d ${qpath} ] && [ ! -L ${qpath} ]; then echo ${destRefused}; exit 1; fi\n`;
+    script += `mv -T -- "$p" ${qpath} || exit 1\n`;
     script += `echo ${shQuote(`installed:${path}`)}\n`;
   }
   return script;

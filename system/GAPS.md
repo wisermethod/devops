@@ -64,7 +64,7 @@ Counted 2026-10-10: 43 gaps across 9 primitives. Bullet count: `grep -E '^- ' sy
 - connecting Google or Microsoft mailboxes, which needs an OAuth client and the provider's approval
 - Cloudflare for SaaS's custom-hostname setting and fallback origin on a zone, which the person turns on in Cloudflare's dashboard
 - creating the bucket, the API tokens and the sending accounts the install uses, which the person does with each vendor
-- email channels and branded email from a workspace's own domain, which need an inbound email domain (`INBOUND_EMAIL_DOMAIN`), its MX records and the sending service's inbound configuration that this skill does not set
+- the inbound domain's MX record and the sending service's receiving and webhook settings, which the person sets with the vendor
 
 ### Back Up Twenty
 

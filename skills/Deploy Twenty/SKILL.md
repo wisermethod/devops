@@ -3,14 +3,14 @@ name: Deploy Twenty
 type: skill
 category: operations
 description: Install Twenty CRM v2.45.6 on one machine a person's router maps, behind the Caddy that machine already runs, or add or remove one hostname route for an install this skill made, or remove that install, or take that install offline or bring it back online, and report the URL, what answered, and what is not configured.
-version: 0.1.14
+version: 0.1.15
 gaps:
   - installing a Twenty release other than v2.45.6, or upgrading an install to another release
   - a machine with no Docker, or with no Caddy running in the shape `skills/Deploy Workload/` runs it
   - connecting Google or Microsoft mailboxes, which needs an OAuth client and the provider's approval
   - Cloudflare for SaaS's custom-hostname setting and fallback origin on a zone, which the person turns on in Cloudflare's dashboard
   - creating the bucket, the API tokens and the sending accounts the install uses, which the person does with each vendor
-  - email channels and branded email from a workspace's own domain, which need an inbound email domain (`INBOUND_EMAIL_DOMAIN`), its MX records and the sending service's inbound configuration that this skill does not set
+  - the inbound domain's MX record and the sending service's receiving and webhook settings, which the person sets with the vendor
 ---
 
 # Deploy Twenty
@@ -21,7 +21,7 @@ Use when one Twenty install should be created on one existing machine, or one ho
 
 Not for a release other than v2.45.6, and not for upgrading an install to another release. That is missing: installing a Twenty release other than v2.45.6, or upgrading an install to another release. Not for a machine with no Docker, and not for a Caddy that is not already running in the shape `skills/Deploy Workload/` runs it. This skill does not install Docker, does not start Caddy, and does not write Caddy's first config. Not for backing up an install or restoring one, which is `skills/Back Up Twenty/`. Not for connecting Google or Microsoft mailboxes, which needs an OAuth client and the provider's approval. That is missing. Not for Cloudflare for SaaS's custom-hostname setting and fallback origin on a zone, which the person turns on in Cloudflare's dashboard. That is missing. Not for creating the bucket, the API tokens and the sending accounts the install uses, which the person does with each vendor. That is missing. Not for a hostname, a DNS record, or a zone. Hand that part to `experts/IT Expert/` in `wiser`, which sequences `skills/Zone Publisher/`. Not for enrolling a machine or taking one out, which is `skills/Prepare VM/`. Not for a package or a unit, which is `skills/VM Configure/`. Not for setting up an organisation's workspace beyond the first workspace's creation, its members, data model, domains and import. No skill here runs that yet. It is the gap `experts/CRM Expert/` declares for setting up an organisation's Twenty workspace. Saving or removing a custom domain in Twenty, which creates or deletes a hostname at Cloudflare, is that workspace setup, not this skill. Not for a security review. Load `experts/IT Expert/` Rule 5 in `wiser` and apply it. Not for a secret passed through the conversation or through a router call.
 
-Twenty sends three kinds of email, and this install must not be read as if one address did all three. Email to a contact goes out from the sender's own mailbox, so the contact sees that person's own address, and nothing in that path uses the install's SMTP settings. This install leaves IMAP, SMTP and CalDAV mailboxes enabled and does not configure one. Google and Microsoft mail and sign-in stay off, which is the mailbox gap above. Branded or campaign email goes out from an organisation's own verified emailing domain, through the one driver the install is given. On a self-hosted install without an Enterprise licence the driver is Resend, or LOG when none is wanted. LOG sends nothing. AWS SES is not offered here. Team email is the third kind: invitations, password resets, verification, and the admin panel's test send, from the install's one address, to an organisation's own members, never to its contacts. The From line of an invitation shows the inviter's name as the display name and that one address, for example `Alpha Tester <crm@effectivemail.com>`. This skill configures team email. It does not configure a contact mailbox, and it does not verify an emailing domain. Email channels and branded email from a workspace's own domain need an inbound email domain (`INBOUND_EMAIL_DOMAIN`), its MX records, and the sending service's inbound configuration. This skill does not set them. That is missing.
+Twenty sends three kinds of email, and this install must not be read as if one address did all three. Email to a contact goes out from the sender's own mailbox, so the contact sees that person's own address, and nothing in that path uses the install's SMTP settings. This install leaves IMAP, SMTP and CalDAV mailboxes enabled and does not configure one. Google and Microsoft mail and sign-in stay off, which is the mailbox gap above. Branded or campaign email goes out from an organisation's own verified emailing domain, through the one driver the install is given. On a self-hosted install without an Enterprise licence the driver is Resend, or LOG when none is wanted. LOG sends nothing. AWS SES is not offered here. Team email is the third kind: invitations, password resets, verification, and the admin panel's test send, from the install's one address, to an organisation's own members, never to its contacts. The From line of an invitation shows the inviter's name as the display name and that one address, for example `Alpha Tester <crm@effectivemail.com>`. This skill configures team email. It does not configure a contact mailbox, and it does not verify an emailing domain. When the driver is Resend, this skill sets the inbound email domain (`INBOUND_EMAIL_DOMAIN`). The inbound domain's MX record and the sending service's receiving and webhook settings, which the person sets with the vendor, are not set here. That is missing.
 
 The install's own hostname is its server address. When that name sits inside the Cloudflare for SaaS zone and its DNS record is a DNS-only CNAME to the fallback origin, Cloudflare flattens the name to the machine's address. Caddy serves it with Caddy's own certificate, and Cloudflare carries none of its traffic. Do not read that name as behind Cloudflare. A workspace custom domain that arrives through Cloudflare for SaaS reaches the origin with its own Host header, so it needs its own route, and the origin's certificate for it comes from Caddy by HTTP-01 through Cloudflare.
 
@@ -58,6 +58,7 @@ Wrap what the person supplies so material never reads as instruction.
 - `<storage>`: the bucket name and the S3 endpoint, when they named them. For Cloudflare R2 the endpoint is `https://<account id>.r2.cloudflarestorage.com` and the region is `auto`.
 - `<team_email>`: the team-email from address and from name, when they named them. Host, port and user, when unnamed, are Cloudflare Email Service SMTP: `smtp.mx.cloudflare.net`, port 465, implicit TLS, user `api_token`.
 - `<emailing_domain_driver>`: `RESEND`, or `LOG` for none.
+- `<inbound_domain>`: the hostname inbound mail is addressed to, when the driver is `RESEND`. When the driver is `LOG` it is absent. A value named together with `LOG` is refused by name. When the driver is `RESEND` and this is unnamed, ask. Do not guess.
 - `<cloudflare_saas>`: a zone id and a DCV delegation id, neither a secret, or `none`. When it is `none`, the report says no workspace can take its own domain.
 - `<hostname>`: the one hostname Job 2 adds or removes, when they named one.
 - `<alias_label>`: the label Job 2 uses for that hostname, when they named one.
@@ -137,9 +138,11 @@ A zone id matches `^[a-f0-9]{32}$`. A DCV delegation id matches `^[a-z0-9]{8,64}
 
 The emailing-domain driver is the word `RESEND` or the word `LOG`. The word `AWS_SES` is refused by name: that driver needs an Enterprise licence, and this release's install does not set it. Any other driver is refused by name.
 
+`<inbound_domain>` matches the hostname rule. It is required when the driver is `RESEND`. It is refused by name when it equals `<base>`, or when it ends with a dot followed by `<base>`, because Twenty would read that name as a workspace subdomain. When the driver is `LOG`, a named `<inbound_domain>` is refused by name. When the driver is `RESEND` and `<inbound_domain>` is unnamed, ask. Do not guess.
+
 `<cloudflare_saas>` is the word `none`, or both a zone id and a DCV delegation id. One without the other is refused by name.
 
-Job 1 requires `<base>`, `<admin_email>`, a display name and a subdomain, a bucket, an endpoint, a region, a from address, a from name, and a driver. The subdomain matches an alias label, and it is not `app` and not `base`. The labels `base` and `app` are reserved for the install's own hostnames. Host, port and user may be unnamed, and then they are `smtp.mx.cloudflare.net`, `465`, and `api_token`. When the host is named, the port and the user are named too. The user matches `^[A-Za-z0-9._-]{1,64}$`. The host matches the hostname rule. When the host is `smtp.mx.cloudflare.net`, the port is `465`. A different port with that host is refused by name.
+Job 1 requires `<base>`, `<admin_email>`, a display name and a subdomain, a bucket, an endpoint, a region, a from address, a from name, and a driver. When the driver is `RESEND`, Job 1 also requires `<inbound_domain>`. The subdomain matches an alias label, and it is not `app` and not `base`. The labels `base` and `app` are reserved for the install's own hostnames. Host, port and user may be unnamed, and then they are `smtp.mx.cloudflare.net`, `465`, and `api_token`. When the host is named, the port and the user are named too. The user matches `^[A-Za-z0-9._-]{1,64}$`. The host matches the hostname rule. When the host is `smtp.mx.cloudflare.net`, the port is `465`. A different port with that host is refused by name.
 
 Job 2 requires the install, one hostname, one alias label, and the word `add` or the word `remove`. The label is not `base` and not `app`. A Job 2 request that also names a new base, a new admin, or a new bucket: ask whether the request is the one route. Do not send the extra value. Do not guess.
 
@@ -427,12 +430,12 @@ One plan, the calls that apply, in this order. A call that the questions skipped
 Job 1:
 
 1. The pull job. Purpose `twenty-pull`, limit 1800, three operands, the references below, in this order. `twentycrm/twenty@sha256:dca6d82985901468b391c0335aa8f0519a52b9809709e66f2de1dbff04351e53`, then `postgres@sha256:65b16a8b326e0cfbdf33fa7e783f2a0cb352a61448616ccccfd616ef42aa0f65`, then `redis@sha256:c94085d298b738be22c9ccdc0ac3761fa6649df7dd82ad1d42367f3cb9714935`.
-2. The install job. Purpose `twenty-install`, limit 300, the sixteen operands below. It writes the marker before any download or secret, then the rest of the directory, and starts nothing.
-3. The person runs the helper over a shell they hold on the machine, outside the router. On Oracle, that shell is the route `skills/Prepare VM/providers/oracle.md` names, Cloud Shell's ephemeral private network. The plan names the helper path and the key names. It does not name a secret value.
+2. The install job. Purpose `twenty-install`, limit 300, sixteen operands when the driver is `LOG` and seventeen when the driver is `RESEND`. It writes the marker before any download or secret, then the rest of the directory, and starts nothing. When the driver is `RESEND`, the plan names `<inbound_domain>`. It says the person adds that name's MX record at Resend's direction, through `experts/IT Expert/` and `skills/Zone Publisher/` in `wiser`, and that the record is the lowest-priority MX for that name. Resend's dashboard shows the host and the priority. Resend recommends a subdomain so the parent domain's own mail records stay as they are.
+3. The person runs the helper over a shell they hold on the machine, outside the router. On Oracle, that shell is the route `skills/Prepare VM/providers/oracle.md` names, Cloud Shell's ephemeral private network. The plan names the helper path and the key names. It does not name a secret value. When the driver is `RESEND`, the key names include `RESEND_WEBHOOK_SIGNING_SECRET` immediately after `RESEND_API_KEY`. The plan tells the person, before the helper, to enable receiving on `<inbound_domain>`, to add the webhook to `https://<base>/webhooks/messaging/resend` for `email.received`, `email.delivered`, `email.failed`, `email.bounced`, and `email.complained`, and to have that webhook's signing secret ready to type. It does not name the secret.
 4. The length read.
 5. The start job. Purpose `twenty-start`, limit 1800, one operand, the install name.
 6. A read of the server's published ports.
-7. The three writer calls that place the first-contact program, then the one first-contact call. That call creates the server admin and the first workspace on the install's Docker network, and posts the `app.<base>` route and the first workspace's route only after `workspace:ok` and the password file is removed. The order is the first-contact question.
+7. The writer calls that place the first-contact program, three when the driver is `LOG` and four when the driver is `RESEND`, then the one first-contact call. That call creates the server admin and the first workspace on the install's Docker network, and posts the `app.<base>` route and the first workspace's route only after `workspace:ok` and the password file is removed. The order is the first-contact question.
 8. The base route, one POST, only after first-contact has created the workspace.
 9. The checks from outside the machine, then the memory read, then a closing re-inspection.
 
@@ -475,11 +478,11 @@ The pull counts only when the job's class is `succeeded` and, for each reference
 
 ### The install job
 
-The operands, in order, are the install name, the server URL `https://<base>` with no path and no trailing slash, the region, the bucket, the endpoint, the from address, the from name, the SMTP host, the SMTP port, the SMTP user, the base hostname, the driver, the word `saas` or the word `none`, the zone id or the single character `x` when the word is `none`, the DCV delegation id or `x` when the word is `none`, and the alias list. The alias list is `<install>-base,<install>-app,<install>-<subdomain>` with commas and no spaces. The zone and the DCV id are not secrets. The character `x` is unused when the word is `none`, and it is not written into `.env`. In the script those operands are `install`, `u`, `r`, `b`, `e`, `f`, `n`, `h`, `p`, `s`, `m`, `d`, `a`, `z`, `c`, and `l`, in that order. The short names keep the script within 4096 code points.
+When the driver is `LOG`, the operands, in order, are the install name, the server URL `https://<base>` with no path and no trailing slash, the region, the bucket, the endpoint, the from address, the from name, the SMTP host, the SMTP port, the SMTP user, the base hostname, the driver, the word `saas` or the word `none`, the zone id or the single character `x` when the word is `none`, the DCV delegation id or `x` when the word is `none`, and the alias list. The alias list is `<install>-base,<install>-app,<install>-<subdomain>` with commas and no spaces. The zone and the DCV id are not secrets. The character `x` is unused when the word is `none`, and it is not written into `.env`. In the script those operands are `install`, `u`, `r`, `b`, `e`, `f`, `n`, `h`, `p`, `s`, `m`, `d`, `a`, `z`, `c`, and `l`, in that order. The short names keep each script within 4096 code points. When the driver is `RESEND`, the operands are those sixteen and then `<inbound_domain>`, which the script names `g`. The plan names `<inbound_domain>`, and that operand is how the approval stop names it.
 
-Write the script verbatim. Run `start` with `--purpose twenty-install`, `--limit 300`, `--token` the token the latest inspection read, `--script` that file, and those operands. Send the `argv` it prints, unchanged. Then the job question.
+When the driver is `LOG`, write the script below verbatim. When the driver is `RESEND`, write the script after the override paragraph verbatim. Do not send the LOG script for a RESEND install, and do not send the RESEND script for a LOG install. Run `start` with `--purpose twenty-install`, `--limit 300`, `--token` the token the latest inspection read, `--script` that file, and that driver's operands. Send the `argv` it prints, unchanged. Then the job question.
 
-`<script>` is this text and no other:
+When the driver is `LOG`, `<script>` is this text and no other:
 
 ```
 set -eu
@@ -587,17 +590,124 @@ chmod 644 INSTALL
 echo install-files-written
 ```
 
-The job generates `PG_DATABASE_PASSWORD` with `openssl rand -hex 24`, which is 48 hex characters, and `ENCRYPTION_KEY` with `openssl rand -base64 32`, which is 44 characters and does not wrap, the trailing newline removed by the command substitution. It writes them into `.env` and prints only key names. A line of the read-back that contains `PG_DATABASE_PASSWORD=`, `ENCRYPTION_KEY=`, `CLOUDFLARE_API_KEY=`, `EMAIL_SMTP_PASSWORD=`, `RESEND_API_KEY=`, `STORAGE_S3_SECRET_ACCESS_KEY=`, `STORAGE_S3_ACCESS_KEY_ID=`, or `ADMIN_PASSWORD=` is withheld. Say that the line was withheld. Do not copy it.
+The job generates `PG_DATABASE_PASSWORD` with `openssl rand -hex 24`, which is 48 hex characters, and `ENCRYPTION_KEY` with `openssl rand -base64 32`, which is 44 characters and does not wrap, the trailing newline removed by the command substitution. It writes them into `.env` and prints only key names. A line of the read-back that contains `PG_DATABASE_PASSWORD=`, `ENCRYPTION_KEY=`, `CLOUDFLARE_API_KEY=`, `EMAIL_SMTP_PASSWORD=`, `RESEND_API_KEY=`, `RESEND_WEBHOOK_SIGNING_SECRET=`, `STORAGE_S3_SECRET_ACCESS_KEY=`, `STORAGE_S3_ACCESS_KEY_ID=`, or `ADMIN_PASSWORD=` is withheld. Say that the line was withheld. Do not copy it.
 
 The install counts only when the job's class is `succeeded` and the text after `]: ` includes `marker-written`, `compose-sha:ok`, `install-files-written`, and an `env-keys:` line whose names are the keys and not the values. `compose-sha-mismatch` or `exists` is a failed install. Do not start the helper. Do not start containers. The directory may already exist. A new plan is gated before anything further is written. Do not delete the directory in this run. The marker is written before the download and before any secret. It first holds the whole lines `skill=deploy-twenty`, `release=v2.45.6`, `project=` followed by the install name, and `stage=created`. After the compose hash matches, the whole line `compose-sha256=` followed by that hash is appended. At the end `stage=created` is replaced with `stage=files-written`, by writing `INSTALL.new` and then `mv`. A counted install's marker holds `skill=deploy-twenty`, `release=v2.45.6`, `compose-sha256=bacd817fcef85abbcb6a603a6c093375313460037fae67d73d45c16f6d85bc7d`, `project=` followed by the install name, and `stage=files-written`, each as a whole line. A job that printed `marker-written` and did not print `install-files-written` left that directory. Name Job 3's partial branch when a later inspection shows the marker and no project container, no project volume, and no project network. Name the full removal only when that inspection also shows the `compose-sha256` line and a container, a volume, or a project network.
 
-The override maps into both server and worker every variable the shipped compose file does not set: `IS_MULTIWORKSPACE_ENABLED`, `DEFAULT_SUBDOMAIN`, `STORAGE_S3_ACCESS_KEY_ID`, `STORAGE_S3_SECRET_ACCESS_KEY`, `EMAIL_DRIVER`, `EMAIL_FROM_ADDRESS`, `EMAIL_FROM_NAME`, `EMAIL_SMTP_HOST`, `EMAIL_SMTP_PORT`, `EMAIL_SMTP_USER`, `EMAIL_SMTP_PASSWORD`, `EMAIL_SMTP_NAME`, `EMAILING_DOMAIN_DRIVER`, `RESEND_API_KEY`, `CLOUDFLARE_API_KEY`, `CLOUDFLARE_ZONE_ID`, and `CLOUDFLARE_DCV_DELEGATION_ID`. It pins the three images by digest, removes the server's published port, gives the server's health check a start period of 900 seconds, and joins the server to the proxy network under the aliases. `STORAGE_TYPE` is `s3`. `STORAGE_S3_REGION`, `STORAGE_S3_NAME`, and `STORAGE_S3_ENDPOINT` are in `.env`, which the shipped compose file already interpolates. `EMAIL_DRIVER` is `smtp`. `EMAIL_SMTP_NAME` is the base hostname. `IS_EMAIL_VERIFICATION_REQUIRED` stays at Twenty's default, off. `IS_IMAP_SMTP_CALDAV_ENABLED` stays at Twenty's default, on. The report says so. Google and Microsoft mail and sign-in stay off. `RESEND_WEBHOOK_SIGNING_SECRET` and `RESEND_DOMAIN_REGION` stay unset. Leaving the signing secret unset means signatures on `/webhooks/messaging/resend` are not verified. Leaving the region unset means Resend provisions a new emailing domain in its default region.
+The override maps into both server and worker every variable the shipped compose file does not set: `IS_MULTIWORKSPACE_ENABLED`, `DEFAULT_SUBDOMAIN`, `STORAGE_S3_ACCESS_KEY_ID`, `STORAGE_S3_SECRET_ACCESS_KEY`, `EMAIL_DRIVER`, `EMAIL_FROM_ADDRESS`, `EMAIL_FROM_NAME`, `EMAIL_SMTP_HOST`, `EMAIL_SMTP_PORT`, `EMAIL_SMTP_USER`, `EMAIL_SMTP_PASSWORD`, `EMAIL_SMTP_NAME`, `EMAILING_DOMAIN_DRIVER`, `RESEND_API_KEY`, `CLOUDFLARE_API_KEY`, `CLOUDFLARE_ZONE_ID`, and `CLOUDFLARE_DCV_DELEGATION_ID`. It pins the three images by digest, removes the server's published port, gives the server's health check a start period of 900 seconds, and joins the server to the proxy network under the aliases. `STORAGE_TYPE` is `s3`. `STORAGE_S3_REGION`, `STORAGE_S3_NAME`, and `STORAGE_S3_ENDPOINT` are in `.env`, which the shipped compose file already interpolates. `EMAIL_DRIVER` is `smtp`. `EMAIL_SMTP_NAME` is the base hostname. `IS_EMAIL_VERIFICATION_REQUIRED` stays at Twenty's default, off. `IS_IMAP_SMTP_CALDAV_ENABLED` stays at Twenty's default, on. The report says so. Google and Microsoft mail and sign-in stay off. That list is what the LOG script maps. `RESEND_DOMAIN_REGION` stays unset either way. Leaving the region unset means Resend provisions a new emailing domain in its default region. When the driver is `LOG`, `RESEND_WEBHOOK_SIGNING_SECRET` stays unset, and leaving it unset means signatures on `/webhooks/messaging/resend` are not verified. When the driver is `RESEND`, the script below maps `INBOUND_EMAIL_DOMAIN` and `RESEND_WEBHOOK_SIGNING_SECRET` into server and worker the same way it maps `RESEND_API_KEY`, including the `:-` default, and the helper types the signing secret. The RESEND override lists the fixed values first, then the empty-default values, and `INBOUND_EMAIL_DOMAIN` and `RESEND_WEBHOOK_SIGNING_SECRET` follow `RESEND_API_KEY` in that empty-default list. `.env` carries `INBOUND_EMAIL_DOMAIN` beside the other email lines. `secrets.list` names `RESEND_WEBHOOK_SIGNING_SECRET` immediately after `RESEND_API_KEY`. The helper text is the same text as the LOG script's helper. The RESEND script refuses a driver other than `RESEND`.
+
+When the driver is `RESEND`, `<script>` is this text and no other:
+
+```
+set -eu
+export LC_ALL=C
+install=$1 u=$2 r=$3 b=$4 e=$5 f=$6 n=$7
+h=$8 p=$9 s=${10} m=${11} d=${12}
+a=${13} z=${14} c=${15} l=${16}
+g=${17}
+[ "$d" = RESEND ] || { echo driver-refused; exit 22; }
+dir=/opt/$install
+[ -e "$dir" ]&&{ echo exists; exit 20; }
+mkdir -m 700 "$dir"
+cd "$dir"
+printf 'skill=deploy-twenty\nrelease=v2.45.6\nproject=%s\nstage=created\n' "$install">INSTALL
+chmod 644 INSTALL
+echo marker-written
+curl -fsSL --max-time 60 -o compose.yml "https://raw.githubusercontent.com/twentyhq/twenty/6007ad5a7f6cb676fd8a9ff0c2a86a2e3d4c260e/packages/twenty-docker/docker-compose.yml"
+got=$(sha256sum compose.yml|awk 'NR==1{print $1}')
+[ "$got" = bacd817fcef85abbcb6a603a6c093375313460037fae67d73d45c16f6d85bc7d ] || { echo compose-sha-mismatch; exit 21; }
+echo compose-sha:ok
+printf 'compose-sha256=%s\n' "$got">>INSTALL
+envb='      IS_MULTIWORKSPACE_ENABLED: "true"
+      DEFAULT_SUBDOMAIN: app
+      EMAIL_DRIVER: smtp
+      EMAIL_FROM_ADDRESS: ${EMAIL_FROM_ADDRESS}
+      EMAIL_FROM_NAME: ${EMAIL_FROM_NAME}
+      EMAIL_SMTP_HOST: ${EMAIL_SMTP_HOST}
+      EMAIL_SMTP_PORT: ${EMAIL_SMTP_PORT}
+      EMAIL_SMTP_USER: ${EMAIL_SMTP_USER}
+      EMAIL_SMTP_NAME: ${EMAIL_SMTP_NAME}
+      EMAILING_DOMAIN_DRIVER: ${EMAILING_DOMAIN_DRIVER}'
+for k in STORAGE_S3_ACCESS_KEY_ID STORAGE_S3_SECRET_ACCESS_KEY EMAIL_SMTP_PASSWORD RESEND_API_KEY INBOUND_EMAIL_DOMAIN RESEND_WEBHOOK_SIGNING_SECRET CLOUDFLARE_API_KEY CLOUDFLARE_ZONE_ID CLOUDFLARE_DCV_DELEGATION_ID; do
+envb="$envb
+      $k: \${$k:-}"
+done
+cat > compose.override.yml <<EOF
+services:
+  server:
+    image: \${TWENTY_IMAGE}
+    ports: !reset []
+    healthcheck:
+      start_period: 900s
+    environment:
+$envb
+    networks:
+      default: {}
+      proxy:
+        aliases: [$l]
+  worker:
+    image: \${TWENTY_IMAGE}
+    environment:
+$envb
+  db:
+    image: \${PG_IMAGE}
+  redis:
+    image: \${REDIS_IMAGE}
+networks:
+  proxy:
+    name: ${install}-proxy
+EOF
+umask 077
+pg=$(openssl rand -hex 24)
+enc=$(openssl rand -base64 32)
+{
+printf '%s\n' "TWENTY_IMAGE=twentycrm/twenty@sha256:dca6d82985901468b391c0335aa8f0519a52b9809709e66f2de1dbff04351e53" "PG_IMAGE=postgres@sha256:65b16a8b326e0cfbdf33fa7e783f2a0cb352a61448616ccccfd616ef42aa0f65" "REDIS_IMAGE=redis@sha256:c94085d298b738be22c9ccdc0ac3761fa6649df7dd82ad1d42367f3cb9714935"
+printf 'SERVER_URL=%s\nSTORAGE_TYPE=s3\nSTORAGE_S3_REGION=%s\nSTORAGE_S3_NAME=%s\nSTORAGE_S3_ENDPOINT=%s\n' "$u" "$r" "$b" "$e"
+printf 'PG_DATABASE_PASSWORD=%s\nENCRYPTION_KEY=%s\n' "$pg" "$enc"
+printf 'EMAIL_FROM_ADDRESS=%s\nEMAIL_FROM_NAME="%s"\nEMAIL_SMTP_HOST=%s\nEMAIL_SMTP_PORT=%s\nEMAIL_SMTP_USER=%s\nEMAIL_SMTP_NAME=%s\nEMAILING_DOMAIN_DRIVER=%s\nINBOUND_EMAIL_DOMAIN=%s\n' "$f" "$n" "$h" "$p" "$s" "$m" "$d" "$g"
+if [ "$a" = saas ]; then printf 'CLOUDFLARE_ZONE_ID=%s\nCLOUDFLARE_DCV_DELEGATION_ID=%s\n' "$z" "$c"; fi
+} > .env
+unset pg enc
+chmod 600 .env
+{ echo STORAGE_S3_ACCESS_KEY_ID; echo STORAGE_S3_SECRET_ACCESS_KEY; echo EMAIL_SMTP_PASSWORD
+echo RESEND_API_KEY; echo RESEND_WEBHOOK_SIGNING_SECRET
+if [ "$a" = saas ]; then echo CLOUDFLARE_API_KEY; fi
+  echo ADMIN_PASSWORD; } > secrets.list
+chmod 600 secrets.list
+cat > set-secrets <<'EOF'
+#!/bin/bash
+set -eu
+cd "$(dirname "$0")"
+[ "$(id -u)" -eq 0 ]
+umask 077
+while IFS= read -r k || [ -n "$k" ]; do
+  [ -n "$k" ] || continue
+  read -rsp "Type ${k}, then Enter (hidden): " v </dev/tty || true
+  echo
+  case "$v" in ''|*[[:space:]]*) echo "refused:$k:empty-or-whitespace"; exit 1 ;; esac
+  n=${#v}
+  if [ "$k" = ADMIN_PASSWORD ]; then printf '%s\n' "$v" > admin.password; chmod 600 admin.password
+  else grep -v "^$k=" .env > .env.new || true; printf '%s=%s\n' "$k" "$v" >> .env.new; mv .env.new .env; chmod 600 .env; fi
+  unset v
+  echo "saved:$k:length:$n"
+done < secrets.list
+echo helper-done
+EOF
+chmod 700 set-secrets
+docker compose -p "$install" config --quiet
+echo "env-keys:$(cut -d= -f1 .env | tr '\n' ' ')"
+echo "aliases:$l"
+awk '{c+=sub(/^stage=created$/,"stage=files-written")}1;END{exit c!=1}' INSTALL>INSTALL.new
+mv INSTALL.new INSTALL
+chmod 644 INSTALL
+echo install-files-written
+```
 
 Every compose command passes `-p` and the install name, because the fetched file sets its own project name and this skill does not edit that file. The file's hash would change if it were edited. If a later read shows the project label is not the install name, stop. Do not treat those containers as this install. Do not remove them with Job 3. Report the ids and that they were not removed. A new plan is gated before any removal of them.
 
 ### What does the person run?
 
-Ask only after the install job counted. The helper is `/opt/<install>/set-secrets`, mode 700, run with sudo, over the shell the person holds. It reads the key names from `secrets.list` and each value from the person's terminal (`/dev/tty`), never from that list, prompting with `read -rsp`, one key at a time, for exactly the keys in `secrets.list`: `STORAGE_S3_ACCESS_KEY_ID`, `STORAGE_S3_SECRET_ACCESS_KEY`, `EMAIL_SMTP_PASSWORD`, `RESEND_API_KEY` when the driver is `RESEND`, `CLOUDFLARE_API_KEY` when `<cloudflare_saas>` is not `none`, and `ADMIN_PASSWORD`. `EMAIL_SMTP_PASSWORD` is a Cloudflare API token with Email Sending: Edit, on the account where the from address's domain is onboarded for sending. `RESEND_API_KEY` is a full-access key, because Twenty creates, verifies and deletes domains through it as well as sending. `CLOUDFLARE_API_KEY` is a token with Zone, SSL and Certificates, Edit on that zone. The server admin's password goes to `admin.password`, mode 600, which the first-contact call deletes after the workspace exists.
+Ask only after the install job counted. The helper is `/opt/<install>/set-secrets`, mode 700, run with sudo, over the shell the person holds. It reads the key names from `secrets.list` and each value from the person's terminal (`/dev/tty`), never from that list, prompting with `read -rsp`, one key at a time, for exactly the keys in `secrets.list`: `STORAGE_S3_ACCESS_KEY_ID`, `STORAGE_S3_SECRET_ACCESS_KEY`, `EMAIL_SMTP_PASSWORD`, `RESEND_API_KEY` when the driver is `RESEND`, then `RESEND_WEBHOOK_SIGNING_SECRET` when the driver is `RESEND`, `CLOUDFLARE_API_KEY` when `<cloudflare_saas>` is not `none`, and `ADMIN_PASSWORD`. `RESEND_WEBHOOK_SIGNING_SECRET` is typed through this helper and is never an operand. Its value is not printed. `EMAIL_SMTP_PASSWORD` is a Cloudflare API token with Email Sending: Edit, on the account where the from address's domain is onboarded for sending. `RESEND_API_KEY` is a full-access key, because Twenty creates, verifies and deletes domains through it as well as sending. `CLOUDFLARE_API_KEY` is a token with Zone, SSL and Certificates, Edit on that zone. The server admin's password goes to `admin.password`, mode 600, which the first-contact call deletes after the workspace exists.
 
 The helper refuses an empty value or a value that contains whitespace. It writes under umask 077, it never echoes, and it prints `saved:<key>:length:<n>` and then `helper-done`. The person reads those lines back. A value is not repeated into the conversation.
 
@@ -640,11 +750,13 @@ exit 0
 Withhold any line that contains a secret assignment as the install question lists them. Do not cat `.env`.
 
 - `env-new:present`. Stop. Do not print that file. Tell the person to remove `/opt/<install>/.env.new` over the shell they hold, without displaying it. Do not start containers.
+- When the driver is `RESEND`, `RESEND_WEBHOOK_SIGNING_SECRET` is missing or its length is 0. Stop. Do not print the value. Do not start. A length of at least 1 passes. Twenty's source at `6007ad5a` and the Resend pages read for this change do not state a fixed length, so no fuller length is required.
+- When the driver is `RESEND`, `INBOUND_EMAIL_DOMAIN` is missing, or its length is not the length of `<inbound_domain>`. Stop. Do not print the value. Do not start.
 - A required key is missing, or its length is 0. Stop. Do not start. The helper has not finished.
 - `PG_DATABASE_PASSWORD` length is not 48, or `ENCRYPTION_KEY` length is not 44. Stop. Do not print the value. Do not start.
 - `admin.password` is absent, or its byte count is less than 2. A byte count of 1 is only a newline. Stop. Do not start.
 - `.env` mode is not 600, `admin.password` mode is not 600, `set-secrets` mode is not 700, or the directory mode is not 700. Stop. Do not start.
-- Every required key has a length of at least 1, the two generated lengths match, the admin file's byte count is at least 2, and the modes match. The byte count is the helper's length plus 1, for the trailing newline. Continue. For an install for a restore, stop here, at the resting state below.
+- Every required key has a length of at least 1, the two generated lengths match, the admin file's byte count is at least 2, and the modes match. When the driver is `RESEND`, that includes `RESEND_WEBHOOK_SIGNING_SECRET` at a length of at least 1, and `INBOUND_EMAIL_DOMAIN` at a length equal to `<inbound_domain>`. The byte count is the helper's length plus 1, for the trailing newline. Continue. For an install for a restore, stop here, at the resting state below.
 
 **The resting state for a restore.** An install for a restore stops after the length read matched: the marker holds `skill=deploy-twenty`, `release=v2.45.6`, the `compose-sha256` line, `project=` the install and `stage=files-written`; the directory holds the generated `.env`, the person's secrets and `admin.password`, which no first contact will remove, so a restore removes it, or Job 3 removes it with the directory; the display name and subdomain only name the install's aliases; there is no container, no volume, no project network and no route. That state is supported and kept. Its two continuations are a restore of a backup onto it, which is `skills/Back Up Twenty/`'s, and Job 3's partial branch, which removes it. Starting it as an ordinary install later is not a continuation: a new Job 1 under a new name is.
 
@@ -707,9 +819,9 @@ Ask only after the start checks passed. One read. `argv` is `docker`, `inspect`,
 
 ### What writes the first-contact program?
 
-The program does not fit in one router argument. The connector bounds one `argv` element at 4096 code points, and the program is longer. Three reads-as-writes place it, and a fourth call runs it. The three writes contain no secret and add no route. Each is one `vm.command.run`. `argv` is `/bin/sh`, `-c`, the script, `sh`, and the install name. Send the first, then the second, then the third, once each. Do not send the run until each printed `writer-ok`. The third write parses the assembled program and sets its mode to 600. No `writer-ok` from it means the program was not assembled.
+The program does not fit in one router argument. The connector bounds one `argv` element at 4096 code points, and the program is longer. When the driver is `LOG`, three reads-as-writes place it, and a fourth call runs it. When the driver is `RESEND`, four reads-as-writes place it, and a fifth call runs it. The writes contain no secret and add no route. Each is one `vm.command.run`. `argv` is `/bin/sh`, `-c`, the script, `sh`, and the install name. Send them in the order this question names, once each. Do not send the run until each printed `writer-ok`. The last of the program writes parses the assembled `first-contact.py` and sets its mode to 600. No `writer-ok` from it means the program was not assembled. The RESEND inbound module is parsed and set to 600 by its own write. A `LOG` run does not send the RESEND scripts.
 
-`<script>` for the first write is this text and no other:
+`<script>` for the first write, when the driver is `LOG`, is this text and no other:
 
 ```
 set -eu
@@ -779,7 +891,7 @@ FCEND
 echo writer-ok
 ```
 
-`<script>` for the second write is this text and no other:
+`<script>` for the second write, when the driver is `LOG`, is this text and no other:
 
 ```
 set -eu
@@ -887,7 +999,7 @@ FCEND
 echo writer-ok
 ```
 
-`<script>` for the third write is this text and no other:
+`<script>` for the third write, for either driver, is this text and no other:
 
 ```
 set -eu
@@ -952,6 +1064,261 @@ chmod 600 "/opt/$install/first-contact.py"
 echo writer-ok
 ```
 
+When the driver is `RESEND`, the first write is the inbound module below, the second and third writes are the two program scripts below, and the fourth write is the third script above. Do not send the LOG first write or the LOG second write.
+
+`<script>` for the inbound module is this text and no other:
+
+```
+set -eu
+export LC_ALL=C
+# resend-inbound-module
+install=$1
+test -d "/opt/$install"
+umask 077
+cat > "/opt/$install/inbound.py" << 'FCEND'
+import json,subprocess,http.client
+def run(gate,note,srv,apph,inbound,install):
+ def stop(k):
+  print(k)
+  try: note(k)
+  except Exception: pass
+  print("admin-password-file:kept"); raise SystemExit(57)
+ def cenv(svc):
+  try:
+   p=subprocess.run(["docker","compose","-p",install,"exec","-T",svc,"printenv","INBOUND_EMAIL_DOMAIN"],stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=8)
+  except Exception:
+   return None
+  if p.returncode!=0: return None
+  t=p.stdout.decode()
+  if t.endswith("\n"): t=t[:-1]
+  return t
+ gate("inbound")
+ vals=[]
+ for svc in ("server","worker"):
+  v=cenv(svc)
+  if v is None: stop("inbound-domain:unread")
+  vals.append(v)
+ if vals[0]!=inbound or vals[1]!=inbound: stop("inbound-domain:mismatch")
+ print("inbound-domain:ok")
+ try: note("inbound-domain:ok")
+ except Exception: pass
+ gate("webhook")
+ host=apph[4:] if apph[:4]=="app." else ""
+ if not host: stop("inbound-webhook:fail")
+ try:
+  c=http.client.HTTPConnection(srv,3000,timeout=8)
+  h={"Content-Type":"application/json","Host":host,"X-Forwarded-Host":host,"X-Forwarded-Proto":"https","Origin":"https://"+host}
+  c.request("POST","/webhooks/messaging/resend",b"{}",h)
+  r=c.getresponse(); body=r.read(); code=r.status; c.close()
+ except Exception:
+  stop("inbound-webhook:fail")
+ kind=""
+ if code==404: kind="404"
+ elif code==403:
+  try: d=json.loads(body.decode())
+  except Exception: d=None
+  m=d.get("code") if isinstance(d,dict) else ""
+  if m=="MESSAGING_WEBHOOK_INVALID_SIGNATURE": kind="refused"
+  elif m=="MESSAGING_WEBHOOK_NOT_CONFIGURED": kind="not-configured"
+ if kind=="refused":
+  print("inbound-webhook:refused")
+  try: note("inbound-webhook:refused")
+  except Exception: pass
+  return
+ if kind=="404": stop("inbound-webhook:404")
+ if kind=="not-configured": stop("inbound-webhook:not-configured")
+ stop("inbound-webhook:fail")
+FCEND
+python3 -c 'import ast,sys; ast.parse(open(sys.argv[1],encoding="utf-8").read())' "/opt/$install/inbound.py"
+chmod 600 "/opt/$install/inbound.py"
+echo writer-ok
+```
+
+`<script>` for the RESEND first program write is this text and no other:
+
+```
+set -eu
+export LC_ALL=C
+# resend-w1
+install=$1
+test -d "/opt/$install"
+umask 077
+cat > "/opt/$install/first-contact.py" << 'FCEND'
+import json,os,socket,ssl,sys,time,http.client
+a=sys.argv
+if len(a)!=12 or a[1] not in ("full","routes-only"):
+ print("args:refused"); raise SystemExit(2)
+mode,install,addr,apph,appa,subh,suba,email,name,slug,inbound=a[1:]
+t0=time.monotonic()
+stf="/opt/"+install+"/first-contact.state"
+path="/opt/"+install+"/admin.password"
+owned={"ok":False}
+def quiet(t,v,tb):
+ print("program:fail")
+ print("owned:routes-incomplete" if owned["ok"] else "admin-password-file:kept")
+sys.excepthook=quiet
+sys.path.insert(0,"/opt/"+install)
+from inbound import run as _ig
+def inbound_gate():
+ _ig(gate,note,srv,apph,inbound,install)
+def note(line):
+ fd=os.open(stf,os.O_WRONLY|os.O_CREAT|os.O_APPEND,0o600)
+ os.fchmod(fd,0o600)
+ os.write(fd,(line+"\n").encode()); os.fsync(fd); os.close(fd)
+def gate(step):
+ if time.monotonic()-t0>35:
+  print("deadline:"+step)
+  print("owned:routes-incomplete" if owned["ok"] else "admin-password-file:kept")
+  raise SystemExit(60)
+def private4(s):
+ p=s.split(".")
+ if len(p)!=4: return False
+ try: n=tuple(int(x) for x in p)
+ except Exception: return False
+ if any(x<0 or x>255 or (len(p[i])>1 and p[i][:1]=="0") for i,x in enumerate(n)): return False
+ a0,b=n[0],n[1]
+ if a0==10: return True
+ if a0==172 and 16<=b<=31: return True
+ return a0==192 and b==168
+ALPH="abcdefghijklmnopqrstuvwxyz0123456789-"
+def shap(c):
+ try:
+  if [set(c),set(c["apps"]),set(c["apps"]["http"]),set(c["apps"]["http"]["servers"])]!=[{"apps"},{"http"},{"servers"},{"workloads"}]: return False
+  rs=c["apps"]["http"]["servers"]["workloads"]["routes"]
+  if not isinstance(rs,list): return False
+  for rt in rs:
+   if set(rt)!={"@id","match","handle","terminal"} or rt["terminal"] is not True: return False
+   w=rt["@id"][9:]
+   if rt["@id"][:9]!="workload-" or w=="caddy" or not 2<=len(w)<=32 or w[0] not in ALPH[:26] or any(x not in ALPH for x in w): return False
+   m=rt["match"]; h=rt["handle"]; u=h[0]["upstreams"]
+   if len(m)!=1 or set(m[0])!={"host"} or len(m[0]["host"])!=1 or "*" in m[0]["host"][0]: return False
+   if len(h)!=1 or set(h[0])!={"handler","upstreams"} or h[0]["handler"]!="reverse_proxy" or len(u)!=1 or set(u[0])!={"dial"}: return False
+   left,port=u[0]["dial"].split(":")
+   if left!=w or not port.isdigit() or (len(port)>1 and port[0]=="0") or not 1<=int(port)<=65535: return False
+  return True
+ except Exception:
+  return False
+class U(http.client.HTTPConnection):
+ def connect(self):
+  s=socket.socket(socket.AF_UNIX,socket.SOCK_STREAM); s.settimeout(8); s.connect("/var/lib/caddy-admin/admin.sock"); self.sock=s
+def adm(m,p,b=None,h=None):
+ c=U("localhost",timeout=8); c.request(m,p,body=b,headers=h or {}); r=c.getresponse(); d=r.read(); st,et=r.status,r.getheader("Etag"); c.close(); return st,et,d
+def obj(alias,host):
+ return {"@id":"workload-"+alias,"match":[{"host":[host]}],"handle":[{"handler":"reverse_proxy","upstreams":[{"dial":alias+":3000"}]}],"terminal":True}
+FCEND
+echo writer-ok
+```
+
+`<script>` for the RESEND second program write is this text and no other:
+
+```
+set -eu
+export LC_ALL=C
+# resend-w2
+install=$1
+test -s "/opt/$install/first-contact.py"
+umask 077
+cat >> "/opt/$install/first-contact.py" << 'FCEND'
+def fail(alias,status):
+ print("route:%s:%s"%(alias,status))
+ try: note("route:%s:%s"%(alias,status))
+ except Exception: pass
+ print("owned:routes-incomplete"); raise SystemExit(50)
+def load(alias,host):
+ gate("route")
+ try: st,et,data=adm("GET","/config/")
+ except Exception: return None
+ if st!=200 or not et: return ("bad","config-%s"%st)
+ try: cfg=json.loads(data.decode())
+ except Exception: return ("bad","config-not-json")
+ if not shap(cfg): return ("bad","shape-refused")
+ want=obj(alias,host)
+ for rt in cfg["apps"]["http"]["servers"]["workloads"]["routes"]:
+  if (rt["@id"]==want["@id"] or rt["match"][0]["host"][0].lower()==host.lower()) and rt!=want: return ("bad","host-conflict")
+ return ("ok",cfg,et)
+def post(alias,host):
+ got=load(alias,host)
+ if got is None: fail(alias,"fail")
+ if got[0]!="ok": fail(alias,got[1])
+ body=json.dumps(obj(alias,host),separators=(",",":")).encode()
+ gate("route")
+ try: st2,_,_=adm("POST","/config/apps/http/servers/workloads/routes",body,{"Content-Type":"application/json","If-Match":got[2]})
+ except Exception: fail(alias,"fail")
+ print("route:%s:%s"%(alias,st2))
+ try: note("route:%s:%s"%(alias,st2))
+ except Exception: pass
+ if st2!=200:
+  print("owned:routes-incomplete"); raise SystemExit(53)
+def present(alias,host):
+ got=load(alias,host)
+ if not got or got[0]!="ok": return False
+ return obj(alias,host) in got[1]["apps"]["http"]["servers"]["workloads"]["routes"]
+def routes(missing):
+ for alias,host in ((appa,apph),(suba,subh)):
+  if missing and present(alias,host):
+   print("route:%s:200"%alias); note("route:%s:200"%alias)
+  else: post(alias,host)
+def tls():
+ left=35-(time.monotonic()-t0)
+ if left<=0.2:
+  print("tls:pending"); return
+ cap=8 if left>8 else left
+ ctx=ssl.create_default_context(); raw=None; ok=False
+ try:
+  raw=socket.create_connection((addr,443),cap); raw.settimeout(cap)
+  ss=ctx.wrap_socket(raw,server_hostname=apph); ss.close(); ok=True
+ except Exception:
+  if raw is not None:
+   try: raw.close()
+   except Exception: pass
+ print("tls:ready" if ok else "tls:pending")
+def finish():
+ routes(mode=="routes-only"); note("done"); print("done"); tls(); raise SystemExit(0)
+srv=os.environ.get("TWENTY_SERVER","")
+if mode=="routes-only":
+ try: pre=open(stf,encoding="utf-8").read().split()
+ except Exception: pre=[]
+ if "workspace:ok" not in pre or os.path.exists(path):
+  print("routes-only:refused"); raise SystemExit(2)
+ owned["ok"]=True; note("start"); print("start"); finish()
+if not private4(srv):
+ print("server-address:refused"); raise SystemExit(2)
+note("start"); print("start")
+inbound_gate()
+try: pw=open(path,encoding="utf-8").read()
+except Exception:
+ print("admin-password:absent"); print("admin-password-file:kept"); raise SystemExit(54)
+if pw.endswith("\n"): pw=pw[:-1]
+if not pw or any(ch.isspace() for ch in pw):
+ print("admin-password:refused"); print("admin-password-file:kept"); raise SystemExit(55)
+gf=[None]
+def gql(host,q,v,tok,step):
+ gate(step)
+ gf[0]=None
+ try:
+  c=http.client.HTTPConnection(srv,3000,timeout=8)
+  hd={"Content-Type":"application/json","Host":host,"X-Forwarded-Host":host,"X-Forwarded-Proto":"https","Origin":"https://"+host}
+  if tok: hd["Authorization"]="Bearer "+tok
+  c.request("POST","/metadata",json.dumps({"query":q,"variables":v}).encode(),hd)
+ except socket.timeout:
+  print("graphql:fail:%s:timeout"%step); gf[0]="t"; return None
+ except Exception:
+  print("graphql:fail:%s:connect"%step); gf[0]="c"; return None
+ try:
+  r=c.getresponse(); b=r.read(); code=r.status; c.close()
+ except socket.timeout:
+  print("graphql:fail:%s:timeout"%step); gf[0]="n"; return None
+ except Exception:
+  print("graphql:fail:%s:connect"%step); gf[0]="c"; return None
+ if code!=200:
+  print("graphql:fail:%s:http-%s"%(step,code)); gf[0]="h"; return None
+ try: return json.loads(b.decode())
+ except Exception:
+  print("graphql:fail:%s:not-json"%step); gf[0]="j"; return None
+FCEND
+echo writer-ok
+```
+
 - Each answer came back naming this identifier, and each printed `writer-ok`. Continue.
 - Any did not. Do not run first-contact. Do not add a route. The directory stays. Name Job 3. A new plan is gated before the writes are sent again.
 
@@ -959,7 +1326,7 @@ echo writer-ok
 
 One `vm.command.run`. It is not a job. It can outlast the endpoint's 20 seconds. Do not send this call again in this run. A later `routes-only` plan is a new plan, gated again, not a repeat of this call.
 
-`argv` is `/bin/sh`, `-c`, the script, `sh`, then the mode, the install name, the source address, the app hostname `app.<base>`, the app alias `<install>-app`, the workspace hostname `<sub>.<base>`, the workspace alias `<install>-<subdomain>`, the admin email, the display name, and the subdomain. The password is not an operand and it is not an environment value. The program reads it from the file. The server's address is not an operand. The mode is `full` on Job 1. The mode `routes-only` is a different plan, gated again, and it is sent only when a fresh read shows the state file contains `workspace:ok`, the admin password file is absent, and one or both of the two routes are absent. It posts only the missing routes, appends to the state file, and never signs anyone up.
+`argv` is `/bin/sh`, `-c`, the script, `sh`, then the mode, the install name, the source address, the app hostname `app.<base>`, the app alias `<install>-app`, the workspace hostname `<sub>.<base>`, the workspace alias `<install>-<subdomain>`, the admin email, the display name, and the subdomain. When the driver is `RESEND`, one further operand follows, `<inbound_domain>`. The program requires 12 arguments then, and 11 when the driver is `LOG`. `routes-only` on a RESEND install still passes `<inbound_domain>` and does not run the inbound checks again. The password is not an operand and it is not an environment value. The program reads it from the file. The server's address is not an operand. The mode is `full` on Job 1. The mode `routes-only` is a different plan, gated again, and it is sent only when a fresh read shows the state file contains `workspace:ok`, the admin password file is absent, and one or both of the two routes are absent. It posts only the missing routes, appends to the state file, and never signs anyone up.
 
 `<script>` is this text and no other:
 
@@ -985,11 +1352,13 @@ exec python3 "/opt/$2/first-contact.py" "$@"
 
 The shell first changes to `/opt/<install>`, so Compose finds the install's project from any working directory the router starts in. It checks `/healthz` from inside the server, up to three times. Each curl is limited to 5 seconds, with 2 seconds between tries. The loop can take about 21 seconds. It then reads the server container with `docker compose -p "$2" ps -q server` and that container's address on the network `$2-proxy` with `docker inspect`, and exports the address as `TWENTY_SERVER`. Then it runs the program.
 
-The program records its start time. Before every network operation except the TLS probe, it stops with `deadline:<step>` when more than 35 seconds have passed. The step is `signup`, `signin`, `workspace`, `token`, `activate`, or `route`. Every socket timeout is at most 8 seconds. An operation that starts just before 35 seconds can run 8 seconds more, so with about 21 seconds of healthz loop a slow run can pass the router's 60 second limit and be killed. A kill before `workspace:ok` leaves no route and nothing public. A kill after it leaves an owned install, and the later read classifies it from the state file.
+The program records its start time. Before every network operation except the TLS probe, it stops with `deadline:<step>` when more than 35 seconds have passed. The step is `inbound`, `webhook`, `signup`, `signin`, `workspace`, `token`, `activate`, or `route`. Every socket timeout is at most 8 seconds. An operation that starts just before 35 seconds can run 8 seconds more, so with about 21 seconds of healthz loop a slow run can pass the router's 60 second limit and be killed. A kill before `workspace:ok` leaves no route and nothing public. A kill after it leaves an owned install, and the later read classifies it from the state file.
 
-The program writes `/opt/<install>/first-contact.state`, mode 600. The file holds no secret. It appends one line and flushes that line before it continues. A `full` run that gets past the address check appends `start`, then `workspace:ok`, `password-file:removed`, an activation line when it records one, `route:<alias>:<status>` for each route it settles, and `done`. The activation line is `activate:ok`, `activate:fail`, `activate:unknown`, or `activate:skipped:token`. `done` is written after the route lines and before the TLS probe, so a probe that is killed does not drop a finished route write. Every run, `full` or `routes-only`, begins its lines with `start`, and the file keeps every run's lines, so a route line may be an earlier run's.
+The program writes `/opt/<install>/first-contact.state`, mode 600. The file holds no secret. It appends one line and flushes that line before it continues. A `full` run that gets past the address check appends `start`. When the driver is `RESEND`, it then appends `inbound-domain:ok` and `inbound-webhook:refused` when those checks pass, or the failing inbound line when one does not, and it does that before it reads the password file. A run that has not stopped there then appends `workspace:ok`, `password-file:removed`, an activation line when it records one, `route:<alias>:<status>` for each route it settles, and `done`. The activation line is `activate:ok`, `activate:fail`, `activate:unknown`, or `activate:skipped:token`. `done` is written after the route lines and before the TLS probe, so a probe that is killed does not drop a finished route write. Every run, `full` or `routes-only`, begins its lines with `start`, and the file keeps every run's lines, so a route line may be an earlier run's.
 
 In `full` mode the program refuses `TWENTY_SERVER` unless it is a private IPv4 address in `10.0.0.0/8`, `172.16.0.0/12`, or `192.168.0.0/16`, and no octet has a leading zero. A refusal prints `server-address:refused`, writes no state line, posts no route, and exits nonzero. An accepted address is the server container on the install's Docker network `<install>-proxy`, which is an ordinary bridge and is reachable from the host. The program calls that address with plain HTTP on port 3000. Every request sets `Host` and `X-Forwarded-Host` to the hostname it stands for, `X-Forwarded-Proto` to `https`, and `Origin` to `https://` plus that hostname. `signUp`, `signIn`, and `signUpInNewWorkspace` use `app.<base>`. `getAuthTokensFromLoginToken` and `activateWorkspace` use `<sub>.<base>`. Twenty v2.45.6 trusts those forwarded headers when the peer is in the `TRUST_PROXY` default `loopback, linklocal, uniquelocal`, which covers this bridge. A call that issues a session cookie is allowed only when `Origin` equals the request's own origin. This path was proved live on Twenty v2.45.6 on 2026-10-09, creating the admin and the first workspace. A refusal fails before any route exists.
+
+When the driver is `RESEND` and the mode is `full`, the next step, before the password file is read, reads `INBOUND_EMAIL_DOMAIN` from the server and from the worker with `docker compose -p <install> exec -T <service> printenv INBOUND_EMAIL_DOMAIN`. It compares each value with `<inbound_domain>` and prints neither value. Both equal: it prints `inbound-domain:ok`. A read that fails prints `inbound-domain:unread`. A value that differs prints `inbound-domain:mismatch`. Either stops the call, prints `admin-password-file:kept`, posts no route, and exits 57. It then sends one `POST` to `http://<server>:3000/webhooks/messaging/resend`, at the server's private address, the same way it calls GraphQL. The body is `{}`. The headers are `Content-Type: application/json`, `Host` and `X-Forwarded-Host` set to `<base>` (the app hostname with the leading `app.` removed), `X-Forwarded-Proto` set to `https`, and `Origin` set to `https://` plus `<base>`. It sends no `svix-id`, `svix-timestamp`, or `svix-signature` header. It prints no body and no secret. Nothing is sent to Resend. Twenty v2.45.6 at `6007ad5a` answers this post from `modules/messaging-webhooks/messaging-webhooks.controller.ts`, which calls `drivers/resend/services/resend-webhook-verifier.service.ts` before it imports any mail. A missing signing secret throws `RESEND_WEBHOOK_SIGNING_SECRET is not configured` with code `MESSAGING_WEBHOOK_NOT_CONFIGURED`. Missing Svix headers throw `Missing Svix signature headers` with code `MESSAGING_WEBHOOK_INVALID_SIGNATURE`. `utils/get-messaging-webhook-exception-status-code.util.ts` maps both codes to HTTP 403. `messaging-webhook.exception.ts` uses one user-facing sentence for both, so the program does not match that sentence. The filter `filters/messaging-webhook-api-exception.filter.ts` sends the body through `HttpExceptionHandlerService`, whose JSON carries `statusCode`, `messages` holding the exception's own message, and `code` when the exception is a `CustomError`, which this one is. The program continues only when the status is 403 and `code` is `MESSAGING_WEBHOOK_INVALID_SIGNATURE`, and then it prints `inbound-webhook:refused`. The same status with `code` `MESSAGING_WEBHOOK_NOT_CONFIGURED` prints `inbound-webhook:not-configured` and stops: the secret did not load. HTTP 404 prints `inbound-webhook:404` and stops: the route did not reach the server. Any other answer prints `inbound-webhook:fail` and stops. A stop prints `admin-password-file:kept`, posts no route, and exits 57. A `LOG` run does not read the domain and does not send this request, and its output does not contain these lines.
 
 GraphQL is `POST /metadata`. The documents are `signUp`, and `signIn` only when the error message is exactly `User already exists`, then `signUpInNewWorkspace`, then `getAuthTokensFromLoginToken`, then `activateWorkspace`. No token, no password, and no other error message is printed. A failed step prints `graphql:fail:<step>:<connect|timeout|http-<code>|not-json>`. The step is the one the helper was called with. The line has no message text and no token. Any other error is `signup:fail:withheld` or `signin:fail`. The password file stays. No route has been posted.
 
@@ -1006,11 +1375,11 @@ What did the call answer? Take the first match.
 - The outcome is `uncertain`, `timeout`, `killed`, or `request_timeout`, or `status` is `vendor_error`, or the answer carries no `machine`. Do not classify the call from partial output. Do not send the call again. One later read, no sooner than 70 seconds after the call was sent. The 70 seconds cover the router's 60 second limit, the 5 second kill grace, and a margin. Then ask what the later read showed.
 - The outcome is `ok`, `truncated`, or `remote_failure`, the answer names this identifier, and `healthz:200` was not printed. The program did not start. No route was posted. Nothing is public. Stop. A new plan is gated before another call.
 - The mode was `routes-only`, the outcome is one of those three, the answer names this identifier, and the output contains `route:<app alias>:200` and `route:<workspace alias>:200`. It contains no `signup:` line, no `owned:routes-incomplete`, no `deadline:`, and no `program:fail`. The missing routes are in place. Do not send the call again. Continue to the base route.
-- The outcome is one of those three, the answer names this identifier, and the output contains `workspace:ok`, `admin-password-file:removed`, `route:<app alias>:200`, and `route:<workspace alias>:200`. It does not contain `owned:routes-incomplete`, `deadline:`, or `program:fail`. The workspace exists and both routes are in place. `activate:ok` means it was activated. `activate:fail` means an answer arrived without `activationStatus`. `activate:unknown` and `activate:skipped:token` mean the workspace exists, its activation is not confirmed, and the person's first sign-in either shows the workspace, when it was activated, or Twenty's create-workspace screen, where they finish it. Neither stops the run. No activation line means the activation is not confirmed. `tls:ready` and `tls:pending` do not change this. Do not send the call again. Continue to the base route.
+- The outcome is one of those three, the answer names this identifier, and the output contains `workspace:ok`, `admin-password-file:removed`, `route:<app alias>:200`, and `route:<workspace alias>:200`. It does not contain `owned:routes-incomplete`, `deadline:`, or `program:fail`. When the driver is `RESEND`, it also contains `inbound-domain:ok` and `inbound-webhook:refused`, both before `workspace:ok`. When the driver is `LOG`, it contains neither `inbound-domain:` nor `inbound-webhook:`, and that absence does not fail this match. The workspace exists and both routes are in place. `activate:ok` means it was activated. `activate:fail` means an answer arrived without `activationStatus`. `activate:unknown` and `activate:skipped:token` mean the workspace exists, its activation is not confirmed, and the person's first sign-in either shows the workspace, when it was activated, or Twenty's create-workspace screen, where they finish it. Neither stops the run. No activation line means the activation is not confirmed. `tls:ready` and `tls:pending` do not change this. Do not send the call again. Continue to the base route.
 - The output contains `owned:routes-incomplete`. The install is owned. A `routes-only` plan is gated again. Do not send it in this run. Do not remove a route. Removing the install is Job 3.
 - The output contains `workspace:ok` and `admin-password-file:kept`. The workspace exists. The password file stays. No route was posted. Stop. A new plan is gated before another call. `routes-only` is not that plan while the password file is present.
 - The output contains `server-address:refused` or `routes-only:refused`. No route was posted. A refused address writes no state line. Stop. A new plan is gated before another call.
-- The output contains `signup:fail:withheld`, `signin:fail`, `workspace:fail`, `admin-password:absent`, `admin-password:refused`, or `deadline:` together with `admin-password-file:kept`, or `program:fail` together with `admin-password-file:kept`. The failure is before ownership. No route was posted. Nothing is public. The password file stays. Stop. A new plan is gated before another call.
+- The output contains `signup:fail:withheld`, `signin:fail`, `workspace:fail`, `admin-password:absent`, `admin-password:refused`, `inbound-domain:unread`, `inbound-domain:mismatch`, `inbound-webhook:not-configured`, `inbound-webhook:404`, `inbound-webhook:fail`, or `deadline:` together with `admin-password-file:kept`, or `program:fail` together with `admin-password-file:kept`. The failure is before ownership. `inbound-webhook:not-configured` means the signing secret did not load. `inbound-webhook:404` means the route did not reach the server. No route was posted. Nothing is public. The password file stays. Stop. A new plan is gated before another call.
 - Any other answer. Do not send the call again. Report the lines that were printed. Do not claim the workspace exists unless `workspace:ok` was printed or a later read's state file contains it. Do not remove a route. Removing the install is Job 3.
 
 What did the later read show?
@@ -1036,7 +1405,7 @@ The pattern is `/opt/<install>/first-contact[.]py`. The brackets keep the read's
 
 - `process:running`. Do not classify the call yet. Read once more, no sooner than 70 seconds after this read, with the same script. If the process is still running, stop. Say the program was still running and the state is not settled. Do not remove a route. Do not send the call again.
 - `state:absent`. The program never started. Nothing is public. Stop. A new plan is gated before another call.
-- The state has `start` and does not have `workspace:ok`. The program failed before ownership. Nothing is public. The password file stays. Stop. A new plan is gated before another call.
+- The state has `start` and does not have `workspace:ok`. The program failed before ownership. On a RESEND install those lines may include `inbound-domain:unread`, `inbound-domain:mismatch`, `inbound-webhook:not-configured`, `inbound-webhook:404`, or `inbound-webhook:fail`. Nothing is public. The password file stays. Stop. A new plan is gated before another call.
 - The state has `workspace:ok`. The install is owned. Judge the routes from the config this read printed, never from route lines in the state, which may be an earlier run's. Report the lines after the last `start`, which say what the last attempt did.
   - The config read succeeded and holds both exact generated route objects, the app route for `app.<base>` with the app alias and the workspace route for `<sub>.<base>` with the workspace alias. The routes are in place. `activate:ok` in the state means the workspace was activated. `activate:fail` means an answer arrived without `activationStatus`. `activate:unknown` and `activate:skipped:token` mean the workspace exists and its activation is not confirmed. The person's first sign-in either shows the workspace, when it was activated, or Twenty's create-workspace screen, where they finish it. Neither stops the run. No activation line means the activation is not confirmed. Continue to the base route.
   - Anything else: a route is missing, a route for one of these hostnames is not the generated object, or the config was not read. When the read printed `password-file:absent`, `routes-only` is the next plan, gated again. When the password file is present, stop for a new plan. `routes-only` is not that plan. Do not post from this run. Do not remove a route.
@@ -1514,13 +1883,22 @@ Job 3's full removal requested state is the one its question states. Job 3's par
 
 ### What does the report say?
 
-One report. For each part: what was inspected, what was planned, the gate's verdict or that no gate was taken, each call's action and its `outcome`, any `exit_code`, the output copied verbatim where the report shows it, the re-inspection, and `changed`, `unchanged`, or failed. A line that contains `PG_DATABASE_PASSWORD=`, `ENCRYPTION_KEY=`, `CLOUDFLARE_API_KEY=`, `EMAIL_SMTP_PASSWORD=`, `RESEND_API_KEY=`, `STORAGE_S3_SECRET_ACCESS_KEY=`, `STORAGE_S3_ACCESS_KEY_ID=`, or `ADMIN_PASSWORD=` is withheld, and the report says the line was withheld. A secret value is not a report line. Lengths, booleans, counts and statuses are.
+One report. For each part: what was inspected, what was planned, the gate's verdict or that no gate was taken, each call's action and its `outcome`, any `exit_code`, the output copied verbatim where the report shows it, the re-inspection, and `changed`, `unchanged`, or failed. A line that contains `PG_DATABASE_PASSWORD=`, `ENCRYPTION_KEY=`, `CLOUDFLARE_API_KEY=`, `EMAIL_SMTP_PASSWORD=`, `RESEND_API_KEY=`, `RESEND_WEBHOOK_SIGNING_SECRET=`, `STORAGE_S3_SECRET_ACCESS_KEY=`, `STORAGE_S3_ACCESS_KEY_ID=`, or `ADMIN_PASSWORD=` is withheld, and the report says the line was withheld. A secret value is not a report line. Lengths, booleans, counts and statuses are.
 
 The URL is `https://<base>/` and `https://app.<base>/`. The report says whether each `/healthz` answered and whether the certificate verified. It names the image digests. It does not name the source address as a field.
 
-The report says what is configured and what is not. Team email is the install's one address over SMTP, to members, not to contacts. Email to contacts is each person's own mailbox, left enabled for IMAP, SMTP and CalDAV, and not configured. Branded or campaign email is the driver that was set, Resend or LOG. Email channels and branded email from a workspace's own domain are not set up, because this skill does not set an inbound email domain. Job 4 offline reports that the routes were removed and the data was kept, and copies this install's route objects from the before-state verbatim, since bringing it back online posts exactly those. Job 3 copies this install's route objects from its before-state once a route delete was sent. Job 4 online reports that the recorded routes were posted again, and which were already present. Google and Microsoft stay off. Email verification stays off. The webhook signing secret and the Resend region stay unset, with the cost of leaving each unset. When `<cloudflare_saas>` is `none`, no workspace can take its own domain. When it is set, the report says the Custom Hostnames setting and the fallback origin are the person's, and that a DNS-only CNAME inside that zone to the fallback origin is served directly by Caddy, with Caddy's certificate, and Cloudflare carries none of that name's traffic.
+The report says what is configured and what is not. Team email is the install's one address over SMTP, to members, not to contacts. Email to contacts is each person's own mailbox, left enabled for IMAP, SMTP and CalDAV, and not configured. Branded or campaign email is the driver that was set, Resend or LOG. When the driver is `RESEND`, the inbound email domain is set to `<inbound_domain>`. When the driver is `LOG`, no inbound email domain is set. Job 4 offline reports that the routes were removed and the data was kept, and copies this install's route objects from the before-state verbatim, since bringing it back online posts exactly those. Job 3 copies this install's route objects from its before-state once a route delete was sent. Job 4 online reports that the recorded routes were posted again, and which were already present. Google and Microsoft stay off. Email verification stays off. When the driver is `LOG`, the webhook signing secret stays unset, so signatures on `/webhooks/messaging/resend` are not verified. When the driver is `RESEND`, the signing secret is set through the helper and first contact has probed the route. `RESEND_DOMAIN_REGION` stays unset either way, so Resend provisions a new emailing domain in its default region. When `<cloudflare_saas>` is `none`, no workspace can take its own domain. When it is set, the report says the Custom Hostnames setting and the fallback origin are the person's, and that a DNS-only CNAME inside that zone to the fallback origin is served directly by Caddy, with Caddy's certificate, and Cloudflare carries none of that name's traffic.
 
-The report says no real contact goes onto the install until a backup has been restored with the same encryption key, which `skills/Back Up Twenty/` does. It says that a setting saved in Twenty's admin panel is stored in the install's database and overrides `.env` for every variable Twenty does not mark env-only, storage and email included, so this install's settings are changed in `.env`, not in the admin panel. For an install for a restore, it reports the resting state and its two continuations. It names every gap that applies: a release other than v2.45.6, a machine without Docker or without Caddy in the shape `skills/Deploy Workload/` runs it, Google and Microsoft mailboxes, the Cloudflare for SaaS setting when it was not confirmed, creating the bucket, the tokens and the sending accounts, and email channels and branded email from a workspace's own domain. It names the hand-off for DNS, for a package, for workspace setup beyond the first workspace, and for a security review.
+When the driver is `RESEND`, the report names, in plain words, the person's steps with Resend. Receiving is enabled on `<inbound_domain>`. Its MX record is a DNS item through `experts/IT Expert/` and `skills/Zone Publisher/` in `wiser`, and it is the lowest-priority MX for that name. A webhook points at `https://<base>/webhooks/messaging/resend` with the events `email.received`, `email.delivered`, `email.failed`, `email.bounced`, and `email.complained`. That webhook's signing secret is typed through `set-secrets`. The report names IT Expert Rule 5's question and does not answer it. The question covers:
+
+- a public, unauthenticated route that only a signature guards;
+- the secret held in `.env`, overridable from the admin panel;
+- replay inside the 5-minute window. Twenty dedupes a received email by its email id and a delivery event by its `svix-id`, each as the queue's job id (`resend-webhook-driver.service.ts`);
+- what a forged or replayed `email.received` could do. It names an email id that Twenty then fetches from Resend with the install's own key, so a forger cannot inject content without a real received email in that Resend account.
+
+It names the cost: Resend's receiving price is not stated on its documentation pages, so the operator confirms it at Resend before enabling receiving.
+
+The report says no real contact goes onto the install until a backup has been restored with the same encryption key, which `skills/Back Up Twenty/` does. It says that a setting saved in Twenty's admin panel is stored in the install's database and overrides `.env` for every variable Twenty does not mark env-only, storage and email included, so this install's settings are changed in `.env`, not in the admin panel. For an install for a restore, it reports the resting state and its two continuations. It names every gap that applies: a release other than v2.45.6, a machine without Docker or without Caddy in the shape `skills/Deploy Workload/` runs it, Google and Microsoft mailboxes, the Cloudflare for SaaS setting when it was not confirmed, creating the bucket, the tokens and the sending accounts, and the inbound domain's MX record and the sending service's receiving and webhook settings, which the person sets with the vendor. It names the hand-off for DNS, for a package, for workspace setup beyond the first workspace, and for a security review.
 
 For each job, also: its unit name, its invocation ID and its limit, the last poll's state, the read-back lines the report may show and the line count shown, and the release outcome. A job not read as finished after six polls is reported in the state the last poll that was read showed, or as unknown when none was read.
 
@@ -1563,7 +1941,8 @@ For each job, also: its unit name, its invocation ID and its limit, the last pol
 - An install for a restore ran the pull, the install job, the person's helper and the length read, and nothing after them; it started no container and posted no route, and the report named its resting state and its two continuations.
 - The pull was one job, purpose `twenty-pull`, limit 1800, the three digest references the operands, and a digest that did not match was not installed. The install job, purpose `twenty-install`, limit 300, created the directory, wrote the marker before any download or secret, appended `compose-sha256` after the compose hash matched, replaced `stage=created` with `stage=files-written`, and started nothing. The start job, purpose `twenty-start`, limit 1800, was not sent until the length read matched.
 - The server published no port. The four containers matched the start checks before any route. A failed check added no route.
-- The first-contact call created the server admin and the first workspace before it posted a route, in one `vm.command.run`. No route was posted before `workspace:ok` and the password file was removed. The base route was a later call. An `uncertain` or `timeout` on that call was not retried, and no route was removed to recover.
+- The first-contact call created the server admin and the first workspace before it posted a route, in one `vm.command.run`. No route was posted before `workspace:ok` and the password file was removed. The base route was a later call. An `uncertain` or `timeout` on that call was not retried, and no route was removed to recover. When the driver is `RESEND`, the call also printed `inbound-domain:ok` and `inbound-webhook:refused` before it posted a route, and a not-configured answer or a 404 stopped the call before a route. When the driver is `LOG`, the call's output had no `inbound-domain:` line and no `inbound-webhook:` line.
+- When the driver is `RESEND`, the install job wrote `INBOUND_EMAIL_DOMAIN` and mapped `RESEND_WEBHOOK_SIGNING_SECRET`, and the report named the person's Resend steps, IT Expert Rule 5's question without answering it, and the receiving price. When the driver is `LOG`, the install job wrote no inbound domain and mapped no signing secret.
 - Job 2 added an alias by reattaching the full list and then posting the route, or removed the route, confirmed the saved config, and then removed the alias. A half-finished pair was reported and not repaired in the same run.
 - Job 3's full removal ran only after the person confirmed by naming the install, and the report says the removal destroys every organisation's data on the install. It deleted only objects whose identity was read back, routes first, and it read Caddy's live and saved config back to the before-state with those routes removed, before it deleted data. The removal order was containers, volumes, project networks, and the directory. A container count, a volume count, or a network count of 0 was accepted when that set was empty. `<install>_default` was removed with `<install>-proxy`, and only when no container but this install's and Caddy was attached. Images stayed. Job 3's partial branch ran only after the person confirmed by naming the install. It removed the directory alone when the marker held `skill=deploy-twenty`, `release=v2.45.6`, and the project line, with or without `compose-sha256`, and the inspection showed the directory and its marker alone, with no container, no volume, and no project network. The job required the path `/opt/<install>`, a directory, the inspection's device and inode, and no mount on or under the directory. The re-inspection showed the directory absent. A project container, volume, or network with no `compose-sha256` line, or an absent marker, was named and left unchanged. A stopped removal was not re-sent. Its continuation was a new plan from a fresh identity read.
 - Job 4 offline ran only after the person confirmed by naming the install and saying to take it offline. It removed only this install's routes and left every alias, container, network, volume, and file in place. The outside checks did not get a Twenty answer. Job 4 online ran only after the person confirmed by naming the install and saying to bring it online. It posted the route objects from the recorded before-state and no others.

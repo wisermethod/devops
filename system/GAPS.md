@@ -4,7 +4,7 @@ What this plugin does not do, declared by the primitive that names it.
 
 A gap is a capability this root does not provide that a primitive's own body names as missing (`wiser/standards/primitives.md`). This file collects every declared `gaps` entry, by hand, and is corrected whenever a primitive's gaps change. It carries capability gaps only, and names what is missing, never where it went.
 
-Counted 2026-10-08: 32 gaps across 8 primitives. Bullet count: `grep -E '^- ' system/GAPS.md | wc -l` returns 32, and the same count derived from the primitives' own `gaps:` frontmatter returns 32.
+Counted 2026-10-10: 33 gaps across 8 primitives. Bullet count: `grep -E '^- ' system/GAPS.md | wc -l` returns 33, and the same count derived from the primitives' own `gaps:` frontmatter returns 33.
 
 ## Experts
 
@@ -65,3 +65,4 @@ Counted 2026-10-08: 32 gaps across 8 primitives. Bullet count: `grep -E '^- ' sy
 - connecting Google or Microsoft mailboxes, which needs an OAuth client and the provider's approval
 - Cloudflare for SaaS's custom-hostname setting and fallback origin on a zone, which the person turns on in Cloudflare's dashboard
 - creating the bucket, the API tokens and the sending accounts the install uses, which the person does with each vendor
+- email channels and branded email from a workspace's own domain, which need an inbound email domain (`INBOUND_EMAIL_DOMAIN`), its MX records and the sending service's inbound configuration that this skill does not set

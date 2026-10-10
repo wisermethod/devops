@@ -2,8 +2,8 @@
 name: Deploy Twenty
 type: skill
 category: operations
-description: Install Twenty CRM v2.45.6 on one machine a person's router maps, behind the Caddy that machine already runs, or add or remove one hostname route for an install this skill made, or remove that install, and report the URL, what answered, and what is not configured.
-version: 0.1.6
+description: Install Twenty CRM v2.45.6 on one machine a person's router maps, behind the Caddy that machine already runs, or add or remove one hostname route for an install this skill made, or remove that install, or take that install offline or bring it back online, and report the URL, what answered, and what is not configured.
+version: 0.1.7
 gaps:
   - installing a Twenty release other than v2.45.6, or upgrading an install to another release
   - a machine with no Docker, or with no Caddy running in the shape `skills/Deploy Workload/` runs it
@@ -11,17 +11,18 @@ gaps:
   - connecting Google or Microsoft mailboxes, which needs an OAuth client and the provider's approval
   - Cloudflare for SaaS's custom-hostname setting and fallback origin on a zone, which the person turns on in Cloudflare's dashboard
   - creating the bucket, the API tokens and the sending accounts the install uses, which the person does with each vendor
+  - email channels and branded email from a workspace's own domain, which need an inbound email domain (`INBOUND_EMAIL_DOMAIN`), its MX records and the sending service's inbound configuration that this skill does not set
 ---
 
 # Deploy Twenty
 
 ## Context
 
-Use when one Twenty install should be created on one existing machine, or one hostname should be routed to an install this skill made, or that hostname's route should be removed, or an install this skill made should be removed, and the machine is one a person's router maps. One run is one machine and one install. The release is Twenty v2.45.6 and no other. The server publishes no port. The first-contact call reaches it on the install's Docker network before any route exists. Visitors reach it only through routes in the Caddy that machine already runs.
+Use when one Twenty install should be created on one existing machine, or one hostname should be routed to an install this skill made, or that hostname's route should be removed, or an install this skill made should be removed, or that install should be taken offline or brought back online, and the machine is one a person's router maps. One run is one machine and one install. The release is Twenty v2.45.6 and no other. The server publishes no port. The first-contact call reaches it on the install's Docker network before any route exists. Visitors reach it only through routes in the Caddy that machine already runs.
 
 Not for a release other than v2.45.6, and not for upgrading an install to another release. That is missing: installing a Twenty release other than v2.45.6, or upgrading an install to another release. Not for a machine with no Docker, and not for a Caddy that is not already running in the shape `skills/Deploy Workload/` runs it. This skill does not install Docker, does not start Caddy, and does not write Caddy's first config. Not for backing up an install or restoring one. That is missing. Not for connecting Google or Microsoft mailboxes, which needs an OAuth client and the provider's approval. That is missing. Not for Cloudflare for SaaS's custom-hostname setting and fallback origin on a zone, which the person turns on in Cloudflare's dashboard. That is missing. Not for creating the bucket, the API tokens and the sending accounts the install uses, which the person does with each vendor. That is missing. Not for a hostname, a DNS record, or a zone. Hand that part to `experts/IT Expert/` in `wiser`, which sequences `skills/Zone Publisher/`. Not for enrolling a machine or taking one out, which is `skills/Prepare VM/`. Not for a package or a unit, which is `skills/VM Configure/`. Not for setting up an organisation's workspace beyond the first workspace's creation, its members, data model, domains and import. No skill here runs that yet. It is the gap `experts/CRM Expert/` declares for setting up an organisation's Twenty workspace. Saving or removing a custom domain in Twenty, which creates or deletes a hostname at Cloudflare, is that workspace setup, not this skill. Not for a security review. Load `experts/IT Expert/` Rule 5 in `wiser` and apply it. Not for a secret passed through the conversation or through a router call.
 
-Twenty sends three kinds of email, and this install must not be read as if one address did all three. Email to a contact goes out from the sender's own mailbox, so the contact sees that person's own address, and nothing in that path uses the install's SMTP settings. This install leaves IMAP, SMTP and CalDAV mailboxes enabled and does not configure one. Google and Microsoft mail and sign-in stay off, which is the mailbox gap above. Branded or campaign email goes out from an organisation's own verified emailing domain, through the one driver the install is given. On a self-hosted install without an Enterprise licence the driver is Resend, or LOG when none is wanted. LOG sends nothing. AWS SES is not offered here. Team email is the third kind: invitations, password resets, verification, and the admin panel's test send, from the install's one address, to an organisation's own members, never to its contacts. The From line of an invitation reads as the inviter's name, then "(via Twenty)", then that one address. This skill configures team email. It does not configure a contact mailbox, and it does not verify an emailing domain.
+Twenty sends three kinds of email, and this install must not be read as if one address did all three. Email to a contact goes out from the sender's own mailbox, so the contact sees that person's own address, and nothing in that path uses the install's SMTP settings. This install leaves IMAP, SMTP and CalDAV mailboxes enabled and does not configure one. Google and Microsoft mail and sign-in stay off, which is the mailbox gap above. Branded or campaign email goes out from an organisation's own verified emailing domain, through the one driver the install is given. On a self-hosted install without an Enterprise licence the driver is Resend, or LOG when none is wanted. LOG sends nothing. AWS SES is not offered here. Team email is the third kind: invitations, password resets, verification, and the admin panel's test send, from the install's one address, to an organisation's own members, never to its contacts. The From line of an invitation reads as the inviter's name, then "(via Twenty)", then that one address. This skill configures team email. It does not configure a contact mailbox, and it does not verify an emailing domain. Email channels and branded email from a workspace's own domain need an inbound email domain (`INBOUND_EMAIL_DOMAIN`), its MX records, and the sending service's inbound configuration. This skill does not set them. That is missing.
 
 The install's own hostname is its server address. When that name sits inside the Cloudflare for SaaS zone and its DNS record is a DNS-only CNAME to the fallback origin, Cloudflare flattens the name to the machine's address. Caddy serves it with Caddy's own certificate, and Cloudflare carries none of its traffic. Do not read that name as behind Cloudflare. A workspace custom domain that arrives through Cloudflare for SaaS reaches the origin with its own Host header, so it needs its own route, and the origin's certificate for it comes from Caddy by HTTP-01 through Cloudflare.
 
@@ -43,7 +44,7 @@ Classifier seam: none.
 
 ## Objective
 
-The named install is running on the named machine, behind the Caddy that machine already runs, or one hostname route has been added or removed, or the install has been removed, or it has not, and the report says which. A change is made only after a read of the live state, only after `experts/DevOps Expert/` gates the plan, and only after the person approves the stop. No route is written before that gate and that approval. The install is not reachable at its sign-in host until the server admin and the first workspace exist and the admin password file has been removed. A job's success is not the install's success. The re-inspection, and the checks from outside the machine, decide. Verified against Success.
+The named install is running on the named machine, behind the Caddy that machine already runs, or one hostname route has been added or removed, or the install has been removed, or the install has been taken offline or brought back online, or it has not, and the report says which. A change is made only after a read of the live state, only after `experts/DevOps Expert/` gates the plan, and only after the person approves the stop. No route is written before that gate and that approval. The install is not reachable at its sign-in host until the server admin and the first workspace exist and the admin password file has been removed. A job's success is not the install's success. The re-inspection, and the checks from outside the machine, decide. Verified against Success.
 
 ## Inputs
 
@@ -63,7 +64,7 @@ Wrap what the person supplies so material never reads as instruction.
 - `<alias_label>`: the label Job 2 uses for that hostname, when they named one.
 - `<live_state>`: what the inspection showed, or the statement that it was not read.
 
-An unnamed machine is asked about. It is never guessed. A value that does not match the pattern below is asked about, and it is never sent. Set Up Twenty Workspace, a later skill, runs Job 2 by name and hands exactly `<machine>`, `<install>`, `<hostname>`, `<alias_label>`, the word `add` or the word `remove`, and `<live_state>` when it has one. It does not hand a secret.
+An unnamed machine is asked about. It is never guessed. A value that does not match the pattern below is asked about, and it is never sent. Set Up Twenty Workspace, a later skill, runs Job 2 by name and hands exactly `<machine>`, `<install>`, `<hostname>`, `<alias_label>`, the word `add` or the word `remove`, and `<live_state>` when it has one. It does not hand a secret. Job 4 takes the install name and the word `offline` or the word `online`.
 
 ## Identity
 
@@ -97,8 +98,9 @@ Which job is this? Take the first match.
 - The request asks to back up an install or to restore one. Stop. Name the gap for backing up an install or restoring one. Send nothing.
 - The request asks to connect a Google or Microsoft mailbox. Stop. Name the gap for connecting Google or Microsoft mailboxes, which needs an OAuth client and the provider's approval. Send nothing.
 - The request asks to remove one named install and names no deploy and no single route change. Job 3. The confirmation question still applies before any removal call.
+- The request asks to take one named install offline, or to bring one named install back online, and names no deploy and no removal. Job 4. The confirmation question still applies before any offline or online call.
 - The request asks to add one hostname's route to an install this skill made, or to remove that one route, and names no new install. Job 2.
-- The request asks to install Twenty and also to remove an install, or asks for more than one install. Ask which this run is for. One run is one install. Do not guess. Do not call.
+- The request asks to install Twenty and also to remove an install, or to take an install offline or bring one online, or asks for more than one install. Ask which this run is for. One run is one install. Do not guess. Do not call.
 - The request asks to install Twenty on one machine. Job 1.
 - The job cannot be read. Ask. Do not guess. Do not call.
 
@@ -115,7 +117,7 @@ The identifier has to match `^[A-Za-z0-9][A-Za-z0-9._-]{0,62}$`, the `machine` p
 
 Refuse a value by name before `vm.inventory.list_hosts`. Do not send the other form. Ask for one that matches.
 
-The install name matches `^[a-z][a-z0-9-]{1,12}$`, and it is not `caddy`. An unnamed install is `twenty`. Job 1, Job 2 and Job 3 all require it.
+The install name matches `^[a-z][a-z0-9-]{1,12}$`, and it is not `caddy`. An unnamed install is `twenty`. Job 1, Job 2, Job 3, and Job 4 all require it.
 
 An alias label matches `^[a-z0-9][a-z0-9-]{0,15}$`. The alias is the install name, a hyphen, and the label. That alias has to match `^[a-z][a-z0-9-]{1,31}$`, and it is not `caddy`. A label that would make an alias outside that pattern is refused by name.
 
@@ -142,6 +144,8 @@ Job 1 requires `<base>`, `<admin_email>`, a display name and a subdomain, a buck
 Job 2 requires the install, one hostname, one alias label, and the word `add` or the word `remove`. The label is not `base` and not `app`. A Job 2 request that also names a new base, a new admin, or a new bucket: ask whether the request is the one route. Do not send the extra value. Do not guess.
 
 Job 3 requires the install name. It does not take a new hostname, a new image, or a secret. A Job 3 request that includes one: ask whether the request is the removal. Do not send the extra value.
+
+Job 4 requires the install name and the word `offline` or the word `online`. It does not take a new hostname, a new image, or a secret. A Job 4 request that includes one: ask whether the request is the offline change or the online change. Do not send the extra value.
 
 ### What did `vm.inventory.list_hosts` answer?
 
@@ -288,6 +292,9 @@ if command -v docker >/dev/null 2>&1; then
   printf '%s\n' '--- project-network ---'
   docker network inspect --format '{{.Id}} {{index .Labels "com.docker.compose.project"}}' -- "${install}-proxy"
   printf '%s\n' "network-exit:$?"
+  printf '%s\n' '--- project-networks ---'
+  docker network ls --no-trunc --filter "label=com.docker.compose.project=$install" --format '{{.ID}} {{.Name}}'
+  printf '%s\n' "networks-exit:$?"
 fi
 printf '%s\n' '--- token after ---'
 if [ -r /run/vm-job.token ]; then cat /run/vm-job.token; else printf '%s\n' none; fi
@@ -295,6 +302,8 @@ exit 0
 ```
 
 Docker's wording for an absent object is read without regard to case. A missing container prints `no such object`. A missing network prints `not found`. A missing volume prints `no such volume`.
+
+The project-network section is the `${install}-proxy` inspect, then `network-exit`. Those lines stay so the checks that read them stay the same. The project-networks section lists every network whose label `com.docker.compose.project` is the install, one line `id name`, then `networks-exit`. Compose creates `<install>_default` and `<install>-proxy`. Both carry that label when they exist. The section is empty when no line sits between its header and `networks-exit`. `networks-exit` 0 on an empty section means none remain.
 
 The token is the text of each token section, or the line `none`. Both token sections have to be present. The jobs section is the `systemctl` list. `jobs-exit` is the exit of that list. The systemd section's first line begins `systemd ` and the version is the following whole number. The tools section has one line `<name>:present` or `<name>:absent` for `docker`, `openssl`, `curl`, `python3`, `sha256sum`, and `realpath`.
 
@@ -368,8 +377,8 @@ A hostname is present when some route's host list contains it, compared case-ins
 
 Job 1. Take the first match.
 
-- `dir-absent`, `project-exit` is 0 and the project section is empty, `volumes-exit` is 0 and the volumes section is empty, and `network-exit` is not 0 and the network section contains `not found`, compared without regard to case. The name is free. Continue.
-- The directory is present, or any container, volume, or network was read for this install name. Stop. The name is taken. Do not remove it in this run. Name Job 3 only when the marker section contains the lines `skill=deploy-twenty`, `release=v2.45.6`, and `project=` followed by this install name, each as a whole line. A `compose-sha256=` line and a `stage=` line may be present. They do not by themselves change that. Otherwise say the name is taken by something this skill did not mark. Change nothing.
+- `dir-absent`, `project-exit` is 0 and the project section is empty, `volumes-exit` is 0 and the volumes section is empty, `network-exit` is not 0 and the network section contains `not found`, compared without regard to case, and `networks-exit` is 0 and the project-networks section is empty. The name is free. Continue.
+- The directory is present, or any container, volume, or project network was read for this install name. Stop. The name is taken. Do not remove it in this run. Name Job 3 only when the marker section contains the lines `skill=deploy-twenty`, `release=v2.45.6`, and `project=` followed by this install name, each as a whole line. A `compose-sha256=` line and a `stage=` line may be present. They do not by themselves change that. Otherwise say the name is taken by something this skill did not mark. Change nothing.
 - A section was not read. Stop. Copy the section. Change nothing.
 
 Job 2. Take the first match.
@@ -379,11 +388,16 @@ Job 2. Take the first match.
 
 Job 3. Take the first match.
 
-- The marker section's lines include `skill=deploy-twenty`, `release=v2.45.6`, `compose-sha256=bacd817fcef85abbcb6a603a6c093375313460037fae67d73d45c16f6d85bc7d`, and `project=` followed by this install name, each as a whole line, and `stat:` was read, and a container, a volume, or the network was read for this install name. A whole line `stage=created` or `stage=files-written` may be present. It does not replace a required line and it does not fail this check. This is a complete install this skill made. The full removal. Continue.
-- The marker section's lines include `skill=deploy-twenty`, `release=v2.45.6`, and `project=` followed by this install name, each as a whole line, with or without the `compose-sha256` line, and `stat:` was read, and `project-exit` is 0 and the project section is empty, and `volumes-exit` is 0 and the volumes section is empty, and `network-exit` is not 0 and the network section contains `not found`, compared without regard to case. A whole line `stage=created` or `stage=files-written` may be present. This is a partial install this skill made. The partial branch. Continue.
-- A container, a volume, or the network was read for this install name, and the marker does not contain the whole line `compose-sha256=bacd817fcef85abbcb6a603a6c093375313460037fae67d73d45c16f6d85bc7d`. Stop. Name what was read. Change nothing.
+- The marker section's lines include `skill=deploy-twenty`, `release=v2.45.6`, `compose-sha256=bacd817fcef85abbcb6a603a6c093375313460037fae67d73d45c16f6d85bc7d`, and `project=` followed by this install name, each as a whole line, and `stat:` was read, and a container, a volume, or a project network was read for this install name. A project network was read when the project-networks section has a line, or when the `${install}-proxy` inspect was read. A whole line `stage=created` or `stage=files-written` may be present. It does not replace a required line and it does not fail this check. This is a complete install this skill made. The full branch. Continue.
+- The marker section's lines include `skill=deploy-twenty`, `release=v2.45.6`, and `project=` followed by this install name, each as a whole line, with or without the `compose-sha256` line, and `stat:` was read, and `project-exit` is 0 and the project section is empty, and `volumes-exit` is 0 and the volumes section is empty, and `networks-exit` is 0 and the project-networks section is empty, and `network-exit` is not 0 and the network section contains `not found`, compared without regard to case. A whole line `stage=created` or `stage=files-written` may be present. This is the directory and its marker alone. The partial branch. Continue.
+- A container, a volume, or a project network was read for this install name, and the marker does not contain the whole line `compose-sha256=bacd817fcef85abbcb6a603a6c093375313460037fae67d73d45c16f6d85bc7d`. Stop. Name what was read. Change nothing.
 - A section this question needs was not read. Stop. Copy the section. Change nothing.
 - The directory is absent, or the marker is absent, or a required line does not match. Stop. This skill does not change an install it did not mark. Change nothing.
+
+Job 4. Take the first match.
+
+- The marker section's lines include `skill=deploy-twenty`, `release=v2.45.6`, `compose-sha256=bacd817fcef85abbcb6a603a6c093375313460037fae67d73d45c16f6d85bc7d`, and `project=` followed by this install name, each as a whole line, and `stat:` was read, and the aliases line was read. A whole line `stage=created` or `stage=files-written` may be present. It does not replace a required line and it does not fail this check. This is a complete install this skill made. Continue.
+- The directory is absent, or the marker is absent, or a required line does not match, or the aliases line was not read. Stop. This skill does not change an install it did not mark. Change nothing.
 
 ### Has the person confirmed Cloudflare for SaaS, before the plan?
 
@@ -408,15 +422,15 @@ Job 1:
 8. The base route, one POST, only after first-contact has created the workspace.
 9. The checks from outside the machine, then the memory read, then a closing re-inspection.
 
-Job 2's plan is the route question. Job 3's plan is the removal question. Neither sends a pull.
+Job 2's plan is the route question. Job 3's plan is the removal question. Job 4's plan is the offline question, or the online question. None of them sends a pull.
 
-The way back for Job 1 is Job 3, named and not sent in this run. A stop after the install job and before the start job is undone by Job 3's partial branch. The way back for one route is Job 2 with the word `remove`, named and not sent in this run. Images are not removed by either.
+The way back for Job 1 is Job 3, named and not sent in this run. A stop after the install job and before the start job is undone by Job 3's partial branch. The way back for one route is Job 2 with the word `remove`, named and not sent in this run. The way back for Job 4 offline is bringing that install back online, named and not sent in this run. Images are not removed by these.
 
 A re-inspection between two planned jobs reads the token the next start uses. The calls stay the ones this plan named. A re-inspection whose facts change a later call, a token renewal alone excluded, stops. The changed calls are a new plan, gated again. Do not start them on the old gate.
 
 ### Is the plan gated?
 
-A run whose inspection shows nothing to change writes nothing and takes no gate. Job 1 always has a change when it reaches this question. Job 2 and Job 3 take this question only when a change call remains.
+A run whose inspection shows nothing to change writes nothing and takes no gate. Job 1 always has a change when it reaches this question. Job 2, Job 3, and Job 4 take this question only when a change call remains.
 
 When there is a change, hand the plan to `experts/DevOps Expert/` with `<live_state>`, in a second context, before any change. `<live_state>` is the inspection output copied verbatim. The plan names every call in order and the way back. A job names its purpose, its unit name, its limit, the token, the script, and the operands. A route POST is one object appended through the admin API, with `If-Match` set to the `Etag` from the same `GET /config/` whose body passed the shape check, not the routes path's `Etag`. It is not a whole-config replacement. A `412` on that POST means the config changed anywhere.
 
@@ -559,7 +573,7 @@ echo install-files-written
 
 The job generates `PG_DATABASE_PASSWORD` with `openssl rand -hex 24`, which is 48 hex characters, and `ENCRYPTION_KEY` with `openssl rand -base64 32`, which is 44 characters and does not wrap, the trailing newline removed by the command substitution. It writes them into `.env` and prints only key names. A line of the read-back that contains `PG_DATABASE_PASSWORD=`, `ENCRYPTION_KEY=`, `CLOUDFLARE_API_KEY=`, `EMAIL_SMTP_PASSWORD=`, `RESEND_API_KEY=`, `STORAGE_S3_SECRET_ACCESS_KEY=`, `STORAGE_S3_ACCESS_KEY_ID=`, or `ADMIN_PASSWORD=` is withheld. Say that the line was withheld. Do not copy it.
 
-The install counts only when the job's class is `succeeded` and the text after `]: ` includes `marker-written`, `compose-sha:ok`, `install-files-written`, and an `env-keys:` line whose names are the keys and not the values. `compose-sha-mismatch` or `exists` is a failed install. Do not start the helper. Do not start containers. The directory may already exist. A new plan is gated before anything further is written. Do not delete the directory in this run. The marker is written before the download and before any secret. It first holds the whole lines `skill=deploy-twenty`, `release=v2.45.6`, `project=` followed by the install name, and `stage=created`. After the compose hash matches, the whole line `compose-sha256=` followed by that hash is appended. At the end `stage=created` is replaced with `stage=files-written`, by writing `INSTALL.new` and then `mv`. A counted install's marker holds `skill=deploy-twenty`, `release=v2.45.6`, `compose-sha256=bacd817fcef85abbcb6a603a6c093375313460037fae67d73d45c16f6d85bc7d`, `project=` followed by the install name, and `stage=files-written`, each as a whole line. A job that printed `marker-written` and did not print `install-files-written` left that directory. Name Job 3's partial branch when a later inspection shows the marker and no project container, volume, or network. Name the full removal only when that inspection also shows the `compose-sha256` line and a container, a volume, or the network.
+The install counts only when the job's class is `succeeded` and the text after `]: ` includes `marker-written`, `compose-sha:ok`, `install-files-written`, and an `env-keys:` line whose names are the keys and not the values. `compose-sha-mismatch` or `exists` is a failed install. Do not start the helper. Do not start containers. The directory may already exist. A new plan is gated before anything further is written. Do not delete the directory in this run. The marker is written before the download and before any secret. It first holds the whole lines `skill=deploy-twenty`, `release=v2.45.6`, `project=` followed by the install name, and `stage=created`. After the compose hash matches, the whole line `compose-sha256=` followed by that hash is appended. At the end `stage=created` is replaced with `stage=files-written`, by writing `INSTALL.new` and then `mv`. A counted install's marker holds `skill=deploy-twenty`, `release=v2.45.6`, `compose-sha256=bacd817fcef85abbcb6a603a6c093375313460037fae67d73d45c16f6d85bc7d`, `project=` followed by the install name, and `stage=files-written`, each as a whole line. A job that printed `marker-written` and did not print `install-files-written` left that directory. Name Job 3's partial branch when a later inspection shows the marker and no project container, no project volume, and no project network. Name the full removal only when that inspection also shows the `compose-sha256` line and a container, a volume, or a project network.
 
 The override maps into both server and worker every variable the shipped compose file does not set: `IS_MULTIWORKSPACE_ENABLED`, `DEFAULT_SUBDOMAIN`, `STORAGE_S3_ACCESS_KEY_ID`, `STORAGE_S3_SECRET_ACCESS_KEY`, `EMAIL_DRIVER`, `EMAIL_FROM_ADDRESS`, `EMAIL_FROM_NAME`, `EMAIL_SMTP_HOST`, `EMAIL_SMTP_PORT`, `EMAIL_SMTP_USER`, `EMAIL_SMTP_PASSWORD`, `EMAIL_SMTP_NAME`, `EMAILING_DOMAIN_DRIVER`, `RESEND_API_KEY`, `CLOUDFLARE_API_KEY`, `CLOUDFLARE_ZONE_ID`, and `CLOUDFLARE_DCV_DELEGATION_ID`. It pins the three images by digest, removes the server's published port, gives the server's health check a start period of 900 seconds, and joins the server to the proxy network under the aliases. `STORAGE_TYPE` is `s3`. `STORAGE_S3_REGION`, `STORAGE_S3_NAME`, and `STORAGE_S3_ENDPOINT` are in `.env`, which the shipped compose file already interpolates. `EMAIL_DRIVER` is `smtp`. `EMAIL_SMTP_NAME` is the base hostname. `IS_EMAIL_VERIFICATION_REQUIRED` stays at Twenty's default, off. `IS_IMAP_SMTP_CALDAV_ENABLED` stays at Twenty's default, on. The report says so. Google and Microsoft mail and sign-in stay off. `RESEND_WEBHOOK_SIGNING_SECRET` and `RESEND_DOMAIN_REGION` stay unset. Leaving the signing secret unset means signatures on `/webhooks/messaging/resend` are not verified. Leaving the region unset means Resend provisions a new emailing domain in its default region.
 
@@ -771,7 +785,7 @@ def load(alias,host):
  if not shap(cfg): return ("bad","shape-refused")
  want=obj(alias,host)
  for rt in cfg["apps"]["http"]["servers"]["workloads"]["routes"]:
-  if (rt["@id"]==want["@id"] or rt["match"][0]["host"][0]==host) and rt!=want: return ("bad","host-conflict")
+  if (rt["@id"]==want["@id"] or rt["match"][0]["host"][0].lower()==host.lower()) and rt!=want: return ("bad","host-conflict")
  return ("ok",cfg,et)
 def post(alias,host):
  got=load(alias,host)
@@ -827,21 +841,30 @@ except Exception:
 if pw.endswith("\n"): pw=pw[:-1]
 if not pw or any(ch.isspace() for ch in pw):
  print("admin-password:refused"); print("admin-password-file:kept"); raise SystemExit(55)
+gf=[None]
 def gql(host,q,v,tok,step):
  gate(step)
+ gf[0]=None
  try:
   c=http.client.HTTPConnection(srv,3000,timeout=8)
   hd={"Content-Type":"application/json","Host":host,"X-Forwarded-Host":host,"X-Forwarded-Proto":"https","Origin":"https://"+host}
   if tok: hd["Authorization"]="Bearer "+tok
   c.request("POST","/metadata",json.dumps({"query":q,"variables":v}).encode(),hd)
-  r=c.getresponse(); b=r.read(); code=r.status; c.close()
+ except socket.timeout:
+  print("graphql:fail:%s:timeout"%step); gf[0]="t"; return None
  except Exception:
-  print("graphql:connect-fail"); return None
+  print("graphql:fail:%s:connect"%step); gf[0]="c"; return None
+ try:
+  r=c.getresponse(); b=r.read(); code=r.status; c.close()
+ except socket.timeout:
+  print("graphql:fail:%s:timeout"%step); gf[0]="n"; return None
+ except Exception:
+  print("graphql:fail:%s:connect"%step); gf[0]="c"; return None
  if code!=200:
-  print("graphql:http:%s"%code); return None
+  print("graphql:fail:%s:http-%s"%(step,code)); gf[0]="h"; return None
  try: return json.loads(b.decode())
  except Exception:
-  print("graphql:not-json"); return None
+  print("graphql:fail:%s:not-json"%step); gf[0]="j"; return None
 FCEND
 echo writer-ok
 ```
@@ -892,13 +915,18 @@ except Exception:
  print("admin-password-file:kept"); raise SystemExit(56)
 owned["ok"]=True
 doc=gql(subh,T,{"t":login,"o":"https://"+subh},None,"token")
-access=box(doc,"getAuthTokensFromLoginToken") if doc else None
-act=False
-if isinstance(access,str) and access:
- doc=gql(subh,A,{"d":{"displayName":name}},access,"activate")
- act=bool(dig(doc,"activateWorkspace","activationStatus"))
+access=box(doc,"getAuthTokensFromLoginToken") if isinstance(doc,dict) else None
+if not (isinstance(access,str) and access):
+ login=""; print("activate:skipped:token"); note("activate:skipped:token"); finish()
+doc=gql(subh,A,{"d":{"displayName":name}},access,"activate")
+st=dig(doc,"activateWorkspace","activationStatus") if isinstance(doc,dict) else None
 login=access=""
-print("activate:ok" if act else "activate:fail"); note("activate:ok" if act else "activate:fail")
+if st:
+ print("activate:ok"); note("activate:ok")
+elif gf[0]=="n":
+ print("activate:unknown"); note("activate:unknown")
+elif isinstance(doc,dict) or gf[0] in ("h","j"):
+ print("activate:fail"); note("activate:fail")
 finish()
 FCEND
 python3 -c 'import ast,sys; ast.parse(open(sys.argv[1],encoding="utf-8").read())' "/opt/$install/first-contact.py"
@@ -941,15 +969,15 @@ The shell first changes to `/opt/<install>`, so Compose finds the install's proj
 
 The program records its start time. Before every network operation except the TLS probe, it stops with `deadline:<step>` when more than 35 seconds have passed. The step is `signup`, `signin`, `workspace`, `token`, `activate`, or `route`. Every socket timeout is at most 8 seconds. An operation that starts just before 35 seconds can run 8 seconds more, so with about 21 seconds of healthz loop a slow run can pass the router's 60 second limit and be killed. A kill before `workspace:ok` leaves no route and nothing public. A kill after it leaves an owned install, and the later read classifies it from the state file.
 
-The program writes `/opt/<install>/first-contact.state`, mode 600. The file holds no secret. It appends one line and flushes that line before it continues. A `full` run that gets past the address check appends `start`, then `workspace:ok`, `password-file:removed`, `activate:ok` or `activate:fail`, `route:<alias>:<status>` for each route it settles, and `done`. `done` is written after the route lines and before the TLS probe, so a probe that is killed does not drop a finished route write. Every run, `full` or `routes-only`, begins its lines with `start`, and the file keeps every run's lines, so a route line may be an earlier run's.
+The program writes `/opt/<install>/first-contact.state`, mode 600. The file holds no secret. It appends one line and flushes that line before it continues. A `full` run that gets past the address check appends `start`, then `workspace:ok`, `password-file:removed`, an activation line when it records one, `route:<alias>:<status>` for each route it settles, and `done`. The activation line is `activate:ok`, `activate:fail`, `activate:unknown`, or `activate:skipped:token`. `done` is written after the route lines and before the TLS probe, so a probe that is killed does not drop a finished route write. Every run, `full` or `routes-only`, begins its lines with `start`, and the file keeps every run's lines, so a route line may be an earlier run's.
 
 In `full` mode the program refuses `TWENTY_SERVER` unless it is a private IPv4 address in `10.0.0.0/8`, `172.16.0.0/12`, or `192.168.0.0/16`, and no octet has a leading zero. A refusal prints `server-address:refused`, writes no state line, posts no route, and exits nonzero. An accepted address is the server container on the install's Docker network `<install>-proxy`, which is an ordinary bridge and is reachable from the host. The program calls that address with plain HTTP on port 3000. Every request sets `Host` and `X-Forwarded-Host` to the hostname it stands for, `X-Forwarded-Proto` to `https`, and `Origin` to `https://` plus that hostname. `signUp`, `signIn`, and `signUpInNewWorkspace` use `app.<base>`. `getAuthTokensFromLoginToken` and `activateWorkspace` use `<sub>.<base>`. Twenty v2.45.6 trusts those forwarded headers when the peer is in the `TRUST_PROXY` default `loopback, linklocal, uniquelocal`, which covers this bridge. A call that issues a session cookie is allowed only when `Origin` equals the request's own origin. This path is unproved on the live install. A refusal fails before any route exists.
 
-GraphQL is `POST /metadata`. The documents are `signUp`, and `signIn` only when the error message is exactly `User already exists`, then `signUpInNewWorkspace`, then `getAuthTokensFromLoginToken`, then `activateWorkspace`. No token, no password, and no other error message is printed. Any other error is `signup:fail:withheld` or `signin:fail`. The password file stays. No route has been posted.
+GraphQL is `POST /metadata`. The documents are `signUp`, and `signIn` only when the error message is exactly `User already exists`, then `signUpInNewWorkspace`, then `getAuthTokensFromLoginToken`, then `activateWorkspace`. No token, no password, and no other error message is printed. A failed step prints `graphql:fail:<step>:<connect|timeout|http-<code>|not-json>`. The step is the one the helper was called with. The line has no message text and no token. Any other error is `signup:fail:withheld` or `signin:fail`. The password file stays. No route has been posted.
 
-The program posts no route until it has printed `workspace:ok` and removed the admin password file. It then records activation. `activate:ok` means the workspace was activated. `activate:fail` means the workspace exists and activation did not finish. Either way it goes on to the routes when the deadline has not stopped it. A deadline during activation prints `deadline:activate` and `owned:routes-incomplete`, posts no route, and exits nonzero. `routes-only` does not retry activation.
+The program posts no route until it has printed `workspace:ok` and removed the admin password file. It then records activation. `activate:ok` means the workspace was activated. `activate:fail` means an answer arrived without `activationStatus`. `activate:unknown` means the activate request was sent and no answer came within the 8 second cap. `activate:skipped:token` means the token step failed, so the activate request was not sent. `activate:unknown` and `activate:skipped:token` mean the workspace exists and its activation is not confirmed. The person's first sign-in either shows the workspace, when it was activated, or Twenty's create-workspace screen, where they finish it. Neither stops the run. A connect failure on the activate step, or a timeout before that request was sent, prints the graphql line and no activation line. The run still goes on to the routes when the deadline has not stopped it. A deadline during activation prints `deadline:activate` and `owned:routes-incomplete`, posts no route, and exits nonzero. `routes-only` does not retry activation.
 
-The route post is a fresh `GET /config/` for the `Etag`, the shape check, and a `POST` with `If-Match` set to that `Etag`. That same read is refused with `route:<alias>:host-conflict` when any route already in it has this route's `@id` or routes this hostname and is not exactly the generated object, so a route another writer added cannot keep this hostname's traffic while this call reports success. The app route is first, then the workspace route. The body is `{"@id":"workload-<alias>","match":[{"host":["<hostname>"]}],"handle":[{"handler":"reverse_proxy","upstreams":[{"dial":"<alias>:3000"}]}],"terminal":true}`. A post that fails after ownership prints `route:<alias>:<status>` and `owned:routes-incomplete` and exits nonzero. It removes nothing. The program never deletes a route.
+The route post is a fresh `GET /config/` for the `Etag`, the shape check, and a `POST` with `If-Match` set to that `Etag`. That same read is refused with `route:<alias>:host-conflict` when any route already in it has this route's `@id` or routes this hostname and is not exactly the generated object, so a route another writer added cannot keep this hostname's traffic while this call reports success. The hostname comparison lowercases both sides. The app route is first, then the workspace route. The body is `{"@id":"workload-<alias>","match":[{"host":["<hostname>"]}],"handle":[{"handler":"reverse_proxy","upstreams":[{"dial":"<alias>:3000"}]}],"terminal":true}`. A post that fails after ownership prints `route:<alias>:<status>` and `owned:routes-incomplete` and exits nonzero. It removes nothing. The program never deletes a route.
 
 After the route lines the program appends `done` and probes TLS for `app.<base>`. The probe is one verified handshake to the source address on port 443, SNI `app.<base>`, with `ssl.create_default_context()`. Its socket timeout is the time left under the 35 seconds, and at most 8 seconds. It prints `tls:ready` or `tls:pending`. It does not print the certificate. It does not change the outcome, and it does not open a socket when no time is left. Certificate issuance is checked later by the outside checks.
 
@@ -960,7 +988,7 @@ What did the call answer? Take the first match.
 - The outcome is `uncertain`, `timeout`, `killed`, or `request_timeout`, or `status` is `vendor_error`, or the answer carries no `machine`. Do not classify the call from partial output. Do not send the call again. One later read, no sooner than 70 seconds after the call was sent. The 70 seconds cover the router's 60 second limit, the 5 second kill grace, and a margin. Then ask what the later read showed.
 - The outcome is `ok`, `truncated`, or `remote_failure`, the answer names this identifier, and `healthz:200` was not printed. The program did not start. No route was posted. Nothing is public. Stop. A new plan is gated before another call.
 - The mode was `routes-only`, the outcome is one of those three, the answer names this identifier, and the output contains `route:<app alias>:200` and `route:<workspace alias>:200`. It contains no `signup:` line, no `owned:routes-incomplete`, no `deadline:`, and no `program:fail`. The missing routes are in place. Do not send the call again. Continue to the base route.
-- The outcome is one of those three, the answer names this identifier, and the output contains `workspace:ok`, `admin-password-file:removed`, `route:<app alias>:200`, and `route:<workspace alias>:200`. It does not contain `owned:routes-incomplete`, `deadline:`, or `program:fail`. The workspace exists and both routes are in place. `activate:ok` means it was activated. `activate:fail` means the workspace exists and activation did not finish. `tls:ready` and `tls:pending` do not change this. Do not send the call again. Continue to the base route.
+- The outcome is one of those three, the answer names this identifier, and the output contains `workspace:ok`, `admin-password-file:removed`, `route:<app alias>:200`, and `route:<workspace alias>:200`. It does not contain `owned:routes-incomplete`, `deadline:`, or `program:fail`. The workspace exists and both routes are in place. `activate:ok` means it was activated. `activate:fail` means an answer arrived without `activationStatus`. `activate:unknown` and `activate:skipped:token` mean the workspace exists, its activation is not confirmed, and the person's first sign-in either shows the workspace, when it was activated, or Twenty's create-workspace screen, where they finish it. Neither stops the run. No activation line means the activation is not confirmed. `tls:ready` and `tls:pending` do not change this. Do not send the call again. Continue to the base route.
 - The output contains `owned:routes-incomplete`. The install is owned. A `routes-only` plan is gated again. Do not send it in this run. Do not remove a route. Removing the install is Job 3.
 - The output contains `workspace:ok` and `admin-password-file:kept`. The workspace exists. The password file stays. No route was posted. Stop. A new plan is gated before another call. `routes-only` is not that plan while the password file is present.
 - The output contains `server-address:refused` or `routes-only:refused`. No route was posted. A refused address writes no state line. Stop. A new plan is gated before another call.
@@ -992,7 +1020,7 @@ The pattern is `/opt/<install>/first-contact[.]py`. The brackets keep the read's
 - `state:absent`. The program never started. Nothing is public. Stop. A new plan is gated before another call.
 - The state has `start` and does not have `workspace:ok`. The program failed before ownership. Nothing is public. The password file stays. Stop. A new plan is gated before another call.
 - The state has `workspace:ok`. The install is owned. Judge the routes from the config this read printed, never from route lines in the state, which may be an earlier run's. Report the lines after the last `start`, which say what the last attempt did.
-  - The config read succeeded and holds both exact generated route objects, the app route for `app.<base>` with the app alias and the workspace route for `<sub>.<base>` with the workspace alias. The routes are in place. `activate:ok` in the state means the workspace was activated. No such line means activation did not finish. Continue to the base route.
+  - The config read succeeded and holds both exact generated route objects, the app route for `app.<base>` with the app alias and the workspace route for `<sub>.<base>` with the workspace alias. The routes are in place. `activate:ok` in the state means the workspace was activated. `activate:fail` means an answer arrived without `activationStatus`. `activate:unknown` and `activate:skipped:token` mean the workspace exists and its activation is not confirmed. The person's first sign-in either shows the workspace, when it was activated, or Twenty's create-workspace screen, where they finish it. Neither stops the run. No activation line means the activation is not confirmed. Continue to the base route.
   - Anything else: a route is missing, a route for one of these hostnames is not the generated object, or the config was not read. When the read printed `password-file:absent`, `routes-only` is the next plan, gated again. When the password file is present, stop for a new plan. `routes-only` is not that plan. Do not post from this run. Do not remove a route.
 - Any other state text. Stop. Report the lines. Do not remove a route. Removing the install is Job 3.
 
@@ -1062,7 +1090,7 @@ The map, the health, the role, the inspection, the token, the loaded-job, the Ca
 
 Adding. Read the aliases line from the inspection. It is one line. The names inside the brackets, split on commas, are the current aliases. The new alias is not already in that list, and the hostname is not already present. When either is present, stop. Do not post a second route. When the list cannot be read, stop.
 
-The new list is the current names plus the new alias, in that order. One `vm.command.run`. `argv` is `/bin/sh`, `-c`, the script, `sh`, the install name, the server container id, the proxy network id, and then each alias as its own operand. The server id is the container whose service label is `server` and whose project label is the install name. The network id is the id from the network section whose project label is the install name. A missing id stops the run. `<script>` is this text and no other:
+The new list is the current names plus the new alias, in that order. One `vm.command.run`. `argv` is `/bin/sh`, `-c`, the script, `sh`, the install name, the server container id, the proxy network id, and then each alias as its own operand. The server id is the container whose service label is `server` and whose project label is the install name. The network id is the id on the `${install}-proxy` inspect line in the project-network section, and that line's project label is the install name. A missing id stops the run. `<script>` is this text and no other:
 
 ```
 set -eu
@@ -1132,7 +1160,7 @@ A failed route POST after a successful add leaves the alias without a route. A f
 
 ### Has the person confirmed the removal?
 
-Ask on Job 3, before the gate and before any removal call, the partial branch included. The full removal destroys every organisation's data on the install: the database volume, the local volume, and the directory. The partial branch removes the directory alone. There is no container, no volume, no network, and no route.
+Ask on Job 3, before the gate and before any removal call, the partial branch included. The full removal destroys every organisation's data on the install: the database volume, the local volume, and the directory. The partial branch removes the directory alone. There is no container, no volume, no project network, and no route.
 
 - The person's words name the install and say to remove it. Record that confirmation in the plan. Continue to the gate.
 - The words do not name the install, or they do not say to remove it. Ask once, naming the install. No answer, or an answer that does not name it: stop. Send nothing.
@@ -1172,7 +1200,7 @@ echo directory-removed
 
 The partial removal counts only when the job's class is `succeeded` and the text after `]: ` includes `identities-match` and `directory-removed`, in that order, and a closing re-inspection shows the directory absent. `changed` requires both. A job that exits after `identities-match` and before `directory-removed` is not run again. Re-read. A new plan is gated before any further delete.
 
-The full removal applies when the marker question named it. Read identities before the gate, with one read. `argv` is `/bin/sh`, `-c`, the script, `sh`, and the install name. The person is told it is a read. `<script>` is this text and no other:
+The full removal applies when the marker question named the full branch. Read identities before the gate, with one read. `argv` is `/bin/sh`, `-c`, the script, `sh`, and the install name. The person is told it is a read. `<script>` is this text and no other:
 
 ```
 export LC_ALL=C
@@ -1191,8 +1219,15 @@ else
   printf '%s\n' volumes-none
 fi
 printf '%s\n' '--- network ---'
-docker network inspect --format '{{.Id}} {{index .Labels "com.docker.compose.project"}}' -- "${install}-proxy"
-printf '%s\n' "network-exit:$?"
+nids=$(docker network ls --no-trunc --filter "label=com.docker.compose.project=$install" --format '{{.ID}}')
+printf '%s\n' "network-ls-exit:$?"
+if [ -n "$nids" ]; then
+  # shellcheck disable=SC2086
+  docker network inspect --format '{{.Id}} {{.Name}} {{index .Labels "com.docker.compose.project"}}' $nids
+  printf '%s\n' "network-inspect-exit:$?"
+else
+  printf '%s\n' networks-none
+fi
 printf '%s\n' '--- caddy ---'
 docker inspect --format '{{.Id}} {{index .Config.Labels "deploy-workload"}}' caddy
 printf '%s\n' "caddy-exit:$?"
@@ -1210,17 +1245,19 @@ if [ -f "/opt/$install/compose.override.yml" ]; then awk '/^[[:space:]]*aliases:
 exit 0
 ```
 
-Also read the config with the config script, and keep that body as the before-state. Every route whose `@id` is `workload-` plus an alias from the aliases line is this install's route. Any such route that fails the removal check stops the run. Remove nothing.
+Also read the config with the config script, and keep that body as the before-state. Every route whose `@id` is `workload-` plus an alias from the aliases line is this install's route. The route deletes are Job 4's route delete, in the order the aliases line lists them. A route that fails that delete stops the run. Remove nothing further.
 
-The plan removes, in order: each of this install's routes, then the saved-config and live-config comparison, then one removal job for the containers, the network, the volumes, and the directory. Images are not in the plan. `docker compose down` is not sent. A volume named `caddy-config` or `caddy-data` is refused by name. Those volumes are Caddy's, and the certificates in `caddy-data` stay.
+The network section lists every network whose label `com.docker.compose.project` is the install. Each line is the full id, the name, and the label. `networks-none` with `network-ls-exit` 0 is an empty set. `network-ls-exit` or `network-inspect-exit` other than 0 means the networks were not read. Compose creates `<install>_default` and `<install>-proxy`. Both carry that label. The operand is the full id, not the name.
 
-The route deletes are the Job 2 DELETE, one alias at a time, each with its own removal check and its own saved-config read. After the last delete, read the config script once more. The live config and the saved config have to parse to the same object, and that object is the before-state with only this install's route objects removed. Every other route stays. A difference stops the run before the removal job. Report the difference. Do not delete a container. Routes already deleted stay deleted.
+The plan removes, in order: each of this install's routes, then the saved-config and live-config comparison, then one removal job for the containers, the volumes, the project networks, and the directory, in that order. Images are not in the plan. `docker compose down` is not sent. A volume named `caddy-config` or `caddy-data` is refused by name. Those volumes are Caddy's, and the certificates in `caddy-data` stay.
 
-The removal job is sent only when the directory, the containers, the network, and the volumes were all read as this install's and still match on a fresh identity read taken after the config comparison. If the set differs, something is already absent or was recreated. Stop. Do not delete. A new plan is gated again.
+After the last route delete, read the config script once more. The live config and the saved config have to parse to the same object, and that object is the before-state with only this install's route objects removed. Every other route stays. A difference stops the run before the removal job. Report the difference. Do not delete a container. Routes already deleted stay deleted.
 
-The operands are the install name, the device number, the inode, the network id, the Caddy container id, the container count, each full container id, the volume count, and then each volume as a pair: the volume name, then its `CreatedAt` as one operand. `CreatedAt` may contain spaces. It is one operand, never split. More than 56 operands stops the run. Do not choose which to omit.
+The removal job is sent only when a fresh identity read, taken after the config comparison, lists the directory and the containers, volumes, and project-labelled networks the operands name. A container count of 0 matches an empty container list. A volume count of 0 matches an empty volume list. An empty list on both sides is a match. The network count is the number of project-labelled networks in that read. The full branch has at least one. If a set differs, stop. Do not delete. A new plan is gated again.
 
-The job verifies every identity before it deletes anything. The marker checks require `skill=deploy-twenty`, `release=v2.45.6`, the `compose-sha256` line, and `project=` followed by the install name, each as a whole line. A `stage=` line may be present. Those checks do not reject it. A mismatch exits before a delete. Enumeration that fails is a failure, not an absence. The directory is removed only when its device and inode still match, `realpath` is `/opt/<install>`, and nothing is mounted on or under it. The removal uses `rm -rf --one-file-system`.
+The operands, in order, are the install name, the device number, the inode, the network count, each full network id, the Caddy container id, the container count, each full container id, the volume count, and then each volume as a pair: the volume name, then its `CreatedAt` as one operand. `CreatedAt` may contain spaces. It is one operand, never split. Seven operands are fixed: the install name, the device, the inode, the network count, the Caddy container id, the container count, and the volume count. Each network adds one, each container adds one, and each volume adds two. The total is at most 56, so the networks, the containers, and twice the volumes add up to at most 49. More than 56 operands stops the run. Do not choose which to omit.
+
+The job verifies every identity before it deletes anything. The marker checks require `skill=deploy-twenty`, `release=v2.45.6`, the `compose-sha256` line, and `project=` followed by the install name, each as a whole line. A `stage=` line may be present. Those checks do not reject it. A mismatch exits before a delete. Enumeration that fails is a failure, not an absence. A count of 0 writes no operand for that set and reads no further operand for it, so `set -u` does not see an unset parameter. The enumerated list and the operand list are compared as sorted text. An empty list on both sides compares equal: the comparison returns success when both texts are empty, before `test` sees them, so `set -eu` does not treat that equality as a failed command. Each container's project label equals the install. Each volume's inspect line matches its name, the install, its `CreatedAt`, and the driver `local`. Each project network's label equals the install. It then removes the containers, then the volumes, then the project networks, then the directory. A count of 0 still prints that step's marker. No `docker rm`, `docker volume rm`, or `docker network rm` runs before `identities-match`. For each project network it disconnects Caddy when Caddy is attached to that network, then it removes the network. The directory is removed only when its device and inode still match, `realpath` is `/opt/<install>`, and nothing is mounted on or under it. The removal uses `rm -rf --one-file-system`.
 
 Write the script verbatim. Run `start` with `--purpose twenty-remove`, `--limit 600`, `--token` the token the latest inspection read, `--script` that file, and those operands. Then the job question.
 
@@ -1229,13 +1266,17 @@ Write the script verbatim. Run `start` with `--purpose twenty-remove`, `--limit 
 ```
 set -eu
 export LC_ALL=C
+must() {
+  if [ -z "$1" ] && [ -z "$2" ]; then
+    return 0
+  fi
+  [ "$1" = "$2" ] || { echo set-mismatch; exit 32; }
+}
 install=$1
 dev=$2
 ino=$3
-net=$4
-caddy=$5
-nc=$6
-shift 6
+nn=$4
+shift 4
 d=/opt/$install
 mark=$(cat "$d/INSTALL")
 printf '%s\n' "$mark" | grep -qx 'skill=deploy-twenty' || { echo marker-mismatch; exit 30; }
@@ -1246,6 +1287,16 @@ test "$(realpath -e "$d")" = "$d"
 test "$(stat -c '%d %i' "$d")" = "$dev $ino"
 m=$(awk -v o="$d" '$2 == o || index($2, o "/") == 1 { print }' /proc/mounts)
 test -z "$m"
+: > "$d/net.check"
+i=0
+while [ "$i" -lt "$nn" ]; do
+  printf '%s\n' "$1" >> "$d/net.check"
+  shift
+  i=$((i + 1))
+done
+caddy=$1
+nc=$2
+shift 2
 : > "$d/id.check"
 i=0
 while [ "$i" -lt "$nc" ]; do
@@ -1262,42 +1313,95 @@ while [ "$i" -lt "$nv" ]; do
   shift 2
   i=$((i + 1))
 done
-got=$(docker ps -aq --no-trunc --filter "label=com.docker.compose.project=$install" | sort)
+ids=$(docker ps -aq --no-trunc --filter "label=com.docker.compose.project=$install") || { echo enumerate-failed; exit 1; }
+got=$(printf '%s\n' "$ids" | sort)
 want=$(sort "$d/id.check")
-test "$got" = "$want"
+must "$got" "$want"
 while IFS= read -r id; do
   test "$(docker inspect --format '{{index .Config.Labels "com.docker.compose.project"}}' "$id")" = "$install"
 done < "$d/id.check"
-test "$(docker network inspect --format '{{index .Labels "com.docker.compose.project"}}' "$net")" = "$install"
+vnames=$(docker volume ls -q --filter "label=com.docker.compose.project=$install") || { echo enumerate-failed; exit 1; }
+vgot=$(printf '%s\n' "$vnames" | sort)
+vwant=$(cut -f1 "$d/vol.check" | sort)
+must "$vgot" "$vwant"
 while IFS=$(printf '\t') read -r name created; do
   case "$name" in caddy-config|caddy-data|'') echo volume-refused; exit 31 ;; esac
   line=$(docker volume inspect --format '{{.Name}} {{index .Labels "com.docker.compose.project"}} {{.CreatedAt}} {{.Driver}}' "$name")
   test "$line" = "$name $install $created local"
 done < "$d/vol.check"
-vgot=$(docker volume ls -q --filter "label=com.docker.compose.project=$install" | sort)
-vwant=$(cut -f1 "$d/vol.check" | sort)
-test "$vgot" = "$vwant"
+nids=$(docker network ls --no-trunc --filter "label=com.docker.compose.project=$install" --format '{{.ID}}') || { echo enumerate-failed; exit 1; }
+ngot=$(printf '%s\n' "$nids" | sort)
+nwant=$(sort "$d/net.check")
+must "$ngot" "$nwant"
+while IFS= read -r id; do
+  test "$(docker network inspect --format '{{index .Labels "com.docker.compose.project"}}' "$id")" = "$install"
+done < "$d/net.check"
 echo identities-match
 while IFS= read -r id; do
   docker rm -f "$id" >/dev/null
 done < "$d/id.check"
 echo containers-removed
-if docker inspect --format '{{json .NetworkSettings.Networks}}' "$caddy" | grep -q "$net"; then
-  docker network disconnect "$net" "$caddy"
-fi
-docker network rm "$net" >/dev/null
-echo network-removed
 while IFS=$(printf '\t') read -r name created; do
   docker volume rm "$name" >/dev/null
 done < "$d/vol.check"
 echo volumes-removed
+while IFS= read -r id; do
+  if docker inspect --format '{{json .NetworkSettings.Networks}}' "$caddy" | grep -q "$id"; then
+    docker network disconnect "$id" "$caddy"
+  fi
+  docker network rm "$id" >/dev/null
+done < "$d/net.check"
+echo network-removed
 test "$(stat -c '%d %i' "$d")" = "$dev $ino"
 rm -rf --one-file-system "$d"
 test ! -e "$d"
 echo directory-removed
 ```
 
-The full removal counts only when the job's class is `succeeded` and the text after `]: ` includes `identities-match`, `containers-removed`, `network-removed`, `volumes-removed`, and `directory-removed`, in that order, and a closing re-inspection shows the directory absent, the project containers absent, the project volumes absent, the project network absent, and the live config and the saved config still equal to the post-route before-state. `changed` requires all of that. A job that exits after `identities-match` and before `directory-removed` is not run again. Re-read. A new plan is gated before any further delete.
+The full removal counts only when the job's class is `succeeded` and the text after `]: ` includes `identities-match`, `containers-removed`, `volumes-removed`, `network-removed`, and `directory-removed`, in that order, and a closing re-inspection shows the directory absent, the project containers absent, the project volumes absent, the project networks absent, and the live config and the saved config still equal to the post-route before-state. The project networks are absent when the project-networks section is empty and the `${install}-proxy` inspect contains `not found`, compared without regard to case. `changed` requires all of that. A job that exits after `identities-match` and before `directory-removed` is not run again. Ask where a stopped removal stopped, after the job question. The job is not re-sent.
+
+### Has the person confirmed taking the install offline, or bringing it back online?
+
+Ask on Job 4, before the gate and before any route call.
+
+- The change is offline. The person's words name the install and say to take it offline. Record that confirmation in the plan. Continue to the gate.
+- The change is online. The person's words name the install and say to bring it online. Record that confirmation in the plan. Continue to the gate.
+- The words do not name the install, or they do not say the change. Ask once, naming the install and the change. No answer, or an answer that does not name them: stop. Send nothing.
+
+### Job 4. Take an install offline
+
+Keeping the data. The marker question has said this is a complete install this skill made. The confirmation is recorded. The gate runs before any change call. This job changes no alias, no container, no network, no volume, and no file. It stops there by design.
+
+The aliases are the names inside the brackets on the aliases line, split on commas. Every step below uses that order, left to right.
+
+Offline. The config read is the config script. Its config body is kept as the before-state. Every route whose `@id` is `workload-` plus one of those aliases is this install's route. When that read shows none of those objects in the live config and none in the saved config, there is nothing to change. Write nothing. Take no gate.
+
+The route delete, for one alias. GET `http://localhost/id/workload-<alias>`. The argv is the Job 2 GET. The person is told the GET is a read. The removal check is the Job 2 removal check, for this alias and for the hostname that the before-state's route with `@id` `workload-<alias>` carries. A GET that returns a route the before-state does not hold fails the check. Take the first match.
+
+- The check holds. DELETE `http://localhost/id/workload-<alias>` with `If-Match` set to that GET's `Etag`. The argv is the Job 2 DELETE.
+- The status line is `404`, or the body says the object id is unknown. The route is already absent live. Do not DELETE.
+- The check does not hold. Stop. Remove nothing further. Routes already deleted stay deleted.
+- The route was not read. Stop. Remove nothing further.
+
+What did the DELETE answer, when one was sent?
+
+- The status line is `200` or `404`. Read the saved config, the Job 2 saved-config read. The route is gone only when that answer names this identifier and the output parses as JSON and no object in it has `@id` equal to `workload-<alias>`. Otherwise stop. Do not continue to the next alias.
+- The status line is `412`. The call changed nothing. Stop. Do not continue to the next alias.
+- Any other answer. Stop. Do not continue to the next alias.
+
+When the GET was already `404`, do that same saved-config read and continue only when the route is absent from it. Do this for each alias, in the stated order.
+
+After the last alias, read the config script once more. The live config and the saved config have to parse to the same object, and that object is the before-state with only this install's route objects removed. Every other route stays. A difference stops the run. Report the difference. Do not delete a container, a network, a volume, an alias, or a file.
+
+Then re-inspect with the inspection script. The outside checks are one curl each, the curl in the outside-checks question, for `<base>` and for `app.<base>`, with no retry and no `-k`. A Twenty answer is exit 0 and the code `200`. The requested state is that neither host gives a Twenty answer, this install's routes are absent from the live config and from the saved config, and the aliases line, the project containers, the project volumes, the project networks, and the directory are unchanged from the inspection.
+
+The way back is bringing the install back online, named in the plan and not sent in this run.
+
+Bringing an install back online. The recorded route objects are the ones the offline plan kept in its before-state, which the offline report copies. A run that has neither stops. It does not rebuild a route from the alias list, which holds no hostname. The route objects are the ones in that body whose `@id` is `workload-` plus an alias from the aliases line, in the stated order. When every one of those objects is already present and is exactly the recorded object, there is nothing to change. Write nothing. Take no gate.
+
+For each such object: a fresh config read, the config script. The shape holds, and that `@id` and that object's hostname are absent. Then one POST of exactly that recorded object, in the base route's POST form, with `If-Match` set to the fresh config `Etag`. A `412` is handled as the base route handles it. Any other answer stops. Do not POST the rest. A route already posted stays. This posts every such label, `base` and `app` included. It does not touch an alias.
+
+After the last POST, re-inspect. The requested state is each recorded route present and exactly the recorded object, and the aliases, containers, networks, volumes, and directory unchanged. The outside checks are the outside-checks question for `<base>` and for `app.<base>`.
 
 ### What did the job do?
 
@@ -1339,6 +1443,18 @@ Release only after a poll whose class was `succeeded`, `signal`, `failed-exit`, 
 
 A job's success is not the change's success. The re-inspection decides `changed`, `unchanged`, or failed.
 
+### Where did a stopped removal stop?
+
+Ask when a Job 3 removal job did not count. Ask it after the job question. Do not ask it when the removal counted. Judge from a fresh identity read, the identity-read script, never from the progress markers alone. A deletion can finish before its marker prints. The read is one `vm.command.run`, and the person is told it is a read. A container list, a volume list, or a project-network list counts only when the read's exit for it is 0 and every label in it equals the install. An empty list is an empty set, not a failed read. A failed read matches none of the branches below. Take the first match.
+
+- The directory is present, and the container list, the volume list, and the project-network list are each non-empty. A new full plan, with the counts and the ids the fresh read gives. The job is not re-sent.
+- The container list is empty, the directory is present, and the volume list and the project-network list are each non-empty. A new full plan with container count 0. The job is not re-sent.
+- The container list and the volume list are empty, the directory is present, and the project-network list is non-empty. A new full plan with container count 0 and volume count 0. The job is not re-sent.
+- The directory and its marker are present, and the container list, the volume list, and the project-network list are each empty. The partial branch. The job is not re-sent.
+- Anything else. Stop. Report what the fresh read showed. Send nothing.
+
+Each continuation is a new plan, gated again. The job is never re-sent.
+
 ### What did a direct call answer?
 
 This question is for a `vm.command.run` that is not a job start, poll, read-back, journal, or release. Send the planned call once. The approval question applies. Do not repeat a change call on a failure or an unclear answer. Do not send the way back because a call failed. The first-contact call has its own outcomes, and those win where they differ.
@@ -1352,13 +1468,13 @@ This question is for a `vm.command.run` that is not a job start, poll, read-back
 
 ### What did the re-inspection show?
 
-After a job, re-inspect when the job question says to. After the base route, after Job 2's last change, or after either of Job 3's removal jobs, inspect again with the same inspection script. The approval question applies, and the person is told it is a read. A job that exited 0 is not yet `changed`.
+After a job, re-inspect when the job question says to. After the base route, after Job 2's last change, after either of Job 3's removal jobs, or after Job 4's last route change, inspect again with the same inspection script. The approval question applies, and the person is told it is a read. A job that exited 0 is not yet `changed`.
 
 Job 1's requested state: the four containers match the start checks, the app route and the base route are present and are exactly the generated object, `workspace:ok` was printed or the password file is absent after a call whose outcome was unknown, and both outside checks returned `200` over verified TLS. A `-k` answer is served and not verified, and it is not this state.
 
 Job 2 add's requested state: the new route is present and is exactly the generated object, and the aliases line contains the new alias. Job 2 remove's requested state: that route is absent from the live config and from the saved config, and the aliases line does not contain that alias.
 
-Job 3's full removal requested state is the one its question states. Job 3's partial branch requested state is the directory absent.
+Job 3's full removal requested state is the one its question states. Job 3's partial branch requested state is the directory absent. Job 4 offline's requested state is the one its question states. Job 4 online's requested state is the one its question states.
 
 - The re-inspection is incomplete, `truncated`, absent, or not a state. Do not claim `changed` or `unchanged`. Report failed, with the change call's outcome and the re-inspection's outcome. Do not repeat the change.
 - The requested state holds, and it did not hold in the before-state. `changed`.
@@ -1371,16 +1487,16 @@ One report. For each part: what was inspected, what was planned, the gate's verd
 
 The URL is `https://<base>/` and `https://app.<base>/`. The report says whether each `/healthz` answered and whether the certificate verified. It names the image digests. It does not name the source address as a field.
 
-The report says what is configured and what is not. Team email is the install's one address over SMTP, to members, not to contacts. Email to contacts is each person's own mailbox, left enabled for IMAP, SMTP and CalDAV, and not configured. Branded or campaign email is the driver that was set, Resend or LOG. Google and Microsoft stay off. Email verification stays off. The webhook signing secret and the Resend region stay unset, with the cost of leaving each unset. When `<cloudflare_saas>` is `none`, no workspace can take its own domain. When it is set, the report says the Custom Hostnames setting and the fallback origin are the person's, and that a DNS-only CNAME inside that zone to the fallback origin is served directly by Caddy, with Caddy's certificate, and Cloudflare carries none of that name's traffic.
+The report says what is configured and what is not. Team email is the install's one address over SMTP, to members, not to contacts. Email to contacts is each person's own mailbox, left enabled for IMAP, SMTP and CalDAV, and not configured. Branded or campaign email is the driver that was set, Resend or LOG. Email channels and branded email from a workspace's own domain are not set up, because this skill does not set an inbound email domain. Job 4 offline reports that the routes were removed and the data was kept, and copies this install's route objects from the before-state verbatim, since bringing it back online posts exactly those. Job 4 online reports that the recorded routes were posted again. Google and Microsoft stay off. Email verification stays off. The webhook signing secret and the Resend region stay unset, with the cost of leaving each unset. When `<cloudflare_saas>` is `none`, no workspace can take its own domain. When it is set, the report says the Custom Hostnames setting and the fallback origin are the person's, and that a DNS-only CNAME inside that zone to the fallback origin is served directly by Caddy, with Caddy's certificate, and Cloudflare carries none of that name's traffic.
 
-The report says no real contact goes onto the install until a backup has been restored with the same encryption key, and that backing up an install or restoring one is missing. It names every gap that applies: a release other than v2.45.6, a machine without Docker or without Caddy in the shape `skills/Deploy Workload/` runs it, the backup, Google and Microsoft mailboxes, the Cloudflare for SaaS setting when it was not confirmed, and creating the bucket, the tokens and the sending accounts. It names the hand-off for DNS, for a package, for workspace setup beyond the first workspace, and for a security review.
+The report says no real contact goes onto the install until a backup has been restored with the same encryption key, and that backing up an install or restoring one is missing. It names every gap that applies: a release other than v2.45.6, a machine without Docker or without Caddy in the shape `skills/Deploy Workload/` runs it, the backup, Google and Microsoft mailboxes, the Cloudflare for SaaS setting when it was not confirmed, creating the bucket, the tokens and the sending accounts, and email channels and branded email from a workspace's own domain. It names the hand-off for DNS, for a package, for workspace setup beyond the first workspace, and for a security review.
 
 For each job, also: its unit name, its invocation ID and its limit, the last poll's state, the read-back lines the report may show and the line count shown, and the release outcome. A job not read as finished after six polls is reported in the state the last poll that was read showed, or as unknown when none was read.
 
 ## Pitfalls
 
 - **A glob written `/*/` in a script this skill sends.** A script carrying `/*` or `*/` can come back `vendor_error` HTTP 400 before it reaches the machine, because something on the connector's path reads that pair as a database-comment attack. Do not put that pair in a script. Do not read a repeated `vendor_error` on an unchanged script as the machine's answer. `uncertain` is not that measurement. It does not establish whether the call ran.
-- **The request is ambiguous.** More than one machine, more than one install, an install and a removal together, or a route change that does not name the install. Ask before any call.
+- **The request is ambiguous.** More than one machine, more than one install, an install and a removal together, an offline change together with a removal or a new install, or a route change that does not name the install. Ask before any call.
 - **A machine that is not on the map, or whose health is not `ok`.** Stop. Not on the map: point to `skills/Prepare VM/`. Not reachable: name the outcome the way `skills/VM Inventory/` does. Change nothing.
 - **The router host.** Stop before any change. Name the gap `skills/Deploy Workload/` declares for a workload on the router host, where Caddy has not been measured beside the router's own public origin.
 - **No Docker, or a Caddy that is not the shape `skills/Deploy Workload/` runs.** Stop. Name the gap for a machine with no Docker, or with no Caddy running in the shape `skills/Deploy Workload/` runs it. Do not install Docker and do not start Caddy.
@@ -1392,8 +1508,8 @@ For each job, also: its unit name, its invocation ID and its limit, the last pol
 - **A Deploy Workload workload given one of this install's alias names.** The aliases carry the install name as a prefix so they are not free workload names. A workload must not take one of them. `caddy` is not an install name and not an alias.
 - **A whole-config write.** This skill does not POST to `/config/`. A route POST, and its one retry after a `412`, carry `If-Match` set to the `Etag` from the same `GET /config/` whose body passed the shape check, not the routes path's `Etag`. A `412` means the config changed anywhere. Whenever the shape is checked, the config's top-level keys are exactly `apps`, `apps` holds exactly `http`, `http` holds exactly `servers`, and `servers` has exactly one key, `workloads`. Anything else stops the run. Every route is exactly the generated object. Any other route stops the run.
 - **A route added before the workspace exists.** The first-contact call creates the server admin and the first workspace on the install's Docker network before it posts a route. A failure before `workspace:ok` has posted nothing. Do not post either route in an earlier call. Do not remove the app route to recover. Removing the install is Job 3.
-- **A route, a container, or a volume removed that is not this install's.** Job 3 matches the marker, the project label, the full container id, the network id, the volume name and its `CreatedAt`, and the directory's device and inode. A name alone is not ownership. `docker compose down` is not sent. Images stay. `caddy-config` and `caddy-data` stay.
-- **A partial install left with secrets and no way back.** The install job writes the marker before any download or secret. A stop after the install job and before the start job is Job 3's partial branch: the directory alone, after the person names the install. The partial job checks the marker lines `skill=deploy-twenty`, `release=v2.45.6`, and `project=` with the install name, checks that `realpath` is `/opt/<install>`, that the path is a directory, that the device and inode match the inspection, and that no mount is on or under it, then removes that directory with `rm -rf --one-file-system`. It does not change a route, an image, a network, or a volume, and it does not read Caddy. A container, a volume, or a network read while the marker lacks `compose-sha256`, or an absent marker, stops the run. Name what was read. Change nothing.
+- **A route, a container, or a volume removed that is not this install's.** Job 3 matches the marker, the project label, the full container id, each full project-network id, the volume name and its `CreatedAt`, and the directory's device and inode. A name alone is not ownership. The removal order is containers, then volumes, then project networks, then the directory. A stopped removal is not re-sent. A fresh identity read chooses the continuation. `docker compose down` is not sent. Images stay. `caddy-config` and `caddy-data` stay.
+- **A partial install left with secrets and no way back.** The install job writes the marker before any download or secret. A stop after the install job and before the start job is Job 3's partial branch: the directory alone, after the person names the install. The partial job checks the marker lines `skill=deploy-twenty`, `release=v2.45.6`, and `project=` with the install name, checks that `realpath` is `/opt/<install>`, that the path is a directory, that the device and inode match the inspection, and that no mount is on or under it, then removes that directory with `rm -rf --one-file-system`. It does not change a route, an image, a network, or a volume, and it does not read Caddy. A container, a volume, or a project network read while the marker lacks `compose-sha256`, or an absent marker, stops the run. Name what was read. Change nothing.
 - **Caddy's saved config not read back before the data is deleted.** After the route deletes, the live config and the saved config have to equal the before-state with only this install's routes removed. A difference stops the run before the removal job.
 - **A second job started while one is loaded.** The second-run questions. A running job stops the run. A finished one is released and the run starts over from its inspection, once.
 - **A start sent again after `token-changed`, with no new inspection and no new gate.** Nothing was started. Inspect again and gate again before any start.
@@ -1417,7 +1533,8 @@ For each job, also: its unit name, its invocation ID and its limit, the last pol
 - The server published no port. The four containers matched the start checks before any route. A failed check added no route.
 - The first-contact call created the server admin and the first workspace before it posted a route, in one `vm.command.run`. No route was posted before `workspace:ok` and the password file was removed. The base route was a later call. An `uncertain` or `timeout` on that call was not retried, and no route was removed to recover.
 - Job 2 added an alias by reattaching the full list and then posting the route, or removed the route, confirmed the saved config, and then removed the alias. A half-finished pair was reported and not repaired in the same run.
-- Job 3's full removal ran only after the person confirmed by naming the install, and the report says the removal destroys every organisation's data on the install. It deleted only objects whose identity was read back, routes first, and it read Caddy's live and saved config back to the before-state with those routes removed, before it deleted data. Images stayed. Job 3's partial branch ran only after the person confirmed by naming the install. It removed the directory alone when the marker held `skill=deploy-twenty`, `release=v2.45.6`, and the project line, with or without `compose-sha256`, and the inspection showed no container, no volume, and no network. The job required the path `/opt/<install>`, a directory, the inspection's device and inode, and no mount on or under the directory. The re-inspection showed the directory absent. A project container, volume, or network with no `compose-sha256` line, or an absent marker, was named and left unchanged.
+- Job 3's full removal ran only after the person confirmed by naming the install, and the report says the removal destroys every organisation's data on the install. It deleted only objects whose identity was read back, routes first, and it read Caddy's live and saved config back to the before-state with those routes removed, before it deleted data. The removal order was containers, volumes, project networks, and the directory. A container count of 0 and a volume count of 0 were accepted when those sets were empty. `<install>_default` was removed with `<install>-proxy`. Images stayed. Job 3's partial branch ran only after the person confirmed by naming the install. It removed the directory alone when the marker held `skill=deploy-twenty`, `release=v2.45.6`, and the project line, with or without `compose-sha256`, and the inspection showed the directory and its marker alone, with no container, no volume, and no project network. The job required the path `/opt/<install>`, a directory, the inspection's device and inode, and no mount on or under the directory. The re-inspection showed the directory absent. A project container, volume, or network with no `compose-sha256` line, or an absent marker, was named and left unchanged. A stopped removal was not re-sent. Its continuation was a new plan from a fresh identity read.
+- Job 4 offline ran only after the person confirmed by naming the install and saying to take it offline. It removed only this install's routes and left every alias, container, network, volume, and file in place. The outside checks did not get a Twenty answer. Job 4 online ran only after the person confirmed by naming the install and saying to bring it online. It posted the route objects from the recorded before-state and no others.
 - The report names each check's answer, both URLs, what is configured and what is not, the three kinds of email, the base name's direct path when the zone applies, the no-real-contact rule, and every gap that applies.
 - Per job the report names the unit name, the invocation ID, the limit, the last poll's state, the read-back lines it may show, and the release outcome. A job was polled at most six times, each wait at most 10 seconds. A stuck job was not released.
 - DNS was handed to `experts/IT Expert/` in `wiser`, which sequences `skills/Zone Publisher/`. A package was handed to `skills/VM Configure/`. Workspace setup beyond the first workspace was not invented.

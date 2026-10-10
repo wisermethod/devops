@@ -14,4 +14,4 @@ Personas that carry a perspective, judge work through it, and sequence the skill
 
 | Expert | Description | Owns |
 |--------|-------------|------|
-| `CRM Expert/EXPERT.md` | Judge an organisation's CRM design and a contact import for whether the pipeline, objects, fields, roles and sign-in serve the decisions it makes and the people who maintain them, and whether the import stays clean, sourced and the organisation's own, and hand a machine, address, list or account question to the expert or skill that owns it | None: it owns no skill yet; it judges a CRM design and a contact import, and no skill here runs a workspace setup, an export or another platform |
+| `CRM Expert/EXPERT.md` | Judge an organisation's CRM design and a contact import for whether the pipeline, objects, fields, roles and sign-in serve the decisions it makes and the people who maintain them, and whether the import stays clean, sourced and the organisation's own, and hand a machine, address, list or account question to the expert or skill that owns it | `skills/Set Up Twenty Workspace/`; this expert's Jobs 2 and 3 are the gates that skill stops at, before configuration and before an import |

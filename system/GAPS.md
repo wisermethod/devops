@@ -4,7 +4,7 @@ What this plugin does not do, declared by the primitive that names it.
 
 A gap is a capability this root does not provide that a primitive's own body names as missing (`wiser/standards/primitives.md`). This file collects every declared `gaps` entry, by hand, and is corrected whenever a primitive's gaps change. It carries capability gaps only, and names what is missing, never where it went.
 
-Counted 2026-10-10: 43 gaps across 9 primitives. Bullet count: `grep -E '^- ' system/GAPS.md | wc -l` returns 43, and the same count derived from the primitives' own `gaps:` frontmatter returns 43.
+Counted 2026-10-10: 46 gaps across 10 primitives. Bullet count: `grep -E '^- ' system/GAPS.md | wc -l` returns 46, and the same count derived from the primitives' own `gaps:` frontmatter returns 46.
 
 ## Experts
 
@@ -16,7 +16,6 @@ Counted 2026-10-10: 43 gaps across 9 primitives. Bullet count: `grep -E '^- ' sy
 
 ### CRM Expert
 
-- setting up an organisation's Twenty workspace, its address, members, data model and first import, which this expert judges and no skill here runs yet
 - exporting an organisation's workspace or taking it off the install
 - setting up or changing a CRM platform other than Twenty
 
@@ -79,3 +78,10 @@ Counted 2026-10-10: 43 gaps across 9 primitives. Bullet count: `grep -E '^- ' sy
 - creating the buckets and the tokens, which is the person's with the vendor
 - scheduled backups of a second install on the same machine
 - a backup or restore whose archive the machine's available memory cannot hold, since the helper holds it whole
+
+### Set Up Twenty Workspace
+
+- connecting Google or Microsoft mailboxes, which needs an OAuth client and the provider's approval
+- taking an organisation off the install
+- exporting an organisation's workspace
+- a mail host on a private network, which needs the install's allow-list

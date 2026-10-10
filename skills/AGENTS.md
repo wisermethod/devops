@@ -16,4 +16,10 @@ Capabilities a user invokes by name for their output; `wiser/standards/primitive
 | `Deploy Twenty/SKILL.md` | Install Twenty CRM v2.45.6 on one machine a person's router maps, behind the Caddy that machine already runs, or add or remove one hostname route for an install this skill made, or remove that install, or take that install offline or bring it back online, and report the URL, what answered, and what is not configured. | DevOps Expert |
 | `Back Up Twenty/SKILL.md` | Set up scheduled, age-encrypted backups of an install Deploy Twenty made to a Cloudflare R2 bucket, back one up now, check the key's recovery copy, recover after an interrupted backup, stop scheduled backups, or restore a backup onto an install made for a restore, and report what was done. | DevOps Expert |
 
+### CRM
+
+| Skill | Description | Owner |
+|-------|-------------|-------|
+| `Set Up Twenty Workspace/SKILL.md` | Set up one organisation's workspace on a Twenty install Deploy Twenty made, its address, admin, members and roles, pipeline, fields and objects, each member's mailbox, a shared inbox and branded email from the organisation's own domain, and a first import judged by CRM Expert, adopting the install's first workspace when it is the organisation's, and report what was set up and what each person still does. | CRM Expert |
+
 <!-- /generated:index -->

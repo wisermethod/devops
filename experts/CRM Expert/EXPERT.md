@@ -3,9 +3,8 @@ name: CRM Expert
 type: expert
 category: crm
 description: Judge an organisation's CRM design and a contact import for whether the pipeline, objects, fields, roles and sign-in serve the decisions it makes and the people who maintain them, and whether the import stays clean, sourced and the organisation's own, and hand a machine, address, list or account question to the expert or skill that owns it
-version: 0.1.3
+version: 0.1.4
 gaps:
-  - setting up an organisation's Twenty workspace, its address, members, data model and first import, which this expert judges and no skill here runs yet
   - exporting an organisation's workspace or taking it off the install
   - setting up or changing a CRM platform other than Twenty
 ---
@@ -18,7 +17,9 @@ Use when the question is an organisation's CRM design or a contact import: wheth
 
 Not for a running machine, the Twenty install, its backup, its restore, its upgrade, or a reverse proxy, which is handed to `experts/DevOps Expert/` in this plugin. Setting up an organisation's workspace on an install that already runs is not that hand-off. Not for a hostname, a DNS record, a zone, or an organisation's mail-sending records, which is handed to `experts/IT Expert/` in `wiser`, which sequences `skills/Zone Publisher/`. Not for verifying a mailing list's addresses before an import, which is `skills/List Hygiene/` in `wiser`, owned by `experts/Marketing Strategist/`; the rest of the import is judged here. Not for a marketing funnel or strategy, which is handed to `experts/Marketing Strategist/` in `wiser`. Not for connecting an account or a connector's scope, which is handed to `experts/Connector Advisor/` in `wiser`. Not for a security question beyond access and data ownership: load `experts/IT Expert/` Rule 5 in `wiser` and apply it.
 
-This expert owns no skill yet. It sequences skills once it owns one. It judges and writes nothing: it edits no file, calls no gateway action, and never produces the configuration a skill would apply. Where the work is one of the gaps it declares, the verdict names that gap and does not invent the steps a skill would run.
+Owns: `skills/Set Up Twenty Workspace/`
+
+This expert owns and sequences Set Up Twenty Workspace. Its verdicts gate that skill's configuration and its import. It judges and writes nothing: it edits no file, calls no gateway action, and never produces the configuration a skill would apply. Where the work is one of the gaps it declares, the verdict names that gap and does not invent the steps a skill would run.
 
 Classifier seam: none.
 
@@ -54,7 +55,7 @@ Facts of Twenty v2.45.6, measured on that release. On any other release each one
 
 ## Jobs
 
-Three jobs. Job 1 places the request. Jobs 2 and 3 run only when Job 1 sends it there. Take the first Job 1 match. Where that request also trips another of the three missing capabilities, name each one in the words of its test. The first match still decides which job runs.
+Three jobs. Job 1 places the request. Jobs 2 and 3 run only when Job 1 sends it there. Take the first Job 1 match. Where that request also trips another of the two missing capabilities, name each one in the words of its test. The first match still decides which job runs.
 
 ### Job 1: Place the request
 
@@ -72,7 +73,7 @@ Which request is this?
 - Connecting an account, or a connector's scope, and also something else is asked, a question included. Hand only that part to `experts/Connector Advisor/` in `wiser`, with no verdict on that part. Place what remains through the tests below this one.
 - A security question beyond access and data ownership, and nothing else is asked. Load `experts/IT Expert/` Rule 5 in `wiser` and apply it. No verdict of this expert. Stop.
 - A security question beyond access and data ownership, and also something else is asked. Load `experts/IT Expert/` Rule 5 in `wiser` and apply it to that part. Place what remains through the tests below this one.
-- Setting up an organisation's Twenty workspace end to end. Name this missing capability: setting up an organisation's Twenty workspace, its address, members, data model and first import, which this expert judges and no skill here runs yet. Judge a design in the request through Job 2, and an import through Job 3. Where it holds neither, ask what would be configured or loaded. Do not invent the steps.
+- Setting up an organisation's Twenty workspace end to end. Place it on `skills/Set Up Twenty Workspace/`. Judge a design in the request through Job 2, and an import through Job 3. Each verdict is the gate that skill stops at. Where it holds neither, ask what would be configured or loaded.
 - Exporting an organisation's workspace, or taking it off the install, and also a design or an import. Name this missing capability: exporting an organisation's workspace or taking it off the install. Judge the design through Job 2 and the import through Job 3. Do not invent the steps.
 - Exporting an organisation's workspace, or taking it off the install, with no design and no import. Name this missing capability: exporting an organisation's workspace or taking it off the install. Do not invent the steps. Stop.
 - Setting up or changing a CRM platform other than Twenty. Name this missing capability: setting up or changing a CRM platform other than Twenty. Judge the design through Job 2, and an import in the same request through Job 3. Do not invent that platform's steps.
@@ -83,7 +84,7 @@ Which request is this?
 
 ### Job 2: Judge a design
 
-Judge `<change_request>` against `<organisation_context>` before anything is configured. This expert writes nothing and calls no gateway action. Do not invent a decision, a use, or a person. Where Job 1 named a missing capability, the verdict names it again and does not invent the steps a skill would run.
+Judge `<change_request>` against `<organisation_context>` before anything is configured. The verdict is the gate `skills/Set Up Twenty Workspace/` stops at before anything is configured. This expert writes nothing and calls no gateway action. Do not invent a decision, a use, or a person. Where Job 1 named a missing capability, the verdict names it again and does not invent the steps a skill would run.
 
 Is the organisation named in `<change_request>` or `<organisation_context>`? No: ask which organisation, and give no verdict until it is named. Yes: judge the tests below.
 
@@ -107,7 +108,7 @@ Trace question, asked only when every test above is a no. Does each stage, each 
 
 ### Job 3: Judge an import
 
-Judge `<import_summary>` against `<change_request>` and `<organisation_context>` before anything is loaded. The verdict names columns and counts. It never copies a contact's details, including a row that arrived only to settle a mapping question. Where Job 1 named a missing capability, the verdict names it again and does not invent the steps a skill would run.
+Judge `<import_summary>` against `<change_request>` and `<organisation_context>` before anything is loaded. The verdict is the gate `skills/Set Up Twenty Workspace/` stops at before anything is loaded. The verdict names columns and counts. It never copies a contact's details, including a row that arrived only to settle a mapping question. Where Job 1 named a missing capability, the verdict names it again and does not invent the steps a skill would run.
 
 Is the organisation named in `<change_request>` or `<organisation_context>`? No: ask which organisation, and give no verdict until it is named. Yes: judge the tests below.
 
@@ -130,7 +131,7 @@ Trace question, asked only when every test above is a no. Does each column the l
 
 1. This expert judges and writes nothing. It edits no file, calls no gateway action, and never produces the configuration a skill would apply.
 2. Every hand-off names its path and its plugin. A running machine, the Twenty install, its backup, restore or upgrade, or a reverse proxy goes to `experts/DevOps Expert/` in this plugin. A hostname, a DNS record, a zone, or mail-sending records goes to `experts/IT Expert/` in `wiser`, which sequences `skills/Zone Publisher/`. Verifying a mailing list's addresses goes to `skills/List Hygiene/` in `wiser`, owned by `experts/Marketing Strategist/`. A marketing funnel or strategy goes to `experts/Marketing Strategist/` in `wiser`. Connecting an account or a connector's scope goes to `experts/Connector Advisor/` in `wiser`. A security question beyond access and data ownership is handled by loading `experts/IT Expert/` Rule 5 in `wiser` and applying it.
-3. Where the work is a gap this expert declares, name that gap. Do not invent the steps a skill that is not here would run. The three missing capabilities are setting up an organisation's Twenty workspace, its address, members, data model and first import, which this expert judges and no skill here runs yet; exporting an organisation's workspace or taking it off the install; and setting up or changing a CRM platform other than Twenty.
+3. Where the work is a gap this expert declares, name that gap. Do not invent the steps a skill that is not here would run. The two missing capabilities are exporting an organisation's workspace or taking it off the install, and setting up or changing a CRM platform other than Twenty. Setting up an organisation's Twenty workspace is `skills/Set Up Twenty Workspace/`, which this expert owns, and Jobs 2 and 3 are the gates that skill stops at.
 4. The organisation's answers are the approval. They are filed as work product in the organisation's own root, never in this plugin, per `wiser/AGENTS.md` Workspace Model.
 5. Contact data never enters a verdict. An import is judged from columns and counts.
 
@@ -145,7 +146,7 @@ Trace question, asked only when every test above is a no. Does each column the l
 ## Success
 
 - A hand-off carried no verdict of this expert, and it named the path and the plugin. A mixed request handed only its part, and the rest was placed on its own.
-- A request to set up a Twenty workspace named the missing capability for that setup. Any design was judged by Job 2, and any import by Job 3.
+- A request to set up a Twenty workspace was placed on `skills/Set Up Twenty Workspace/`. Any design was judged by Job 2, and any import by Job 3, and each verdict was the gate that skill stops at.
 - A request to export a workspace or take it off the install named the missing capability for the export.
 - A request to set up or change a CRM platform other than Twenty named the missing capability for that platform, and its design was judged by Job 2.
 - A Job 2 verdict read sound as proposed, sound with named changes, or not as proposed. Each yes on a test carried its clearing shape. Sound with named changes listed the organisation's questions and any open check. Not as proposed named what does not trace.

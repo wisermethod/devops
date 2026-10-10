@@ -1,7 +1,7 @@
 {
   "name": "devops",
   "displayName": "DevOps",
-  "description": "A WISER plugin for people who run their own servers and self-hosted applications: virtual machines, Docker workloads, light security, and setting up each organisation's use of applications such as Twenty CRM. It ships two experts, DevOps Expert and CRM Expert, and seven skills, Prepare VM, VM Inventory, VM Configure, VM Security Audit, Deploy Workload, Deploy Twenty and Back Up Twenty, and one tool, vm-job.",
+  "description": "A WISER plugin for people who run their own servers and self-hosted applications: virtual machines, Docker workloads, light security, and setting up each organisation's use of applications such as Twenty CRM. It ships two experts, DevOps Expert and CRM Expert, and eight skills, Prepare VM, VM Inventory, VM Configure, VM Security Audit, Deploy Workload, Deploy Twenty, Back Up Twenty and Set Up Twenty Workspace, and one tool, vm-job.",
   "author": {
     "name": "Wiser Memory",
     "email": "support@wisermemory.com",

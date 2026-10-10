@@ -3,7 +3,7 @@ name: Back Up Twenty
 type: skill
 category: operations
 description: Set up scheduled, age-encrypted backups of an install Deploy Twenty made to a Cloudflare R2 bucket, back one up now, check the key's recovery copy, recover after an interrupted backup, stop scheduled backups, or restore a backup onto an install made for a restore, and report what was done.
-version: 0.1.0
+version: 0.1.1
 gaps:
   - authenticating a set's origin, and object lock
   - alerting on an overdue backup
@@ -14,6 +14,8 @@ gaps:
   - serving a restored workspace's custom domain from another install
   - a release other than v2.45.6
   - creating the buckets and the tokens, which is the person's with the vendor
+  - scheduled backups of a second install on the same machine
+  - a backup or restore whose archive the machine's available memory cannot hold, since the helper holds it whole
 ---
 
 # Back Up Twenty
@@ -28,13 +30,13 @@ Not for a package. Hand that part to `skills/VM Configure/`. `age` absent is tha
 
 It acts only on an install whose marker is Deploy Twenty's. The lines Deploy Twenty's Job 2 marker question requires are the whole lines `skill=deploy-twenty`, `release=v2.45.6`, `compose-sha256=bacd817fcef85abbcb6a603a6c093375313460037fae67d73d45c16f6d85bc7d`, and `project=` followed by the install name, and `stat:` was read. A whole line `stage=created` or `stage=files-written` may be present. It does not replace a required line.
 
-The calls are `vm.inventory.list_hosts`, `vm.inventory.health`, and `vm.command.run`, and no other action. This skill never calls `vm.files.write_file` or `vm.files.read_file`. Every long step is a `vm-job` job started with `--stop-post`, except Job 4, which is one direct call for the reason that job names. The contract is `tools/vm-job/` 0.3.0: `start` takes `--stop-post` and `--stop-post-timeout` together, and `scheduled` prints the wrapper, the service, and the timer. A tool answer that is not the JSON those commands print, a named refusal of either flag included, stops the run. Send no job. Do not start a job on a tool that does not print those flags.
+The calls are `vm.inventory.list_hosts`, `vm.inventory.health`, and `vm.command.run`, and no other action. This skill never calls `vm.files.write_file` or `vm.files.read_file`. Every long step is a `vm-job` job started with `--stop-post`, except Job 4, which is one direct call for the reason that job names. The contract is `tools/vm-job/` 0.3.2: `start` takes `--stop-post` and `--stop-post-timeout` together, and `scheduled` prints the wrapper, the service, the timer, and the writers that install them. A tool answer that is not the JSON those commands print, a named refusal of either flag included, stops the run. Send no job. Do not start a job on a tool that does not print those flags.
 
 What the router does with a command is Deploy Twenty's (`skills/Deploy Twenty/`). The job script, each direct script, and each saved answer go in a temporary directory outside the plugin and outside any repository. The path passed to the tool is absolute. The tool writes nothing. Reaching the gateway is `skills/Set Up Connectors/` and `gateway/SETUP.md` in `wiser`. Connecting a module is `skills/Connect Account/` in `wiser`. The toolkit registration is `connectors/vm/auth.md` in `wiser`. Cite those files. Do not restate them.
 
 `vm.command.run` runs the argument vector as root. Every call, a read included, is `confirmation: always`. The approval question is Deploy Twenty's (`skills/Deploy Twenty/`). No secret value is asked for in the conversation, printed, placed in an operand, or written into a file in a repository. `backup.env`, `.env`, and the age identity are never `cat`ed by any call. A value the person types goes only into a helper on the machine, over the shell they hold. The report prints lengths, booleans, counts, statuses, the source id, the recipient's sha256, and the set's stamp. It does not print a credential or the identity.
 
-A backup set is `<source-id>/<stamp>-<6 hex>/backup.tar.age`, then `COMPLETE` beside it. `<source-id>` is 32 hex characters made once and kept at `/opt/<install>/backup/source-id`. `COMPLETE` holds `source-id`, `stamp`, `size`, `sha256`, `format=1`, `recipient`, `server-url`, and `files-bucket`, the source install's files bucket, which a restore refuses to write into. Creation lists that source id and stops if the new prefix is already there. The archive holds `db.dump` (`pg_dump -Fc`), `counts.txt`, `state.txt`, `config-db.txt`, `local.tgz`, `files/` and `files.list`, `secrets.env`, and `SHA256SUMS`. `SHA256SUMS` covers those named files. `files.list` holds each object's key, size, and sha256. A directory is not a `sha256sum` argument.
+A backup set is `<source-id>/<stamp>-<6 hex>/backup.tar.age`, then `COMPLETE` beside it. `<source-id>` is 32 hex characters made once and kept at `/opt/<install>/backup/source-id`. `COMPLETE` holds `source-id`, `stamp`, `size`, `sha256`, `format=1`, `recipient`, `server-url`, and `files-bucket`, the source install's files bucket, which a restore refuses to write into. Creation lists that source id and stops if the new prefix is already there. The archive holds `db.dump` (`pg_dump -Fc`), `counts.txt`, `state.txt`, `config-db.txt`, `local.tgz`, `files/` and `files.list`, `secrets.env`, and `SHA256SUMS`. `SHA256SUMS` covers those named files. `files.list` holds each object's key, size, and sha256. A directory is not a `sha256sum` argument. The archive is uploaded with its `Content-MD5`, so the bucket refuses bytes that differ from the file, and `COMPLETE` is written only after the bucket's size and ETag for the archive equal the file's size and MD5.
 
 The inputs are staged in a mode-700 work directory under `/opt/<install>/backup/work/`, then streamed, `tar -cf - -C` the work directory `.` piped to `age -r` the recipient `-o` the ciphertext beside that directory, so no plaintext tar is written. Each side's exit status is written by a subshell to a status file, because `dash` has no `pipefail`, and either side failing fails the stage. The inputs are removed once the ciphertext is written and checked. Only the ciphertext leaves the machine. The work directory is removed whatever the outcome. Without the person's identity, nobody holding the bucket's key can read the records, the files, or the keys. Age does not authenticate who made a set. Authenticating a set's origin, and object lock, are missing. A restore shows the set's source id, stamp, and `SERVER_URL`, and the person confirms them. That confirmation is Job 3's.
 
@@ -46,9 +48,9 @@ The success path appends, in order: `begin`, `checks:ok`, `stopping`, `stopped`,
 
 The backup program traps `TERM`, `INT`, `HUP`, and `PIPE` and exits 143, so systemd records a failure and runs `ExecStopPost`. A job is cancelled with `systemctl stop` of the job's unit, which runs `ExecStopPost`, never with `systemctl kill`. `KILL` and the runtime limit already count as unclean. With `RemainAfterExit=yes`, a main process that exits 0 stays `active/exited`, and `ExecStopPost` runs when release stops the unit. A process that fails, or is killed at `RuntimeMaxSec`, runs `ExecStopPost` as the unit deactivates. The poll class `signal` stays the one `tools/vm-job/` already has.
 
-`recover` is the `--stop-post` script. It runs whenever the unit stops, scheduled or manual. When the state shows `stopping` or `starting` with no `restart-verified` after that line, it appends `recovering`, starts `server` and `worker`, and waits until the server is healthy and the worker's status is `running`. Its deadline is 1000 seconds. Every Docker call is bounded by `timeout 60`, inside `--stop-post-timeout 1200`, so 200 seconds stay for the result and the cleanup. It appends `recovered:ok` or `recovered:fail:deadline`. It always removes this install's containers labelled `backup-twenty=<install>` and the work directory. Only `restart-verified` ends the downtime, so a later stop runs the rule again, and a second `recovered:ok` is the same recovery, not a new backup. Job 6 applies that rule, a `recovered:fail` included.
+`recover` is the `--stop-post` script. It runs whenever the unit stops, scheduled or manual. When the state shows `stopping` or `starting` with no `restart-verified` after that line, it appends `recovering`, starts `server` and `worker`, and waits until the server is healthy and the worker's status is `running`. Its deadline is 840 seconds, counted from before its first call. Every Docker call is bounded by `timeout 30`, so its last pass, its result and its cleanup end by about 1030 seconds, inside `--stop-post-timeout 1200`. It appends `recovered:ok` or `recovered:fail:deadline`. It always removes this install's containers labelled `backup-twenty=<install>` and the work directory. Only `restart-verified` ends the downtime, so a later stop runs the rule again, and a second `recovered:ok` is the same recovery, not a new backup. Job 6 applies that rule, a `recovered:fail` included.
 
-The disk check runs before `stopping`, on the filesystem of the work directory. The need is `pg_database_size` plus the files bucket's listed bytes plus the local volume's bytes, that sum again for the ciphertext, plus 1073741824. Below it, the run appends `checks:refused:disk` and exits, and the app is never stopped.
+The disk check runs before `stopping`, on the filesystem of the work directory. The need is `pg_database_size` plus the files bucket's listed bytes plus the local volume's bytes, that sum again for the ciphertext, plus 1073741824. Below it, the run appends `checks:refused:disk` and exits, and the app is never stopped. The memory check follows: `MemAvailable` in `/proc/meminfo` must reach that sum in KiB plus 262144 KiB, since the helper holds the archive whole to upload it. Below it, `checks:refused:memory`, and the app is never stopped. A restore applies the same rule to `COMPLETE`'s size before it downloads the archive.
 
 Retention runs only after `restart-verified`. It lists only `<source-id>/`. It keeps the newest N sets whose `COMPLETE` names this source id, default 14, and deletes older ones. It deletes a prefix with no matching `COMPLETE` once that prefix's newest object is older than 24 hours. It does not delete the set just written. It prints each key it deletes.
 
@@ -149,7 +151,7 @@ if command -v docker >/dev/null 2>&1; then
   printf '%s\n' "project-exit:$?"
   cid=$(cd "$dir" 2>/dev/null && docker compose -p "$install" ps -aq -- server 2>/dev/null | awk 'NR==1 { print; exit }')
   if [ -n "$cid" ]; then
-    docker inspect --format '{{.Image}} {{json .RepoDigests}}' -- "$cid"
+    docker inspect --format '{{.Config.Image}}' -- "$cid"
     printf '%s\n' "image-exit:$?"
   else
     printf '%s\n' image-absent
@@ -188,6 +190,10 @@ systemctl is-enabled vmjob-scheduled-twenty-backup.service
 printf '%s\n' "service-enabled-exit:$?"
 systemctl is-enabled vmjob-scheduled-twenty-backup.timer
 printf '%s\n' "timer-enabled-exit:$?"
+svc=/etc/systemd/system/vmjob-scheduled-twenty-backup.service
+if [ ! -e "$svc" ]; then printf '%s\n' schedule:none
+elif grep -qxF -- "ExecStart=/bin/sh $dir/backup/wrapper" "$svc"; then printf '%s\n' schedule:this
+else printf '%s\n' schedule:other; fi
 printf '%s\n' '--- disk ---'
 if [ -d "$dir" ]; then df -B1 -P -- "$dir"; printf '%s\n' "disk-exit:$?"; else printf '%s\n' disk-exit:127; fi
 printf '%s\n' '--- token after ---'
@@ -225,7 +231,7 @@ What is `age` on this machine?
 
 What is the image?
 
-- The image line contains `sha256:dca6d82985901468b391c0335aa8f0519a52b9809709e66f2de1dbff04351e53`. That is the pin Deploy Twenty installed. Continue.
+- The image line, the reference the server container was created from, contains `sha256:dca6d82985901468b391c0335aa8f0519a52b9809709e66f2de1dbff04351e53`. That is the pin Deploy Twenty installed. Continue.
 - The server container was read and the pin is absent. Stop. Name the gap for a release other than v2.45.6. Change nothing.
 - `image-absent` on a Job 0 read of an install that has no server yet. Record it. Job 1 and Job 2 stop, because the backup reads the running database. Job 3's target has no server by design, and its own read decides it.
 
@@ -252,12 +258,19 @@ Save the scheduled section to a file in the temporary directory. From `tools/vm-
 
 - The class is an object with `unit`, `invocationId`, and `skips`. Record them. Continue.
 - The class is `none`. No firing has been recorded. Continue.
-- The class is `not-read`, or the step is refused because the tool is older than 0.3.0. Read the section directly. Three lines are the unit, the invocation id, and the skip count. The line `none` is the class `none`. Anything else was not read. Stop. Change nothing.
+- The class is `skips-only`, facts `{ skips }`. No unit has been started by a firing, and that many firings skipped. Record the count. Continue.
+- The class is `pending`, facts `{ unit, skips }`. A firing recorded a launch whose invocation id is not in the record yet; the next firing reconciles it. Record the unit. Continue.
+- The class is `not-read`, or the step is refused because the tool is older than 0.3.2. Read the section directly. Three lines are the unit, the invocation id, and the skip count. The line `none` is the class `none`. Anything else was not read. Stop. Change nothing.
 
 What are the timer and the service?
 
 - `service-show-exit` is 0 and `timer-show-exit` is 0. Record `LoadState`, `UnitFileState`, `ActiveState`, and the timer's `NextElapseUSecRealtime`. Record each `is-enabled` line and its exit. `enabled` with exit 0 is enabled. Any other exit is not enabled. Continue.
 - Either show exit is not 0. Those units were not read. Stop before a change that enables or removes them. Job 0 reports that the units were not read.
+
+Whose schedule is it? The units carry one name per machine, so one install's scheduled backups hold them.
+
+- `schedule:none` or `schedule:this`. Continue.
+- `schedule:other`. The scheduled service runs another install's wrapper. Job 1 and Job 4 stop and change nothing. Name the gap for scheduled backups of a second install on the same machine. Every other job continues.
 
 What did `df` show?
 
@@ -550,8 +563,8 @@ printf '%s\n' config:written
 
 `run` is the backup program. The last writer runs `sh -n` on the assembled file and sets mode 700.
 
-The assembled file is 9905 code points.
-Writer 1 of 4, 3282 code points. `argv` is `/bin/sh`, `-c`, this script, `sh`, and the install name.
+The assembled file is 10524 code points.
+Writer 1 of 3, 3671 code points. `argv` is `/bin/sh`, `-c`, this script, `sh`, and the install name.
 ```sh
 set -eu
 export LC_ALL=C
@@ -625,27 +638,32 @@ mkdir -m 700 "$work"
 dump_b=$(psqlc "select pg_database_size(current_database())") || { note checks:refused:size; exit 2; }
 num "$dump_b" || { note checks:refused:size; exit 2; }
 s3f list-files > "$work/list.out" || { note checks:refused:list; exit 2; }
+listed=$(awk '$1=="bytes" { print $2; exit }' "$work/list.out")
+num "$listed" || { note checks:refused:list; exit 2; }
+local_line=$(timeout 60 docker run --rm --user 0:0 --label "backup-twenty=${install}" --entrypoint du -v "${install}_server-local-data:/s:ro" "$image" -s -B1 /s) || { note checks:refused:local; exit 2; }
+local_b=$(printf '%s\n' "$local_line" | awk 'NR==1 { print $1 }')
 RUN1END
 printf '%s\n' writer-ok
 ```
 
-Writer 2 of 4, 3119 code points. `argv` is `/bin/sh`, `-c`, this script, `sh`, and the install name.
+Writer 2 of 3, 3652 code points. `argv` is `/bin/sh`, `-c`, this script, `sh`, and the install name.
 ```sh
 set -eu
 export LC_ALL=C
 install=$1
 umask 077
 cat >> "/opt/$install/backup/run" << 'RUN2END'
-listed=$(awk '$1=="bytes" { print $2; exit }' "$work/list.out")
-num "$listed" || { note checks:refused:list; exit 2; }
-local_line=$(timeout 60 docker run --rm --user 0:0 --label "backup-twenty=${install}" --entrypoint du -v "${install}_server-local-data:/s:ro" "$image" -s -B1 /s) || { note checks:refused:local; exit 2; }
-local_b=$(printf '%s\n' "$local_line" | awk 'NR==1 { print $1 }')
 num "$local_b" || { note checks:refused:local; exit 2; }
 need=$(( (dump_b + listed + local_b) * 2 + 1073741824 ))
 avail=$(df -B1 -P -- "$work" | awk 'NR==2 { print $4 }')
 num "$avail" || { note checks:refused:df; exit 2; }
 printf '%s\n' "disk-need:$need" "disk-avail:$avail"
 if [ "$avail" -lt "$need" ]; then note checks:refused:disk; exit 2; fi
+mem_k=$(awk '$1=="MemAvailable:" { print $2; exit }' /proc/meminfo 2>/dev/null || true)
+num "$mem_k" || { note checks:refused:memory; exit 2; }
+mneed_k=$(( (dump_b + listed + local_b) / 1024 + 262144 ))
+printf '%s\n' "memory-need-kib:$mneed_k" "memory-avail-kib:$mem_k"
+if [ "$mem_k" -lt "$mneed_k" ]; then note checks:refused:memory; exit 2; fi
 rm -f "$work/list.out"
 note checks:ok
 
@@ -694,17 +712,6 @@ if ! s3f get-files /work/files > "$work/get.out"; then
   note files:fail
   exit 4
 fi
-RUN2END
-printf '%s\n' writer-ok
-```
-
-Writer 3 of 4, 3179 code points. `argv` is `/bin/sh`, `-c`, this script, `sh`, and the install name.
-```sh
-set -eu
-export LC_ALL=C
-install=$1
-umask 077
-cat >> "/opt/$install/backup/run" << 'RUN3END'
 [ -f "$work/files.list" ] || { note files:fail; exit 4; }
 rm -f "$work/get.out"
 note files:ok
@@ -715,6 +722,17 @@ case "$enc" in ''|*[[:space:]]*|*[!A-Za-z0-9+/=]*) note secrets:refused; exit 4 
 case "$fb" in *[[:space:]]*|*[!A-Za-z0-9+/=]*) note secrets:refused; exit 4 ;; esac
 printf 'ENCRYPTION_KEY=%s\nFALLBACK_ENCRYPTION_KEY=%s\n' "$enc" "$fb" > "$work/secrets.env"
 unset enc fb
+RUN2END
+printf '%s\n' writer-ok
+```
+
+Writer 3 of 3, 3689 code points. `argv` is `/bin/sh`, `-c`, this script, `sh`, and the install name.
+```sh
+set -eu
+export LC_ALL=C
+install=$1
+umask 077
+cat >> "/opt/$install/backup/run" << 'RUN3END'
 url=$(awk -F= '$1=="SERVER_URL" { print substr($0, index($0, "=") + 1); exit }' "$base/.env")
 fbk=$(awk -F= '$1=="STORAGE_S3_NAME" { print substr($0, index($0, "=") + 1); exit }' "$base/.env")
 ( cd "$work" && sha256sum db.dump counts.txt state.txt config-db.txt local.tgz files.list secrets.env > SHA256SUMS )
@@ -761,6 +779,10 @@ s3b put /backup/backup.tar.age "$prefix/backup.tar.age" > "$work/put.out" || { n
 h=$(s3b head "$prefix/backup.tar.age") || { note uploaded:fail; exit 4; }
 hsz=$(printf '%s\n' "$h" | awk '$1=="head" { print $3; exit }')
 [ "$hsz" = "$sz" ] || { note uploaded:fail; exit 4; }
+pmd5=$(awk '$1=="put" { print $5; exit }' "$work/put.out")
+hmd5=$(printf '%s\n' "$h" | awk '$1=="head" { print $4; exit }')
+case "$pmd5" in ''|*[!0-9a-f]*) note uploaded:fail; exit 4 ;; esac
+[ "${#pmd5}" -eq 32 ] && [ "$hmd5" = "$pmd5" ] || { note uploaded:fail; exit 4; }
 s3b put /backup/COMPLETE.part "$prefix/COMPLETE" >/dev/null || { note uploaded:fail; exit 4; }
 printf '%s\n' "set:$prefix"
 note uploaded:ok
@@ -774,17 +796,6 @@ ok=0
 while :; do
   now=$(date +%s)
   if [ $((now - t0)) -ge 900 ]; then break; fi
-RUN3END
-printf '%s\n' writer-ok
-```
-
-Writer 4 of 4, 937 code points. `argv` is `/bin/sh`, `-c`, this script, `sh`, and the install name.
-```sh
-set -eu
-export LC_ALL=C
-install=$1
-umask 077
-cat >> "/opt/$install/backup/run" << 'RUN4END'
   cid=$(timeout 60 docker compose -p "$install" ps -aq -- server | awk 'NR==1 { print; exit }')
   wid=$(timeout 60 docker compose -p "$install" ps -aq -- worker | awk 'NR==1 { print; exit }')
   hs=$(timeout 60 docker inspect --format '{{.State.Health.Status}}' "$cid" 2>/dev/null || echo missing)
@@ -802,7 +813,7 @@ fi
 note retention:ok
 note end
 exit 0
-RUN4END
+RUN3END
 sh -n "/opt/$install/backup/run"
 chmod 700 "/opt/$install/backup/run"
 chown root:root "/opt/$install/backup/run"
@@ -812,8 +823,8 @@ printf '%s\n' 'run:written'
 
 `recover` is the stop-post script. Mode 700.
 
-The assembled file is 1542 code points.
-Writer 1 of 1, 1804 code points. `argv` is `/bin/sh`, `-c`, this script, `sh`, and the install name.
+The assembled file is 1541 code points.
+Writer 1 of 1, 1803 code points. `argv` is `/bin/sh`, `-c`, this script, `sh`, and the install name.
 ```sh
 set -eu
 export LC_ALL=C
@@ -836,9 +847,9 @@ cd "$base"
 note() { printf '%s\n' "$1" >> "$st"; printf '%s\n' "$1"; }
 cleanup() {
   status=$?
-  ids=$(timeout 60 docker ps -aq --filter "label=backup-twenty=${install}" 2>/dev/null || true)
+  ids=$(timeout 30 docker ps -aq --filter "label=backup-twenty=${install}" 2>/dev/null || true)
   if [ -n "$ids" ]; then
-    timeout 60 docker rm -f $ids >/dev/null 2>&1 || true
+    timeout 30 docker rm -f $ids >/dev/null 2>&1 || true
   fi
   rm -rf "$work" || true
   exit "$status"
@@ -859,18 +870,18 @@ if [ "$need" != 1 ]; then
 fi
 
 note recovering
-timeout 60 docker compose -p "$install" start server worker || true
 t0=$(date +%s)
+timeout 30 docker compose -p "$install" start server worker || true
 while :; do
   now=$(date +%s)
-  if [ $((now - t0)) -ge 1000 ]; then
+  if [ $((now - t0)) -ge 840 ]; then
     note recovered:fail:deadline
     exit 1
   fi
-  sid=$(timeout 60 docker compose -p "$install" ps -aq -- server | awk 'NR==1 { print; exit }')
-  wid=$(timeout 60 docker compose -p "$install" ps -aq -- worker | awk 'NR==1 { print; exit }')
-  hs=$(timeout 60 docker inspect --format '{{.State.Health.Status}}' "$sid" 2>/dev/null || echo missing)
-  wr=$(timeout 60 docker inspect --format '{{.State.Status}}' "$wid" 2>/dev/null || echo missing)
+  sid=$(timeout 30 docker compose -p "$install" ps -aq -- server | awk 'NR==1 { print; exit }')
+  wid=$(timeout 30 docker compose -p "$install" ps -aq -- worker | awk 'NR==1 { print; exit }')
+  hs=$(timeout 30 docker inspect --format '{{.State.Health.Status}}' "$sid" 2>/dev/null || echo missing)
+  wr=$(timeout 30 docker inspect --format '{{.State.Status}}' "$wid" 2>/dev/null || echo missing)
   if [ "$hs" = healthy ] && [ "$wr" = running ]; then
     note recovered:ok
     exit 0
@@ -887,10 +898,10 @@ printf '%s\n' 'recover:written'
 
 `s3.js` runs inside a one-shot container of the pinned image. The container is `--rm`, `--network` `<install>_default`, `--label backup-twenty=<install>`, `--entrypoint node`, `--env-file` the credential file, and the work directory bind-mounted when the command needs it. `run` passes `backup.env` and `S3_BUCKET`, `S3_ENDPOINT`, and `S3_REGION` for the backup bucket, and passes `files.env` for the files bucket: the five `STORAGE_S3_` lines of `.env` and no other, written mode 600 for the call and removed after it, so no other secret of the install reaches the helper. Every helper container runs as `--user 0:0`, since the backup directory is root-owned, mode 700. The program reads `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_BUCKET`, `S3_ENDPOINT`, and `S3_REGION`, and otherwise the `STORAGE_S3_` names. It loads `@aws-sdk/client-s3` from `@aws-sdk/client-s3` or from `/app/packages/twenty-server/node_modules/@aws-sdk/client-s3`, the module path Deploy Twenty's start check proved. It sets `forcePathStyle`. It prints keys, sizes, hashes, and counts. It never prints a credential. A missing client prints `s3-client:absent`. A missing setting prints `s3-config:absent`.
 
-The commands are `list-files`, `get-files` and a directory, `get` and a key and a file, `put` and a file and a key, `head` and a key, `list-sets` and a source id, `delete` and a key, and `retention` and a source id and N. `list-files` follows `ContinuationToken` while `IsTruncated` is set. `get-files` writes every object under the directory and writes `<dir>.list` as key, size, and sha256. It refuses a key that starts with `/` or contains `..`. `head` prints the size, or `absent` and exit 2 when the key is missing. `delete` prints `deleted` for a missing key as well. `list-sets` prints each object and, for a key that ends in `/COMPLETE`, each body line as `field`. `retention` keeps the newest N matching sets, always keeps the newest of those, deletes older matching sets, and deletes a prefix with no matching `COMPLETE` once it is older than 24 hours. The last writer runs `node --check` on the assembled file inside the image, with the network off and only that file mounted, and sets mode 644.
+The commands are `list-files`, `get-files` and a directory, `get` and a key and a file, `put` and a file and a key, `head` and a key, `list-sets` and a source id, `delete` and a key, and `retention` and a source id and N. `list-files` follows `ContinuationToken` while `IsTruncated` is set. `get-files` writes every object under the directory and writes `<dir>.list` as key, size, and sha256. It refuses a key that starts with `/` or contains `..`. `put` sends `Content-MD5` and prints the key, the size, the sha256 and the MD5. `head` prints the size and the ETag, or `absent` and exit 2 when the key is missing. `delete` prints `deleted` for a missing key as well. `list-sets` prints each object and, for a key that ends in `/COMPLETE`, each body line as `field`. `retention` keeps the newest N matching sets, always keeps the newest of those, deletes older matching sets, and deletes a prefix with no matching `COMPLETE` once it is older than 24 hours. The last writer runs `node --check` on the assembled file inside the image, with the network off and only that file mounted, and sets mode 644.
 
-The assembled file is 9287 code points.
-Writer 1 of 3, 3116 code points. `argv` is `/bin/sh`, `-c`, this script, `sh`, and the install name.
+The assembled file is 9463 code points.
+Writer 1 of 3, 3718 code points. `argv` is `/bin/sh`, `-c`, this script, `sh`, and the install name.
 ```sh
 set -eu
 export LC_ALL=C
@@ -1002,17 +1013,6 @@ async function main() {
     let total = 0;
     for (let i = 0; i < objs.length; i++) {
       const size = Number(objs[i].Size || 0);
-S3.J1END
-printf '%s\n' writer-ok
-```
-
-Writer 2 of 3, 3110 code points. `argv` is `/bin/sh`, `-c`, this script, `sh`, and the install name.
-```sh
-set -eu
-export LC_ALL=C
-install=$1
-umask 022
-cat >> "/opt/$install/backup/s3.js" << 'S3.J2END'
       total += size;
       say(["file", String(size), objs[i].Key]);
     }
@@ -1032,6 +1032,17 @@ cat >> "/opt/$install/backup/s3.js" << 'S3.J2END'
     for (let i = 0; i < objs.length; i++) {
       const key = safeKey(objs[i].Key);
       if (!key) { say(["key:refused"]); process.exit(2); }
+S3.J1END
+printf '%s\n' writer-ok
+```
+
+Writer 2 of 3, 3701 code points. `argv` is `/bin/sh`, `-c`, this script, `sh`, and the install name.
+```sh
+set -eu
+export LC_ALL=C
+install=$1
+umask 022
+cat >> "/opt/$install/backup/s3.js" << 'S3.J2END'
       const bytes = await bodyOf(s3, A, bucket, objs[i].Key);
       const dest = path.join(dir, key);
       fs.mkdirSync(path.dirname(dest), { recursive: true });
@@ -1051,8 +1062,9 @@ cat >> "/opt/$install/backup/s3.js" << 'S3.J2END'
     const key = safeKey(a4);
     if (!file || !key) { say(["args:refused"]); process.exit(2); }
     const bytes = fs.readFileSync(file);
-    await s3.send(new A.PutObjectCommand({ Bucket: bucket, Key: key, Body: bytes }));
-    say(["put", key, String(bytes.length), sha(bytes)]);
+    const md5 = crypto.createHash("md5").update(bytes).digest();
+    await s3.send(new A.PutObjectCommand({ Bucket: bucket, Key: key, Body: bytes, ContentMD5: md5.toString("base64") }));
+    say(["put", key, String(bytes.length), sha(bytes), md5.toString("hex")]);
     return;
   }
 
@@ -1061,7 +1073,7 @@ cat >> "/opt/$install/backup/s3.js" << 'S3.J2END'
     if (!key) { say(["args:refused"]); process.exit(2); }
     try {
       const h = await s3.send(new A.HeadObjectCommand({ Bucket: bucket, Key: key }));
-      say(["head", key, String(h.ContentLength)]);
+      say(["head", key, String(h.ContentLength), String(h.ETag || "").replace(/"/g, "").toLowerCase()]);
     } catch (e) {
       const name = e && e.name ? e.name : "";
       if (name === "NotFound" || name === "NoSuchKey") {
@@ -1102,17 +1114,6 @@ cat >> "/opt/$install/backup/s3.js" << 'S3.J2END'
         const bytes = await bodyOf(s3, A, bucket, key);
         const lines = bytes.toString("utf8").split("\n");
         for (let j = 0; j < lines.length; j++) {
-S3.J2END
-printf '%s\n' writer-ok
-```
-
-Writer 3 of 3, 3743 code points. `argv` is `/bin/sh`, `-c`, this script, `sh`, and the install name.
-```sh
-set -eu
-export LC_ALL=C
-install=$1
-umask 022
-cat >> "/opt/$install/backup/s3.js" << 'S3.J3END'
           if (lines[j]) say(["field", lines[j]]);
         }
       }
@@ -1148,6 +1149,17 @@ cat >> "/opt/$install/backup/s3.js" << 'S3.J3END'
     }
     const objs = await listAll(s3, A, bucket, source + "/");
     const groups = {};
+S3.J2END
+printf '%s\n' writer-ok
+```
+
+Writer 3 of 3, 2726 code points. `argv` is `/bin/sh`, `-c`, this script, `sh`, and the install name.
+```sh
+set -eu
+export LC_ALL=C
+install=$1
+umask 022
+cat >> "/opt/$install/backup/s3.js" << 'S3.J3END'
     for (let i = 0; i < objs.length; i++) {
       const name = setOf(objs[i].Key, source);
       if (!name) continue;
@@ -1258,7 +1270,7 @@ The list script's second operand is the prefix. It matches 32 hex, a slash, `YYY
 
 Downtime is the journal timestamp of `stopping` to the journal timestamp of `restart-verified`. The report states that length. A run that never printed `restart-verified` has no measured downtime. `recover` is what starts the app, on the unit's stop, unless the run itself already started it, which the config-db refusal does before it exits.
 
-A `checks:refused:disk` line means the app was not stopped. A `config-db:refused` line means the names were read and the app was started again. A `files:fail` line means that stage failed and `recover` is what starts the app. None of these count.
+A `checks:refused:disk` or `checks:refused:memory` line means the app was not stopped. A `config-db:refused` line means the names were read and the app was started again. A `files:fail` line means that stage failed and `recover` is what starts the app. None of these count.
 
 ### What enables the timer?
 
@@ -1285,7 +1297,7 @@ printf '%s\n' timer-enabled
 
 The target is an install Deploy Twenty made with its install for a restore (`skills/Deploy Twenty/`, its resting state for a restore): the marker's required lines with `stage=files-written`, no project container, volume or network, `admin.password` present, and its own files bucket, empty, which is neither the set's source bucket nor the backup bucket. The set is `<set>`, a prefix `<source-id>/<stamp>-<6 hex>` in the backup bucket. One run restores one set onto one target. The restore posts no route. Making a restored install public is missing.
 
-The inputs are `<target>`, the target's install name, by Deploy Twenty's pattern; `<set>`, matching `^[0-9a-f]{32}/[0-9]{8}T[0-9]{6}Z-[0-9a-f]{6}$`; `<bucket>`, `<endpoint>` and `<region>` for the backup bucket; and the witness: `<witness_email>`, a user who existed at the backup, by Deploy Twenty's email pattern; `<witness_host>`, the hostname the restored workspace answers to on the target, `<subdomain>.<target base>`, by Deploy Twenty's hostname pattern; `<witness_record>`, a Twenty object's plural API name such as `people` (`^[a-z][A-Za-z0-9]{0,40}$`); `<witness_record_id>`, a UUID; and `<witness_file_key>`, the key of that record's attachment in the source's files bucket (`^[A-Za-z0-9._/-]{1,512}$`, no `..`, not starting `/`). The witness's password is typed by the person into a helper on the machine. It is never an input here.
+The inputs are `<target>`, the target's install name, by Deploy Twenty's pattern; `<set>`, matching `^[0-9a-f]{32}/[0-9]{8}T[0-9]{6}Z-[0-9a-f]{6}$`; `<bucket>`, `<endpoint>` and `<region>` for the backup bucket; and the witness: `<witness_email>`, a user who existed at the backup, by Deploy Twenty's email pattern; `<witness_host>`, the hostname the restored workspace answers to on the target, `<subdomain>.<target base>`, by Deploy Twenty's hostname pattern; `<witness_record>`, a Twenty object's singular API name such as `person`, the name its one-record query takes (`^[a-z][A-Za-z0-9]{0,40}$`); `<witness_record_id>`, a UUID; and `<witness_file_key>`, the key of that record's attachment in the source's files bucket, whose last segment is the attachment's file id, with its extension when it has one, as Twenty names a stored file (`^[A-Za-z0-9._/-]{1,512}$`, no `..`, not starting `/`). The witness's password is typed by the person into a helper on the machine. It is never an input here.
 
 What does the target hold?
 
@@ -1494,22 +1506,22 @@ exit 0
 
 Then the restore's files, each by its writers, in this order: `run`, `restore-recover`, `identity-helper`, `witness-helper`, `witness.js`, then `job`. The last writer of each checks it (`sh -n`, or `node --check` in the pinned image) and sets its mode. A writer whose call was unclear is not sent again alone: the file's writers are sent again from its first, after a re-read shows what is there.
 
-`run` is the restore program. Its stages, each appended to `/opt/<target>/restore/state` before it starts and with its result after: `begin`, `checks` (the plan's values, the marker, `admin.password`, no container, volume or network, the set's `COMPLETE` and archive downloaded, `format=1`, the source id, stamp and `server-url` equal to the plan's, the archive's sha256 and size equal to `COMPLETE`'s, the target's files bucket empty and neither the source's nor the backup bucket), `handoff`, `sums`, `secrets`, `create` and `created`, `volumes`, `data`, `dump`, `counts`, `config-db`, `local`, `files`, `server`, `worker`, `witness`, then `end`. Each stage's failure is a line naming it, and the program exits nonzero.
+`run` is the restore program. Its stages, each appended to `/opt/<target>/restore/state` before it starts and with its result after: `begin`, `checks` (the plan's values, the marker, `admin.password`, no container, volume or network, the set's `COMPLETE` downloaded, `format=1`, the source id, stamp and `server-url` equal to the plan's, `MemAvailable` at least `COMPLETE`'s size plus 256 MiB, the archive downloaded, the archive's sha256 and size equal to `COMPLETE`'s, the target's files bucket empty and neither the source's nor the backup bucket), `handoff`, `sums`, `secrets`, `create` and `created`, `volumes`, `data`, `dump`, `counts`, `config-db`, `local`, `files`, `server`, `worker`, `witness`, then `end`. Each stage's failure is a line naming it, and the program exits nonzero.
 
-- **The handoff.** The program makes `/run/twenty-restore-<target>/identity` a FIFO, mode 600, prints `fifo-ready`, and waits at most 600 seconds for one line. The person runs `identity-helper` then, over the shell they hold, and types the age identity into its no-echo prompt. The helper writes it to the FIFO. The program pipes it into `age -d -i -`, so the identity reaches only that process. The ciphertext is a file. A timeout, a line that is not an identity, or a failed decryption is `handoff:refused`, then `restore:nothing-written`. Any partial `archive.tar` is removed.
-- **The secrets.** `secrets.env` must be exactly two lines, `ENCRYPTION_KEY=` and `FALLBACK_ENCRYPTION_KEY=`, their values in the base64 alphabet. They replace the target's two lines in `.env`, through `.env.new` and a move, mode 600. The program never sources the file.
+- **The handoff.** The program makes `/run/twenty-restore-<target>/identity` a FIFO, mode 600, prints `fifo-ready`, and waits at most 600 seconds for one line. The person runs `identity-helper` then, over the shell they hold, and types the age identity into its no-echo prompt. The helper writes it into the FIFO that exists, never creating a file in its place, and waits at most 30 seconds for the program to read; otherwise it prints `identity:refused:closed`. The program pipes it into `age -d -i -`, so the identity reaches only that process. The ciphertext is a file. A timeout, a line that is not an identity, or a failed decryption is `handoff:refused`, then `restore:nothing-written`. Any partial `archive.tar` is removed.
+- **The secrets.** `secrets.env` must be exactly two lines, `ENCRYPTION_KEY=` and `FALLBACK_ENCRYPTION_KEY=`, their values in the base64 alphabet. They replace the target's `ENCRYPTION_KEY` line and its `FALLBACK_ENCRYPTION_KEY` line, adding the latter when the target has none, as an install Deploy Twenty made does not, through `.env.new` and a move, mode 600. The program never sources the file.
 - **Data before the app.** `docker compose create` for every service; both volumes exist with Compose's project and volume labels; `db` and `redis` up and healthy; `pg_restore`; the row counts equal to the set's `counts.txt`; the restored database's `CONFIG_VARIABLE` names equal to the set's `config-db.txt` and passing the backup's refusal list; the local volume extracted, owner `1000:1000`.
 - **Files.** For each line of the set's `files.list`, the key is appended to `attempted.list` before its upload, and the upload's answer after it. A key with `..` or a leading `/` stops the stage. Each upload's sha256 must equal the list's.
 - **The app.** `server` started, and its log since that start must hold `Successfully migrated DB!` and `Successfully registered all background sync jobs!` and neither `Upgrade completed with errors` nor `Failed to register background jobs`, within 300 seconds. Then healthy within 300 seconds. Then `worker`, running within 300 seconds.
-- **The witness.** The restored state rows equal the set's `state.txt`, and every workspace's activation status is unchanged. Then the program makes `/run/twenty-restore-<target>/password` a FIFO and prints `witness-ready`. The person runs `witness-helper` then, and types the witness user's password. `witness.js`, in a one-shot container on the target's proxy network, signs in at the server's private address, with the host, `X-Forwarded-Host`, `X-Forwarded-Proto` and `Origin` set to `<witness_host>`, as Deploy Twenty's first contact does. It prints `witness:login:ok`, then `witness:kid:match` when the fresh token's key id is the signing key the set's `state.txt` marked current, then `witness:record:ok` and `witness:attachment:<n>` for the record and its attachments. Last, the file at `<witness_file_key>` is fetched from the target's bucket and its sha256 compared with the set's `files.list`: `file:match`.
+- **The witness.** The restored state rows equal the set's `state.txt`, and every workspace's activation status is unchanged. Then the program makes `/run/twenty-restore-<target>/password` a FIFO and prints `witness-ready`. The person runs `witness-helper` then, and types the witness user's password. Like `identity-helper`, it writes only into the FIFO that exists and waits at most 30 seconds, otherwise printing `witness:refused:closed`. `witness.js`, in a one-shot container on the target's proxy network, signs in at the server's private address, with the host, `X-Forwarded-Host`, `X-Forwarded-Proto` and `Origin` set to `<witness_host>`, as Deploy Twenty's first contact does. It prints `witness:login:ok`, then `witness:kid:match` when the fresh token's key id is the signing key the set's `state.txt` marked current, then `witness:record:ok` and `witness:attachment:<n>` for the record and its attachments, then `witness:attachment:match` when one of those attachments holds the file whose id is `<witness_file_key>`'s last segment without its extension. Last, the file at `<witness_file_key>` is fetched from the target's bucket and its sha256 compared with the set's `files.list`: `file:match`.
 - **The end.** The decrypted archive and the work directory are removed, `admin.password` is removed, which no first contact will, and the state ends `end`.
 
-`restore-recover` is the restore's stop-post. When the state has `server` and no `end` after it, it stops `server` and `worker`, so a restore that did not count never leaves a half-restored app serving. Its deadline is 1000 seconds, inside `--stop-post-timeout 1200`. It always removes the FIFOs, the decrypted archive, `files.env`, the work directory and this install's labelled helper containers.
+`restore-recover` is the restore's stop-post. When the state has `server` and no `end` after it, it stops `server` and `worker`, so a restore that did not count never leaves a half-restored app serving. Its deadline is 840 seconds and every Docker call is bounded by `timeout 30`, so it ends inside `--stop-post-timeout 1200`. It always removes the FIFOs, the decrypted archive, `files.env`, the work directory and this install's labelled helper containers.
 
 `run`, the restore program.
 
-The assembled file is 17434 code points.
-Writer 1 of 5, 3469 code points. `argv` is `/bin/sh`, `-c`, this script, `sh`, and the install name.
+The assembled file is 17800 code points.
+Writer 1 of 6, 3469 code points. `argv` is `/bin/sh`, `-c`, this script, `sh`, and the install name.
 ```sh
 set -eu
 export LC_ALL=C
@@ -1624,7 +1636,7 @@ RST1END
 printf '%s\n' writer-ok
 ```
 
-Writer 2 of 5, 3647 code points. `argv` is `/bin/sh`, `-c`, this script, `sh`, and the install name.
+Writer 2 of 6, 3702 code points. `argv` is `/bin/sh`, `-c`, this script, `sh`, and the install name.
 ```sh
 set -eu
 export LC_ALL=C
@@ -1668,27 +1680,32 @@ vols=$(timeout 60 docker volume ls -q --filter "label=com.docker.compose.project
 nets=$(timeout 60 docker network ls -q --filter "label=com.docker.compose.project=$install")
 [ -z "$nets" ] || stop checks:refused:networks 2
 if ! s3bak get "$prefix/COMPLETE" /restore/COMPLETE >/dev/null; then stop checks:refused:complete 2; fi
-if ! s3bak get "$prefix/backup.tar.age" /restore/backup.tar.age >/dev/null; then stop checks:refused:archive 2; fi
 [ "$(field format)" = 1 ] || stop checks:refused:format 2
 [ "$(field source-id)" = "$source_id" ] || stop checks:refused:source 2
 [ "$(field stamp)" = "$stamp" ] || stop checks:refused:stamp 2
 [ "$(field server-url)" = "$server_url" ] || stop checks:refused:url 2
-sum=$(sha256sum "$rs/backup.tar.age" | awk 'NR==1 { print $1 }')
-[ "$sum" = "$(field sha256)" ] || stop checks:refused:sha 2
-sz=$(wc -c < "$rs/backup.tar.age" | tr -d ' ')
-[ "$sz" = "$(field size)" ] || stop checks:refused:size 2
-srcb=$(field files-bucket)
+csz=$(field size)
+case "$csz" in ''|*[!0-9]*) stop checks:refused:size 2 ;; esac
+mem_k=$(awk '$1=="MemAvailable:" { print $2; exit }' /proc/meminfo 2>/dev/null || true)
+case "$mem_k" in ''|*[!0-9]*) stop checks:refused:memory 2 ;; esac
+[ "$mem_k" -ge $(( csz / 1024 + 262144 )) ] || stop checks:refused:memory 2
+if ! s3bak get "$prefix/backup.tar.age" /restore/backup.tar.age >/dev/null; then stop checks:refused:archive 2; fi
 RST2END
 printf '%s\n' writer-ok
 ```
 
-Writer 3 of 5, 3646 code points. `argv` is `/bin/sh`, `-c`, this script, `sh`, and the install name.
+Writer 3 of 6, 3670 code points. `argv` is `/bin/sh`, `-c`, this script, `sh`, and the install name.
 ```sh
 set -eu
 export LC_ALL=C
 install=$1
 umask 077
 cat >> "/opt/$install/restore/run" << 'RST3END'
+sum=$(sha256sum "$rs/backup.tar.age" | awk 'NR==1 { print $1 }')
+[ "$sum" = "$(field sha256)" ] || stop checks:refused:sha 2
+sz=$(wc -c < "$rs/backup.tar.age" | tr -d ' ')
+[ "$sz" = "$(field size)" ] || stop checks:refused:size 2
+srcb=$(field files-bucket)
 tgt=$(awk -F= '$1=="STORAGE_S3_NAME" { print substr($0, index($0, "=") + 1); exit }' "$base/.env")
 [ -n "$srcb" ] && [ -n "$tgt" ] || stop checks:refused:files-bucket 2
 [ "$tgt" != "$srcb" ] || stop checks:refused:bucket 2
@@ -1775,7 +1792,7 @@ if ! awk '
   $0 ~ /^ENCRYPTION_KEY=/ { print "ENCRYPTION_KEY=" enc; seen1=1; next }
   $0 ~ /^FALLBACK_ENCRYPTION_KEY=/ { print "FALLBACK_ENCRYPTION_KEY=" fb; seen2=1; next }
   { print }
-  END { if (!seen1 || !seen2) exit 1 }
+  END { if (!seen1) exit 1; if (!seen2) print "FALLBACK_ENCRYPTION_KEY=" fb }
 ' "$work/secrets.env" "$base/.env" > "$base/.env.new"; then
   rm -f "$base/.env.new"
   note secrets:fail
@@ -1792,22 +1809,22 @@ note volumes
 for pair in "db-data ${install}_db-data" "server-local-data ${install}_server-local-data"; do
   short=${pair%% *}
   name=${pair#* }
-  got=$(timeout 60 docker volume inspect --format '{{index .Labels "com.docker.compose.project"}} {{index .Labels "com.docker.compose.volume"}}' "$name" 2>/dev/null || true)
-  [ "$got" = "$install $short" ] || { note volumes:fail; exit 4; }
-done
-note volumes:ok
-note data
 RST3END
 printf '%s\n' writer-ok
 ```
 
-Writer 4 of 5, 3710 code points. `argv` is `/bin/sh`, `-c`, this script, `sh`, and the install name.
+Writer 4 of 6, 3685 code points. `argv` is `/bin/sh`, `-c`, this script, `sh`, and the install name.
 ```sh
 set -eu
 export LC_ALL=C
 install=$1
 umask 077
 cat >> "/opt/$install/restore/run" << 'RST4END'
+  got=$(timeout 60 docker volume inspect --format '{{index .Labels "com.docker.compose.project"}} {{index .Labels "com.docker.compose.volume"}}' "$name" 2>/dev/null || true)
+  [ "$got" = "$install $short" ] || { note volumes:fail; exit 4; }
+done
+note volumes:ok
+note data
 if ! timeout 300 docker compose -p "$install" up -d --wait --wait-timeout 300 db redis; then note data:fail; exit 4; fi
 for svc in db redis; do
   id=$(timeout 60 docker compose -p "$install" ps -aq -- "$svc" | awk 'NR==1 { print; exit }')
@@ -1854,7 +1871,7 @@ if [ "$refused" -eq 1 ]; then note config-db:refused; exit 3; fi
 note config-db:ok
 
 note local
-if ! timeout 600 docker run --rm --user 0:0 --label "backup-twenty=${install}" --entrypoint tar -v "${install}_server-local-data:/s" "$image" -xzf - -C /s < "$work/local.tgz"; then
+if ! timeout 600 docker run -i --rm --user 0:0 --label "backup-twenty=${install}" --entrypoint tar -v "${install}_server-local-data:/s" "$image" -xzf - -C /s < "$work/local.tgz"; then
   note local:fail
   exit 4
 fi
@@ -1884,6 +1901,17 @@ note files:ok
 since=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 printf '%s\n' "$since" > "$rs/server-since"
 note server
+RST4END
+printf '%s\n' writer-ok
+```
+
+Writer 5 of 6, 3710 code points. `argv` is `/bin/sh`, `-c`, this script, `sh`, and the install name.
+```sh
+set -eu
+export LC_ALL=C
+install=$1
+umask 077
+cat >> "/opt/$install/restore/run" << 'RST5END'
 if ! timeout 120 docker compose -p "$install" start server; then note server:fail:start; exit 5; fi
 cid=$(timeout 60 docker compose -p "$install" ps -aq -- server | awk 'NR==1 { print; exit }')
 [ -n "$cid" ] || { note server:fail:start; exit 5; }
@@ -1891,17 +1919,6 @@ t0=$(date +%s)
 oklog=0
 while :; do
   now=$(date +%s)
-RST4END
-printf '%s\n' writer-ok
-```
-
-Writer 5 of 5, 3714 code points. `argv` is `/bin/sh`, `-c`, this script, `sh`, and the install name.
-```sh
-set -eu
-export LC_ALL=C
-install=$1
-umask 077
-cat >> "/opt/$install/restore/run" << 'RST5END'
   if [ $((now - t0)) -ge 300 ]; then break; fi
   set +e
   log=$(timeout 60 docker logs --since "$since" "$cid" 2>&1)
@@ -1977,7 +1994,7 @@ if ! private4 "$ip"; then
   exit 5
 fi
 set +e
-printf '%s\n' "$pw" | timeout 120 docker run -i --rm --user 0:0 --network "${install}-proxy" --label "backup-twenty=${install}" --entrypoint node -v "$rs:/restore:ro" "$image" /restore/witness.js "$ip" "$host" "$email" "$record" "$record_id" /restore/work/state.txt
+printf '%s\n' "$pw" | timeout 120 docker run -i --rm --user 0:0 --network "${install}-proxy" --label "backup-twenty=${install}" --entrypoint node -v "$rs:/restore:ro" "$image" /restore/witness.js "$ip" "$host" "$email" "$record" "$record_id" /restore/work/state.txt "$file_key"
 rc=$?
 set -e
 unset pw
@@ -1986,6 +2003,17 @@ rm -f "$runfifo/password"
 if ! out=$(s3files "${install}_default" get "$file_key" /restore/work/fetched); then note witness:fail:file; exit 5; fi
 got=$(printf '%s\n' "$out" | awk -F "$tab" '$1=="get" { print $4; exit }')
 want=$(awk -F "$tab" -v k="$file_key" '$1==k { print $3; exit }' "$work/files.list")
+RST5END
+printf '%s\n' writer-ok
+```
+
+Writer 6 of 6, 441 code points. `argv` is `/bin/sh`, `-c`, this script, `sh`, and the install name.
+```sh
+set -eu
+export LC_ALL=C
+install=$1
+umask 077
+cat >> "/opt/$install/restore/run" << 'RST6END'
 [ -n "$got" ] && [ "$got" = "$want" ] || { note witness:fail:file; exit 5; }
 note file:match
 note witness:ok
@@ -1994,7 +2022,7 @@ rm -f "$rs/archive.tar" "$base/admin.password"
 rm -rf "$work"
 note end
 exit 0
-RST5END
+RST6END
 sh -n "/opt/$install/restore/run"
 chmod 700 "/opt/$install/restore/run"
 chown root:root "/opt/$install/restore/run"
@@ -2003,8 +2031,8 @@ printf '%s\n' 'restore-run:written'
 
 `restore-recover`.
 
-The assembled file is 1703 code points.
-Writer 1 of 1, 2007 code points. `argv` is `/bin/sh`, `-c`, this script, `sh`, and the install name.
+The assembled file is 1702 code points.
+Writer 1 of 1, 2006 code points. `argv` is `/bin/sh`, `-c`, this script, `sh`, and the install name.
 ```sh
 set -eu
 export LC_ALL=C
@@ -2027,9 +2055,9 @@ cd "$base"
 note() { printf '%s\n' "$1" >> "$st"; printf '%s\n' "$1"; }
 cleanup() {
   status=$?
-  ids=$(timeout 60 docker ps -aq --filter "label=backup-twenty=${install}" 2>/dev/null || true)
+  ids=$(timeout 30 docker ps -aq --filter "label=backup-twenty=${install}" 2>/dev/null || true)
   if [ -n "$ids" ]; then
-    timeout 60 docker rm -f $ids >/dev/null 2>&1 || true
+    timeout 30 docker rm -f $ids >/dev/null 2>&1 || true
   fi
   rm -f "$runfifo/identity" "$runfifo/password" || true
   rmdir "$runfifo" 2>/dev/null || true
@@ -2056,19 +2084,19 @@ note restore-recovering
 t0=$(date +%s)
 while :; do
   now=$(date +%s)
-  if [ $((now - t0)) -ge 1000 ]; then
+  if [ $((now - t0)) -ge 840 ]; then
     note restore-recover:fail:deadline
     exit 1
   fi
-  timeout 60 docker compose -p "$install" stop server worker || true
+  timeout 30 docker compose -p "$install" stop server worker || true
   ready=0
   for svc in server worker; do
-    id=$(timeout 60 docker compose -p "$install" ps -aq -- "$svc" | awk 'NR==1 { print; exit }')
+    id=$(timeout 30 docker compose -p "$install" ps -aq -- "$svc" | awk 'NR==1 { print; exit }')
     if [ -z "$id" ]; then
       ready=$((ready + 1))
       continue
     fi
-    stt=$(timeout 60 docker inspect --format '{{.State.Status}}' "$id" 2>/dev/null || echo missing)
+    stt=$(timeout 30 docker inspect --format '{{.State.Status}}' "$id" 2>/dev/null || echo missing)
     case "$stt" in
       running|restarting) ;;
       *) ready=$((ready + 1)) ;;
@@ -2089,8 +2117,8 @@ printf '%s\n' 'restore-recover:written'
 
 `identity-helper`.
 
-The assembled file is 443 code points.
-Writer 1 of 1, 747 code points. `argv` is `/bin/sh`, `-c`, this script, `sh`, and the install name.
+The assembled file is 595 code points.
+Writer 1 of 1, 899 code points. `argv` is `/bin/sh`, `-c`, this script, `sh`, and the install name.
 ```sh
 set -eu
 export LC_ALL=C
@@ -2111,8 +2139,12 @@ case "$ident" in
   AGE-SECRET-KEY-*) ;;
   *) printf '%s\n' identity:refused; exit 2 ;;
 esac
-printf '%s\n' "$ident" > "$fifo"
+set +e
+printf '%s\n' "$ident" | timeout 30 dd of="$fifo" conv=nocreat,notrunc status=none 2>/dev/null
+rc=$?
+set -e
 unset ident
+[ "$rc" -eq 0 ] || { printf '%s\n' identity:refused:closed; exit 2; }
 printf '%s\n' identity:written
 IDH1END
 sh -n "/opt/$install/restore/identity-helper"
@@ -2123,8 +2155,8 @@ printf '%s\n' 'identity-helper:written'
 
 `witness-helper`.
 
-The assembled file is 420 code points.
-Writer 1 of 1, 719 code points. `argv` is `/bin/sh`, `-c`, this script, `sh`, and the install name.
+The assembled file is 571 code points.
+Writer 1 of 1, 870 code points. `argv` is `/bin/sh`, `-c`, this script, `sh`, and the install name.
 ```sh
 set -eu
 export LC_ALL=C
@@ -2144,8 +2176,12 @@ stty echo </dev/tty
 case "$pw" in
   ''|*[[:space:]]*) printf '%s\n' witness:refused; exit 2 ;;
 esac
-printf '%s\n' "$pw" > "$fifo"
+set +e
+printf '%s\n' "$pw" | timeout 30 dd of="$fifo" conv=nocreat,notrunc status=none 2>/dev/null
+rc=$?
+set -e
 unset pw
+[ "$rc" -eq 0 ] || { printf '%s\n' witness:refused:closed; exit 2; }
 printf '%s\n' witness:written
 WTH1END
 sh -n "/opt/$install/restore/witness-helper"
@@ -2156,8 +2192,8 @@ printf '%s\n' 'witness-helper:written'
 
 `witness.js`. Mode 644.
 
-The assembled file is 4874 code points.
-Writer 1 of 2, 3655 code points. `argv` is `/bin/sh`, `-c`, this script, `sh`, and the install name.
+The assembled file is 5605 code points.
+Writer 1 of 2, 3730 code points. `argv` is `/bin/sh`, `-c`, this script, `sh`, and the install name.
 ```sh
 set -eu
 export LC_ALL=C
@@ -2248,12 +2284,19 @@ async function main() {
   const record = process.argv[5] || "";
   const recordId = process.argv[6] || "";
   const statePath = process.argv[7] || "";
+  const fileKey = process.argv[8] || "";
+  const fileName = fileKey.split("/").pop();
+  const fileId = fileName.indexOf(".") === -1 ? fileName : fileName.slice(0, fileName.indexOf("."));
   if (!private4(ip)) {
     say("witness:refused:address");
     process.exit(2);
   }
   if (!/^[a-z][A-Za-z0-9]{0,40}$/.test(record)) {
     say("witness:record:refused");
+    process.exit(2);
+  }
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(fileId)) {
+    say("witness:file:refused");
     process.exit(2);
   }
   const raw = fs.readFileSync(0, "utf8");
@@ -2269,20 +2312,20 @@ async function main() {
   if (!lt) {
     say("witness:login:fail");
     process.exit(2);
-  }
-  const tokQ = "mutation($t:String!,$o:String!){getAuthTokensFromLoginToken(loginToken:$t,origin:$o){tokens{accessOrWorkspaceAgnosticToken{token}}}}";
-  const tok = await post(ip, host, "/metadata", { query: tokQ, variables: { t: lt, o: origin } }, "");
 WTJ1END
 printf '%s\n' writer-ok
 ```
 
-Writer 2 of 2, 1804 code points. `argv` is `/bin/sh`, `-c`, this script, `sh`, and the install name.
+Writer 2 of 2, 2460 code points. `argv` is `/bin/sh`, `-c`, this script, `sh`, and the install name.
 ```sh
 set -eu
 export LC_ALL=C
 install=$1
 umask 077
 cat >> "/opt/$install/restore/witness.js" << 'WTJ2END'
+  }
+  const tokQ = "mutation($t:String!,$o:String!){getAuthTokensFromLoginToken(loginToken:$t,origin:$o){tokens{accessOrWorkspaceAgnosticToken{token}}}}";
+  const tok = await post(ip, host, "/metadata", { query: tokQ, variables: { t: lt, o: origin } }, "");
   const access = dig(tok.json, "getAuthTokensFromLoginToken", "tokens", "accessOrWorkspaceAgnosticToken", "token");
   if (!access) {
     say("witness:login:fail");
@@ -2307,7 +2350,7 @@ cat >> "/opt/$install/restore/witness.js" << 'WTJ2END'
     process.exit(2);
   }
   say("witness:kid:match");
-  const q = "query($i:UUID!){" + record + "(filter:{id:{eq:$i}}){id attachments{edges{node{id name}}}}}";
+  const q = "query($i:UUID!){" + record + "(filter:{id:{eq:$i}}){id attachments{edges{node{id file{fileId}}}}}}";
   const rec = await post(ip, host, "/graphql", { query: q, variables: { i: recordId } }, access);
   const node = rec.json && rec.json.data ? rec.json.data[record] : null;
   const edges = node && node.attachments && node.attachments.edges;
@@ -2317,6 +2360,16 @@ cat >> "/opt/$install/restore/witness.js" << 'WTJ2END'
   }
   say("witness:record:ok");
   say("witness:attachment:" + String(edges.length));
+  let held = false;
+  for (let i = 0; i < edges.length; i++) {
+    const files = edges[i] && edges[i].node && Array.isArray(edges[i].node.file) ? edges[i].node.file : [];
+    for (let j = 0; j < files.length; j++) if (files[j] && files[j].fileId === fileId) held = true;
+  }
+  if (!held) {
+    say("witness:attachment:mismatch");
+    process.exit(2);
+  }
+  say("witness:attachment:match");
 }
 
 main().catch(function () {
@@ -2356,21 +2409,25 @@ One job. Purpose `twenty-restore`, limit 3600, `--stop-post` `/opt/<target>/rest
 
 The two prompts come during the job. Poll it. When a read-back by its invocation shows `fifo-ready`, tell the person to run `/opt/<target>/restore/identity-helper <target>` with sudo over the shell they hold, within 600 seconds, and to say when it printed `identity:written`. Poll again. When a read-back shows `witness-ready`, tell them to run `/opt/<target>/restore/witness-helper <target>` the same way, and type the witness's password. A prompt the person does not answer in time is the job's own refusal. Do not start the job again.
 
-It counts only when all of these hold. The poll class is `succeeded`. The read-back, in the text after the first `]: `, holds `checks:ok`, `handoff:ok`, `sums:ok`, `secrets:ok`, `created`, `volumes:ok`, `data:ok`, `dump:ok`, `counts:ok`, `config-db:ok`, `local:ok`, `files:ok`, `server:ok`, `worker:ok`, `witness:state:equal`, `witness:activation:unchanged`, `witness:login:ok`, `witness:kid:match`, `witness:record:ok`, `file:match`, `witness:ok`, and then `end`. Release follows a finished poll whether or not it counted. Release runs `restore-recover`, which finds `end` and only cleans up.
+It counts only when all of these hold. The poll class is `succeeded`. The read-back, in the text after the first `]: `, holds `checks:ok`, `handoff:ok`, `sums:ok`, `secrets:ok`, `created`, `volumes:ok`, `data:ok`, `dump:ok`, `counts:ok`, `config-db:ok`, `local:ok`, `files:ok`, `server:ok`, `worker:ok`, `witness:state:equal`, `witness:activation:unchanged`, `witness:login:ok`, `witness:kid:match`, `witness:record:ok`, `witness:attachment:match`, `file:match`, `witness:ok`, and then `end`. Release follows a finished poll whether or not it counted. Release runs `restore-recover`, which finds `end` and only cleans up.
 
 - It counted. Re-inspect the target: the server healthy, the worker running, `admin.password` absent, the restore's state ending `end`. Report `changed`, the stages, and the witness lines.
 - It did not count. Report the last stage line. Name Job 7, then Deploy Twenty's removal of the target. Do not send the restore again.
 
 ### Job 4. Stop scheduled backups
 
-Refused while a `vm-job-twenty-backup-*` unit is `activating`, `deactivating`, or `running`. The inspection's jobs section and this script both refuse that. A finished unit is released by the loaded-job question first. The confirmation names the install. The person says the install name. The gate applies. It is one direct call, operand the install name, because the call removes `/opt/<install>/backup/`, which holds `recover`, so `--stop-post` cannot point there. It disables and removes the timer and the service, removes `/var/lib/vm-job/scheduled/twenty-backup`, and removes that directory. Nothing in the bucket is deleted.
+Refused while a `vm-job-twenty-backup-*` unit is `activating`, `deactivating`, or `running`. The inspection's jobs section and this script both refuse that. A finished unit is released by the loaded-job question first. The confirmation names the install. The person says the install name. The gate applies. It is one direct call, operand the install name, because the call removes `/opt/<install>/backup/`, which holds `recover`, so `--stop-post` cannot point there. It disables and removes the timer and the service, removes `/var/lib/vm-job/scheduled/twenty-backup`, and removes that directory. Nothing in the bucket is deleted. It holds `tools/vm-job/`'s admission lock, `/run/lock/vm-job.lock`, from its unit check to its last removal, so neither a timer firing nor another start can begin a backup in between, and a firing already waiting on the lock is stopped with the service. It changes nothing when the scheduled service runs another install's wrapper, or when the lock stays busy for 10 seconds.
 
-This script is 919 code points. `argv` is `/bin/sh`, `-c`, this script, `sh`, and the operands the question names.
+This script is 0 code points. `argv` is `/bin/sh`, `-c`, this script, `sh`, and the operands the question names.
 
 ```sh
 set -eu
 export LC_ALL=C
 install=$1
+svc=/etc/systemd/system/vmjob-scheduled-twenty-backup.service
+if [ -e "$svc" ] && ! grep -qxF -- "ExecStart=/bin/sh /opt/$install/backup/wrapper" "$svc"; then printf '%s\n' stop-scheduled:refused:other-install; exit 2; fi
+exec 9>/run/lock/vm-job.lock
+flock -w 10 9 || { printf '%s\n' stop-scheduled:refused:lock-busy; exit 2; }
 set +e
 list=$(systemctl list-units --all --plain --no-legend 'vm-job-twenty-backup-*')
 list_rc=$?
@@ -2392,6 +2449,8 @@ printf '%s\n' stop-scheduled:done
 ```
 
 
+- The output is `stop-scheduled:refused:other-install`. Nothing was removed. Stop. The scheduled backups on this machine are another install's.
+- The output is `stop-scheduled:refused:lock-busy`. Nothing was removed. Stop. A start held the lock; re-inspect before asking again.
 - The output is `stop-scheduled:refused:unread`. Nothing was removed. Stop. The unit list was not read.
 - The output is `stop-scheduled:refused:running`. Nothing was removed. Stop. Report the unit.
 - The output is `stop-scheduled:done`. Re-inspect.
@@ -2424,7 +2483,7 @@ A reboot that already restarted the containers still gets this read when the per
 
 ### Job 7. Clean up after a restore that did not count
 
-Ask on a target whose restore `state` exists and does not end `end`. The confirmation names the target and says to clean it up. It is safe to repeat. Every step treats an absent thing as done.
+Ask on a target whose restore `state` exists and does not end `end`, or whose `backup/clean-state` exists and does not end `clean:end`, a cleanup cut off after it removed `restore/`. The confirmation names the target and says to clean it up. It is safe to repeat. Every step treats an absent thing as done.
 
 The inspection, then the restore read of Job 3. The gate is Deploy Twenty's (`skills/Deploy Twenty/`), with `experts/DevOps Expert/`. The plan names the target, the job and its stop-post, and the way back: none is needed, since the job only stops the target's app, deletes keys the restore attempted, and removes the restore's files, and the target is Deploy Twenty's to remove next.
 
@@ -2651,7 +2710,7 @@ For each job, also: its unit name, its invocation ID and its limit, the last pol
 - **A schedule that is not daily, called overdue.** Report `interval-not-derived`. Do not say overdue.
 - **Redis's queue expected to come back.** It is not in the set. That is missing. Say so.
 - **A second job started while one is loaded.** The loaded-job question is Deploy Twenty's. A running job stops the run. A finished one is released and the run starts over from its inspection, once.
-- **A start sent on `tools/vm-job/` 0.2.0, without `--stop-post`.** Stop. The backup needs 0.3.0. Send nothing.
+- **A start sent on `tools/vm-job/` 0.2.0, without `--stop-post`.** Stop. The backup needs 0.3.2. Send nothing.
 - **A writer longer than 4096 code points, sent or split past the last check.** Do not send it. The last writer is the one that runs `sh -n` or `node --check` and sets the mode.
 - **The scheduled service read as a loaded job.** `vmjob-scheduled-twenty-backup.service` does not match `vm-job-*`. The units section is where it is read.
 - **A release of a successful backup read as the app being down.** `recover` then sees `restart-verified` and only removes helpers and the work directory.

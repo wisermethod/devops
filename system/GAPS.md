@@ -4,7 +4,7 @@ What this plugin does not do, declared by the primitive that names it.
 
 A gap is a capability this root does not provide that a primitive's own body names as missing (`wiser/standards/primitives.md`). This file collects every declared `gaps` entry, by hand, and is corrected whenever a primitive's gaps change. It carries capability gaps only, and names what is missing, never where it went.
 
-Counted 2026-10-10: 41 gaps across 9 primitives. Bullet count: `grep -E '^- ' system/GAPS.md | wc -l` returns 41, and the same count derived from the primitives' own `gaps:` frontmatter returns 41.
+Counted 2026-10-10: 43 gaps across 9 primitives. Bullet count: `grep -E '^- ' system/GAPS.md | wc -l` returns 43, and the same count derived from the primitives' own `gaps:` frontmatter returns 43.
 
 ## Experts
 
@@ -77,3 +77,5 @@ Counted 2026-10-10: 41 gaps across 9 primitives. Bullet count: `grep -E '^- ' sy
 - serving a restored workspace's custom domain from another install
 - a release other than v2.45.6
 - creating the buckets and the tokens, which is the person's with the vendor
+- scheduled backups of a second install on the same machine
+- a backup or restore whose archive the machine's available memory cannot hold, since the helper holds it whole

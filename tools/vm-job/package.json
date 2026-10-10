@@ -1,7 +1,7 @@
 {
   "name": "vm-job",
-  "version": "0.1.0",
-  "description": "Build the argument vectors that start, poll, read back and release a tracked background job on one machine a router maps, and classify each answer, as one JSON object",
+  "version": "0.3.0",
+  "description": "Build the argument vectors that start, poll, read back and release a tracked background job on one machine a router maps, build the texts for a scheduled job, and classify each answer, as one JSON object",
   "private": true,
   "type": "module",
   "scripts": {

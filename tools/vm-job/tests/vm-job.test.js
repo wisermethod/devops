@@ -4,7 +4,9 @@ import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import {
   chmodSync,
+  mkdirSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
   rmSync,
   writeFileSync
@@ -12,7 +14,15 @@ import {
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { runVmJob } from '../scripts/vm-job-core.js';
+import {
+  ENUM_LINE,
+  RELEASE_CORE,
+  SHIM_EXEC,
+  STARTER,
+  STARTER_LOCK_LINES,
+  matchesVmJobEnumeration,
+  runVmJob
+} from '../scripts/vm-job-core.js';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const SCRIPT = join(ROOT, 'scripts', 'vm-job.js');
@@ -120,6 +130,12 @@ describe('help', () => {
       assert.match(result.stdout, /--recorded/);
       assert.match(result.stdout, /--install/);
       assert.match(result.stdout, /--env/);
+      assert.match(result.stdout, /--stop-post/);
+      assert.match(result.stdout, /--stop-post-timeout/);
+      assert.match(result.stdout, /--script-path/);
+      assert.match(result.stdout, /--wrapper-path/);
+      assert.match(result.stdout, /--on-calendar/);
+      assert.match(result.stdout, /scheduled-record/);
     }
   });
 });
@@ -783,5 +799,608 @@ describe('review round 2 boundaries', () => {
       const result = ok(['classify', '--step', 'poll', '--answer', path]);
       assert.equal(result.class, 'not-read');
     });
+  });
+});
+
+const SCHEDULED = [
+  'scheduled', '--purpose', 'twenty-backup', '--limit', '3600',
+  '--script-path', '/opt/twenty/backup/job.sh',
+  '--wrapper-path', '/opt/twenty/backup/wrapper',
+  '--on-calendar', '*-*-* 03:00:00',
+  '--stop-post', '/opt/twenty/backup/recover',
+  '--stop-post-timeout', '1200',
+  '--', 'dump'
+];
+const SCHEDULED_UNIT = 'vm-job-twenty-backup-20261010t000000z-012345';
+const SCHEDULED_UNIT_2 = 'vm-job-twenty-backup-20261010t000001z-012345';
+const OTHER_UNIT = 'vm-job-apt-install-20261005t120000z-abcdef';
+const RUN_ID = 'abcdef0123456789abcdef0123456789';
+const RUN_ID_2 = 'fedcba9876543210fedcba9876543210';
+const JOB = 'set -eu\necho backup\n';
+
+function codePoints(text) {
+  return Array.from(text).length;
+}
+
+function scheduledArgs(extra = []) {
+  return [
+    'scheduled', '--purpose', 'twenty-backup', '--limit', '3600',
+    '--script-path', '/opt/twenty/backup/job.sh',
+    '--wrapper-path', '/opt/twenty/backup/wrapper',
+    '--on-calendar', '*-*-* 03:00:00',
+    ...extra
+  ];
+}
+
+// The shipped wrapper names /var/lib/vm-job, /run/lock/vm-job.lock,
+// /run/vm-job.token and /run/vm-job-stop.*. The test rewrites only those
+// prefixes, plus the fixture script path, into a temporary directory.
+// A bare /run replacement would corrupt a path such as /opt/twenty/backup/run.
+function rewriteWrapper(text, root, scriptPath) {
+  return text
+    .replaceAll('/var/lib/vm-job', join(root, 'var/lib/vm-job'))
+    .replaceAll('/run/lock/vm-job.lock', join(root, 'run/lock/vm-job.lock'))
+    .replaceAll('/run/vm-job.token', join(root, 'run/vm-job.token'))
+    .replaceAll('/run/vm-job-stop.', join(root, 'run/vm-job-stop.'))
+    .replaceAll('/opt/twenty/backup/job.sh', scriptPath);
+}
+
+function openBox(wrapperText) {
+  const root = mkdtempSync(join(tmpdir(), 'vm-job-sched-'));
+  const bin = join(root, 'bin');
+  mkdirSync(bin);
+  mkdirSync(join(root, 'run/lock'), { recursive: true });
+  mkdirSync(join(root, 'var/lib/vm-job/scheduled'), { recursive: true });
+  const scriptPath = join(root, 'job.sh');
+  writeFileSync(scriptPath, JOB);
+  const q = (value) => JSON.stringify(value);
+  const logger = `
+log() {
+  n=0
+  if [ -f ${q(join(root, 'seq'))} ]; then n=$(/bin/cat ${q(join(root, 'seq'))}); fi
+  n=$((n + 1))
+  printf '%s\\n' "$n" > ${q(join(root, 'seq'))}
+  dir=${q(join(root, 'calls'))}/$n
+  mkdir -p "$dir"
+  i=0
+  for a do
+    printf '%s' "$a" > "$dir/$i"
+    i=$((i + 1))
+  done
+}
+`;
+  const writeBin = (name, body) => {
+    const path = join(bin, name);
+    writeFileSync(path, body);
+    chmodSync(path, 0o755);
+  };
+  writeBin('flock', `#!/bin/sh\n${logger}\nlog flock "$@"\nif [ -f ${q(join(root, 'busy'))} ]; then exit 1; fi\nexit 0\n`);
+  writeBin('systemctl', `#!/bin/sh
+${logger}
+log systemctl "$@"
+case "$1" in
+  list-units)
+    if [ -f ${q(join(root, 'units'))} ]; then /bin/cat ${q(join(root, 'units'))}; fi
+    exit 0 ;;
+  show)
+    prop=
+    while [ $# -gt 0 ]; do
+      case "$1" in
+        -p) prop=$2; shift 2 ;;
+        *) shift ;;
+      esac
+    done
+    if [ -f ${q(join(root, 'state'))}/$prop ]; then /bin/cat ${q(join(root, 'state'))}/$prop; fi
+    exit 0 ;;
+  stop|reset-failed)
+    : > ${q(join(root, 'units'))}
+    exit 0 ;;
+esac
+exit 0
+`);
+  writeBin('systemd-run', `#!/bin/sh
+${logger}
+log systemd-run "$@"
+unit=
+for a do
+  case "$a" in
+    --unit=*) unit=\${a#--unit=} ;;
+  esac
+done
+id=$(/bin/cat ${q(join(root, 'invocation'))})
+printf 'Running as unit: %s.service; invocation ID: %s\\n' "$unit" "$id"
+exit 0
+`);
+  writeBin('cat', `#!/bin/sh
+for arg do
+  case "$arg" in
+    /proc/sys/kernel/random/uuid)
+      printf '%s\\n' '01234567-89ab-cdef-0123-456789abcdef'
+      exit 0 ;;
+  esac
+done
+for arg do
+  case "$arg" in
+    */vm-job.token)
+      if [ -f ${q(join(root, 'flip'))} ] && [ ! -e "$arg" ]; then
+        printf '%s\\n' 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb' > "$arg"
+        exit 1
+      fi
+      ;;
+  esac
+done
+exec /bin/cat "$@"
+`);
+  writeBin('date', `#!/bin/sh
+if [ "$1" = -u ] && [ "$2" = '+%Y%m%dT%H%M%SZ' ]; then
+  n=0
+  if [ -f ${q(join(root, 'date-n'))} ]; then n=$(/bin/cat ${q(join(root, 'date-n'))}); fi
+  printf '%s\\n' "$((n + 1))" > ${q(join(root, 'date-n'))}
+  printf '20261010T00000%dZ\\n' "$n"
+  exit 0
+fi
+exec /bin/date "$@"
+`);
+  writeFileSync(join(root, 'invocation'), `${RUN_ID}\n`);
+  const wrapperPath = join(root, 'wrapper');
+  writeFileSync(wrapperPath, rewriteWrapper(wrapperText, root, scriptPath));
+  chmodSync(wrapperPath, 0o755);
+  const recordPath = join(root, 'var/lib/vm-job/scheduled/twenty-backup');
+  return {
+    root,
+    fire() {
+      return spawnSync('/bin/dash', [wrapperPath], {
+        encoding: 'utf8',
+        env: { ...process.env, PATH: `${bin}:/bin:/usr/bin` }
+      });
+    },
+    calls() {
+      const dir = join(root, 'calls');
+      let names;
+      try {
+        names = readdirSync(dir);
+      } catch {
+        return [];
+      }
+      return names.sort((left, right) => Number(left) - Number(right)).map((name) => {
+        const slot = join(dir, name);
+        return readdirSync(slot)
+          .filter((entry) => /^\d+$/.test(entry))
+          .sort((left, right) => Number(left) - Number(right))
+          .map((entry) => readFileSync(join(slot, entry), 'utf8'));
+      });
+    },
+    resetCalls() {
+      rmSync(join(root, 'calls'), { recursive: true, force: true });
+      rmSync(join(root, 'seq'), { force: true });
+    },
+    record() {
+      try {
+        return readFileSync(recordPath, 'utf8');
+      } catch {
+        return null;
+      }
+    },
+    seed(text) {
+      writeFileSync(recordPath, text);
+    },
+    setUnits(text) {
+      writeFileSync(join(root, 'units'), text);
+    },
+    setState(fields) {
+      mkdirSync(join(root, 'state'), { recursive: true });
+      for (const [key, value] of Object.entries(fields)) {
+        writeFileSync(join(root, 'state', key), `${value}\n`);
+      }
+    },
+    setInvocation(id) {
+      writeFileSync(join(root, 'invocation'), `${id}\n`);
+    },
+    leftovers() {
+      const scheduled = readdirSync(join(root, 'var/lib/vm-job/scheduled')).filter((name) => name.includes('.tmp.'));
+      const shims = readdirSync(join(root, 'run')).filter((name) => name.startsWith('vm-job-stop'));
+      return { scheduled, shims };
+    },
+    cleanup() {
+      rmSync(root, { recursive: true, force: true });
+    }
+  };
+}
+
+function runBox(wrapperText, prepare) {
+  const box = openBox(wrapperText);
+  try {
+    if (prepare) prepare(box);
+    const result = box.fire();
+    return {
+      status: result.status,
+      stdout: result.stdout,
+      stderr: result.stderr,
+      record: box.record(),
+      calls: box.calls(),
+      leftovers: box.leftovers()
+    };
+  } finally {
+    box.cleanup();
+  }
+}
+
+function listCall() {
+  return ['systemctl', 'list-units', '--all', '--plain', '--no-legend', 'vm-job-*'];
+}
+
+function showCall(prop, unit = SCHEDULED_UNIT) {
+  return ['systemctl', 'show', '-p', prop, '--value', `${unit}.service`];
+}
+
+function shows(unit = SCHEDULED_UNIT) {
+  return ['InvocationID', 'ActiveState', 'SubState', 'TasksCurrent'].map((prop) => showCall(prop, unit));
+}
+
+// job=$(cat file) drops trailing newlines, so the -c text has none.
+function systemdRun(unit) {
+  return [
+    'systemd-run', '-p', 'ExecStopPost=/bin/sh /opt/twenty/backup/recover', '-p', 'TimeoutStopSec=1200',
+    `--unit=${unit}`, `--description=background job ${unit}`, '--expand-environment=no',
+    '-p', 'Type=exec', '-p', 'ExitType=cgroup', '-p', 'RemainAfterExit=yes', '-p', `RuntimeMaxSec=3600`,
+    '-E', 'DEBIAN_FRONTEND=noninteractive', '-E', 'NEEDRESTART_SUSPEND=1',
+    '--', '/bin/sh', '-c', JOB.replace(/\n+$/, ''), 'sh', 'dump'
+  ];
+}
+
+describe('vm-job 0.3.0', () => {
+  it('pins a start without stop-post to the 0.2.0 argv', () => {
+    withDir((dir) => {
+      const built = ok(startArgs(dir, ['--', 'install', 'tree=2.1.1']));
+      const pinned = JSON.parse(readFileSync(join(FIXTURES, 'start-0.2.0.argv.json'), 'utf8'));
+      const actual = built.argv.slice();
+      actual[4] = 'UNIT';
+      assert.deepEqual(actual, pinned);
+      assert.equal(built.argv[2], STARTER);
+    });
+  });
+
+  it('adds the stop-post properties as operands and keeps the starter text', () => {
+    withDir((dir) => {
+      const built = ok(startArgs(dir, ['--stop-post', '/opt/twenty/backup/recover', '--stop-post-timeout', '1200', '--', 'dump']));
+      const stopPost = readFileSync(join(ROOT, 'scripts/texts/stop-post.sh'), 'utf8');
+      assert.equal(built.argv[2], stopPost);
+      assert.deepEqual(built.argv.slice(0, 4), ['/bin/sh', '-c', stopPost, 'sh']);
+      assert.equal(built.argv[4], '-p');
+      assert.equal(built.argv[5], 'ExecStopPost=/bin/sh /opt/twenty/backup/recover');
+      assert.equal(built.argv[6], '-p');
+      assert.equal(built.argv[7], 'TimeoutStopSec=1200');
+      assert.equal(built.argv[8], STARTER);
+      assert.equal(built.argv.at(-1), 'dump');
+      const fiftyOne = Array.from({ length: 51 }, (_, index) => `p${index}`);
+      const full = ok(startArgs(dir, ['--stop-post', '/opt/recover', '--stop-post-timeout', '30', '--', ...fiftyOne]));
+      assert.equal(full.argv.length, 64);
+      refused(startArgs(dir, ['--stop-post', '/opt/recover', '--stop-post-timeout', '30', '--', ...fiftyOne, 'more']), /52 operands is more than 51/);
+    });
+  });
+
+  it('refuses a bad stop-post path or timeout by name', () => {
+    withDir((dir) => {
+      const base = startArgs(dir);
+      refused([...base, '--stop-post', '/opt/../recover', '--stop-post-timeout', '30'], /must not contain a "\.\." segment/);
+      refused([...base, '--stop-post', '/opt//recover', '--stop-post-timeout', '30'], /must not contain "\/\/"/);
+      refused([...base, '--stop-post', 'opt/recover', '--stop-post-timeout', '30'], /must be an absolute path/);
+      refused([...base, '--stop-post', `/${'a'.repeat(201)}`, '--stop-post-timeout', '30'], /must match \^\/\[A-Za-z0-9\._\/-\]\{1,200\}\$/);
+      refused([...base, '--stop-post', '/opt/recover', '--stop-post-timeout', '29'], /from 30 to 3600/);
+      refused([...base, '--stop-post', '/opt/recover', '--stop-post-timeout', '3601'], /from 30 to 3600/);
+      refused([...base, '--stop-post', '/opt/recover', '--stop-post-timeout', '30s'], /from 30 to 3600/);
+      refused([...base, '--stop-post', '/opt/recover', '--stop-post-timeout', '030'], /from 30 to 3600/);
+      refused([...base, '--stop-post', '/opt/recover'], /required together/);
+      refused([...base, '--stop-post-timeout', '30'], /required together/);
+      ok([...base, '--stop-post', `/${'a'.repeat(200)}`, '--stop-post-timeout', '30']);
+      ok([...base, '--stop-post', '/opt/recover', '--stop-post-timeout', '3600']);
+    });
+  });
+
+  it('prints the three scheduled texts for the fixture input', () => {
+    const built = ok(SCHEDULED);
+    assert.equal(built.command, 'scheduled');
+    assert.equal(built.purpose, 'twenty-backup');
+    assert.equal(built.serviceName, 'vmjob-scheduled-twenty-backup.service');
+    assert.equal(built.timerName, 'vmjob-scheduled-twenty-backup.timer');
+    assert.equal(built.wrapper, readFileSync(join(FIXTURES, 'scheduled-wrapper.sh'), 'utf8'));
+    assert.equal(built.service, readFileSync(join(FIXTURES, 'scheduled-service.service'), 'utf8'));
+    assert.equal(built.timer, readFileSync(join(FIXTURES, 'scheduled-timer.timer'), 'utf8'));
+    assert.match(built.service, /Type=oneshot\nExecStart=\/bin\/sh \/opt\/twenty\/backup\/wrapper\n/);
+    assert.match(built.timer, /OnCalendar=\*-\*-\* 03:00:00\nPersistent=true\nRandomizedDelaySec=0\nUnit=vmjob-scheduled-twenty-backup\.service\n/);
+    assert.equal(matchesVmJobEnumeration(built.serviceName), false);
+    assert.equal(matchesVmJobEnumeration(built.timerName), false);
+    assert.equal(matchesVmJobEnumeration('vm-job-scheduled-twenty-backup.service'), true);
+    const glob = spawnSync('/bin/dash', ['-c', [
+      'case vmjob-scheduled-twenty-backup.service in vm-job-*) echo service ;; *) echo service-no ;; esac',
+      'case vmjob-scheduled-twenty-backup.timer in vm-job-*) echo timer ;; *) echo timer-no ;; esac',
+      'case vm-job-twenty-backup-20261010t000000z-abcdef.service in vm-job-*) echo job ;; *) echo job-no ;; esac'
+    ].join('\n')], { encoding: 'utf8' });
+    assert.equal(glob.status, 0, glob.stderr);
+    assert.equal(glob.stdout, 'service-no\ntimer-no\njob\n');
+  });
+
+  it('composes the release checks and the starter from the shipped texts', () => {
+    const built = ok(SCHEDULED);
+    const releaseText = readFileSync(join(ROOT, 'scripts/texts/release.sh'), 'utf8');
+    const startMark = 'cur=$(systemctl show -p InvocationID --value "$unit.service")';
+    const slice = releaseText.slice(releaseText.indexOf(startMark), releaseText.indexOf('echo "release-exit:$rc"')).trimEnd();
+    assert.equal(slice, RELEASE_CORE.trimEnd());
+    assert.equal(built.wrapper.includes(slice), true);
+    assert.equal(built.wrapper.split(startMark).length - 1, 1);
+    const body = built.wrapper.split("<< 'E'\n")[1].split('\nE\n')[0];
+    const expected = STARTER.split('\n').filter((line) => !STARTER_LOCK_LINES.includes(line)).join('\n').replace(/\n+$/, '');
+    assert.equal(body, expected);
+    assert.equal(body.includes(STARTER_LOCK_LINES[1]), false);
+    assert.equal(built.wrapper.split(ENUM_LINE).length - 1, 2);
+    const stopPost = readFileSync(join(ROOT, 'scripts/texts/stop-post.sh'), 'utf8');
+    assert.equal(stopPost.includes(SHIM_EXEC), true);
+    assert.equal(built.wrapper.includes(SHIM_EXEC), true);
+    assert.equal(built.wrapper.includes('release.sh'), false);
+    const bare = ok(scheduledArgs());
+    assert.equal(bare.wrapper.includes('ExecStopPost'), false);
+    assert.equal(bare.wrapper.includes(SHIM_EXEC), false);
+    assert.equal(bare.wrapper.includes(slice), true);
+    const quoted = ok(scheduledArgs(['--', "a'b"]));
+    assert.equal(quoted.wrapper.includes(`set -- 'a'\\''b'`), true);
+  });
+
+  it('refuses a bad calendar, purpose, or scheduled path by name', () => {
+    const args = (overrides = {}) => {
+      const values = {
+        '--purpose': 'twenty-backup',
+        '--limit': '3600',
+        '--script-path': '/opt/twenty/backup/job.sh',
+        '--wrapper-path': '/opt/twenty/backup/wrapper',
+        '--on-calendar': '*-*-* 03:00:00',
+        ...overrides
+      };
+      const argv = ['scheduled'];
+      for (const [flag, value] of Object.entries(values)) argv.push(flag, value);
+      return argv;
+    };
+    refused(args({ '--on-calendar': '*~' }), /--on-calendar must match/);
+    refused(args({ '--on-calendar': 'a'.repeat(65) }), /--on-calendar must match/);
+    refused(args({ '--purpose': 'Twenty' }), /--purpose must match/);
+    refused(args({ '--purpose': 'twenty--backup' }), /--purpose must match/);
+    refused(args({ '--purpose': 'a'.repeat(90) }), /the unit name is 121 characters/);
+    refused(args({ '--script-path': '/opt/../job.sh' }), /must not contain a "\.\." segment/);
+    refused(args({ '--script-path': '/opt//job.sh' }), /must not contain "\/\/"/);
+    refused(args({ '--script-path': 'opt/job.sh' }), /must be an absolute path/);
+    refused(args({ '--wrapper-path': `/${'w'.repeat(201)}` }), /must match/);
+    refused(scheduledArgs(['--stop-post', '/opt/recover']), /required together/);
+    refused(scheduledArgs(['--stop-post-timeout', '29']), /required together/);
+    refused(scheduledArgs(['--stop-post', '/opt/recover', '--stop-post-timeout', '29']), /from 30 to 3600/);
+    refused(scheduledArgs(['--', ...Array.from({ length: 57 }, (_, index) => `p${index}`)]), /57 operands is more than 56/);
+    refused(['scheduled', '--install'], /unknown option "--install"/);
+  });
+
+  it('checks every shipped text and the fixture wrapper with dash', () => {
+    const names = ['starter.sh', 'release.sh', 'poll.sh', 'readback.sh', 'journal.sh', 'stop-post.sh'];
+    for (const name of names) {
+      const text = readFileSync(join(ROOT, 'scripts/texts', name), 'utf8');
+      assert.ok(codePoints(text) <= 4096, name);
+      const checked = spawnSync('/bin/dash', ['-n', join(ROOT, 'scripts/texts', name)], { encoding: 'utf8' });
+      assert.equal(checked.status, 0, `${name}\n${checked.stderr}`);
+    }
+    const wrapper = readFileSync(join(FIXTURES, 'scheduled-wrapper.sh'), 'utf8');
+    assert.ok(codePoints(wrapper) <= 4096);
+    const copy = join(tmpdir(), 'vm-job-fixture-wrapper.sh');
+    writeFileSync(copy, wrapper);
+    const checked = spawnSync('/bin/dash', ['-n', copy], { encoding: 'utf8' });
+    rmSync(copy, { force: true });
+    assert.equal(checked.status, 0, checked.stderr);
+  });
+
+  it('adopts a finished scheduled unit with the existing poll and release classes', () => {
+    withDir((dir) => {
+      const polled = ok(['classify', '--step', 'poll', '--answer', pollAnswer(dir, {
+        ActiveState: 'active',
+        SubState: 'exited',
+        ExecMainCode: '1',
+        ExecMainStatus: '0',
+        TasksCurrent: '0',
+        InvocationID: RUN_ID
+      })]);
+      assert.equal(polled.class, 'succeeded');
+      assert.equal(polled.finished, true);
+      const unit = 'vm-job-twenty-backup-20261010t030000z-abcdef';
+      const release = ok(['release', '--unit', unit, '--invocation', RUN_ID]);
+      assert.equal(release.argv[2], readFileSync(join(ROOT, 'scripts/texts/release.sh'), 'utf8'));
+      assert.deepEqual(release.argv.slice(3), ['sh', unit, RUN_ID]);
+    });
+  });
+
+  it('classifies a scheduled record', () => {
+    withDir((dir) => {
+      const recorded = ok(['classify', '--step', 'scheduled-record', '--answer', writeAnswer(dir, {
+        outcome: 'ok',
+        output: `${SCHEDULED_UNIT}\n${RUN_ID}\n2\n`
+      })]);
+      assert.equal(recorded.command, 'classify');
+      assert.equal(recorded.step, 'scheduled-record');
+      assert.equal(recorded.class, 'recorded');
+      assert.equal(Object.hasOwn(recorded, 'finished'), false);
+      assert.deepEqual(recorded.facts, { unit: SCHEDULED_UNIT, invocationId: RUN_ID, skips: 2 });
+      const zero = ok(['classify', '--step', 'scheduled-record', '--answer', writeAnswer(dir, {
+        outcome: 'ok',
+        output: `${SCHEDULED_UNIT}\n${RUN_ID}\n0\n`
+      })]);
+      assert.equal(zero.facts.skips, 0);
+      const none = ok(['classify', '--step', 'scheduled-record', '--answer', writeAnswer(dir, { outcome: 'ok', output: 'none\n' })]);
+      assert.equal(none.class, 'none');
+      assert.deepEqual(none.facts, {});
+      for (const answer of [
+        { status: 'needs_confirmation', outcome: 'ok', output: 'none\n' },
+        { outcome: 'timeout', output: 'none\n' },
+        { outcome: 'ok', output: 'none\nextra\n' },
+        { outcome: 'ok', output: `not-a-unit\n${RUN_ID}\n0\n` },
+        { outcome: 'ok', output: `${SCHEDULED_UNIT}\n${RUN_ID.slice(1)}x\n0\n` },
+        { outcome: 'ok', output: `${SCHEDULED_UNIT}\n${RUN_ID}\n01\n` },
+        { outcome: 'ok', output: '' }
+      ]) {
+        const result = ok(['classify', '--step', 'scheduled-record', '--answer', writeAnswer(dir, answer)]);
+        assert.equal(result.class, 'not-read');
+        assert.deepEqual(result.facts, {});
+      }
+      const answer = writeAnswer(dir, { outcome: 'ok', output: 'none\n' });
+      refused(['classify', '--step', 'scheduled-record', '--answer', answer, '--unit', SCHEDULED_UNIT], /--unit applies to step start/);
+      refused(['classify', '--step', 'scheduled-record', '--answer', answer, '--recorded', RUN_ID], /--recorded applies to step poll/);
+    });
+  });
+
+  it('runs the wrapper: no loaded unit, then the recorded unit finished', () => {
+    const box = openBox(ok(SCHEDULED).wrapper);
+    try {
+      const first = box.fire();
+      assert.equal(first.status, 0, first.stderr);
+      assert.equal(first.stderr, '');
+      assert.equal(first.stdout, '');
+      assert.equal(box.record(), `${SCHEDULED_UNIT}\n${RUN_ID}\n0\n`);
+      assert.deepEqual(box.calls(), [
+        ['flock', '-w', '20', '9'],
+        listCall(),
+        listCall(),
+        systemdRun(SCHEDULED_UNIT)
+      ]);
+      assert.deepEqual(box.leftovers(), { scheduled: [], shims: [] });
+      box.resetCalls();
+      box.setUnits(`${SCHEDULED_UNIT}.service loaded active exited\n`);
+      box.setState({ InvocationID: RUN_ID, ActiveState: 'active', SubState: 'exited', TasksCurrent: '0' });
+      box.setInvocation(RUN_ID_2);
+      const second = box.fire();
+      assert.equal(second.status, 0, second.stderr);
+      assert.equal(second.stdout, `scheduled:released:${SCHEDULED_UNIT}\n`);
+      assert.equal(box.record(), `${SCHEDULED_UNIT_2}\n${RUN_ID_2}\n0\n`);
+      assert.deepEqual(box.calls(), [
+        ['flock', '-w', '20', '9'],
+        listCall(),
+        ...shows(),
+        ['systemctl', 'stop', `${SCHEDULED_UNIT}.service`],
+        listCall(),
+        systemdRun(SCHEDULED_UNIT_2, RUN_ID_2)
+      ]);
+      assert.deepEqual(box.leftovers(), { scheduled: [], shims: [] });
+    } finally {
+      box.cleanup();
+    }
+  });
+
+  it('reset-fails a recorded unit that failed with no tasks, then starts', () => {
+    const seen = runBox(ok(SCHEDULED).wrapper, (box) => {
+      box.seed(`${SCHEDULED_UNIT}\n${RUN_ID}\n0\n`);
+      box.setUnits(`${SCHEDULED_UNIT}.service loaded failed failed\n`);
+      box.setState({ InvocationID: RUN_ID, ActiveState: 'failed', SubState: 'failed', TasksCurrent: '0' });
+    });
+    assert.equal(seen.status, 0, seen.stderr);
+    assert.equal(seen.stdout, `scheduled:released:${SCHEDULED_UNIT}\n`);
+    assert.equal(seen.record, `${SCHEDULED_UNIT}\n${RUN_ID}\n0\n`);
+    assert.deepEqual(seen.calls, [
+      ['flock', '-w', '20', '9'],
+      listCall(),
+      ...shows(),
+      ['systemctl', 'reset-failed', `${SCHEDULED_UNIT}.service`],
+      listCall(),
+      systemdRun(SCHEDULED_UNIT)
+    ]);
+  });
+
+  it('skips a recorded unit that is still running', () => {
+    const seen = runBox(ok(SCHEDULED).wrapper, (box) => {
+      box.seed(`${SCHEDULED_UNIT}\n${RUN_ID}\n0\n`);
+      box.setUnits(`${SCHEDULED_UNIT}.service loaded active running\n`);
+      box.setState({ InvocationID: RUN_ID, ActiveState: 'active', SubState: 'running', TasksCurrent: '1' });
+    });
+    assert.equal(seen.status, 0, seen.stderr);
+    assert.equal(seen.stdout, `scheduled:skipped:${SCHEDULED_UNIT}\n`);
+    assert.equal(seen.record, `${SCHEDULED_UNIT}\n${RUN_ID}\n1\n`);
+    assert.deepEqual(seen.calls, [
+      ['flock', '-w', '20', '9'],
+      listCall(),
+      ...shows()
+    ]);
+  });
+
+  it('skips a different loaded unit and counts a second firing', () => {
+    const box = openBox(ok(SCHEDULED).wrapper);
+    try {
+      box.seed(`${SCHEDULED_UNIT}\n${RUN_ID}\n0\n`);
+      box.setUnits(`${OTHER_UNIT}.service loaded active exited\n`);
+      const first = box.fire();
+      assert.equal(first.status, 0, first.stderr);
+      assert.equal(first.stdout, `scheduled:skipped:${OTHER_UNIT}\n`);
+      assert.equal(box.record(), `${SCHEDULED_UNIT}\n${RUN_ID}\n1\n`);
+      assert.deepEqual(box.calls(), [
+        ['flock', '-w', '20', '9'],
+        listCall()
+      ]);
+      box.resetCalls();
+      const second = box.fire();
+      assert.equal(second.status, 0, second.stderr);
+      assert.equal(second.stdout, `scheduled:skipped:${OTHER_UNIT}\n`);
+      assert.equal(box.record(), `${SCHEDULED_UNIT}\n${RUN_ID}\n2\n`);
+      assert.deepEqual(box.calls(), [
+        ['flock', '-w', '20', '9'],
+        listCall()
+      ]);
+    } finally {
+      box.cleanup();
+    }
+  });
+
+  it('skips when the recorded invocation differs', () => {
+    const seen = runBox(ok(SCHEDULED).wrapper, (box) => {
+      box.seed(`${SCHEDULED_UNIT}\n${RUN_ID}\n0\n`);
+      box.setUnits(`${SCHEDULED_UNIT}.service loaded active exited\n`);
+      box.setState({ InvocationID: RUN_ID_2, ActiveState: 'active', SubState: 'exited', TasksCurrent: '0' });
+    });
+    assert.equal(seen.status, 0, seen.stderr);
+    assert.equal(seen.stdout, `scheduled:skipped:${SCHEDULED_UNIT}\n`);
+    assert.equal(seen.record, `${SCHEDULED_UNIT}\n${RUN_ID}\n1\n`);
+    assert.deepEqual(seen.calls, [
+      ['flock', '-w', '20', '9'],
+      listCall(),
+      ...shows()
+    ]);
+    assert.equal(seen.calls.some((call) => call[1] === 'stop' || call[1] === 'reset-failed'), false);
+  });
+
+  it('exits 0 when the lock is busy and does not touch the record', () => {
+    const seen = runBox(ok(SCHEDULED).wrapper, (box) => {
+      box.seed(`${SCHEDULED_UNIT}\n${RUN_ID}\n3\n`);
+      writeFileSync(join(box.root, 'busy'), '1');
+      box.setUnits(`${SCHEDULED_UNIT}.service loaded active running\n`);
+    });
+    assert.equal(seen.status, 0, seen.stderr);
+    assert.equal(seen.stdout, 'scheduled:lock-busy\n');
+    assert.equal(seen.record, `${SCHEDULED_UNIT}\n${RUN_ID}\n3\n`);
+    assert.deepEqual(seen.calls, [['flock', '-w', '20', '9']]);
+  });
+
+  it('leaves the record unchanged when the starter reports token-changed', () => {
+    const seen = runBox(ok(SCHEDULED).wrapper, (box) => {
+      box.seed(`${SCHEDULED_UNIT}\n${RUN_ID}\n4\n`);
+      writeFileSync(join(box.root, 'flip'), '1');
+    });
+    assert.equal(seen.status, 15, seen.stderr);
+    assert.equal(seen.stdout, 'token-changed:bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb\n');
+    assert.equal(seen.record, `${SCHEDULED_UNIT}\n${RUN_ID}\n4\n`);
+    assert.deepEqual(seen.calls, [
+      ['flock', '-w', '20', '9'],
+      listCall(),
+      listCall()
+    ]);
+  });
+
+  it('starts without stop-post properties when the option is absent', () => {
+    const seen = runBox(ok(scheduledArgs(['--', 'dump'])).wrapper);
+    assert.equal(seen.status, 0, seen.stderr);
+    assert.equal(seen.stdout, '');
+    assert.equal(seen.record, `${SCHEDULED_UNIT}\n${RUN_ID}\n0\n`);
+    const run = seen.calls.at(-1);
+    assert.equal(run[0], 'systemd-run');
+    assert.equal(run.includes('ExecStopPost=/bin/sh /opt/twenty/backup/recover'), false);
+    assert.equal(run[1], `--unit=${SCHEDULED_UNIT}`);
+    assert.equal(run.at(-1), 'dump');
   });
 });

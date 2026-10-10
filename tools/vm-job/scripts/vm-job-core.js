@@ -1,6 +1,6 @@
 /**
  * vm-job core. Node built-ins only. No network, no write, no gateway call.
- * The five scripts are the contract texts shipped under scripts/texts/.
+ * The scripts under scripts/texts/ are the contract texts.
  */
 
 import { randomBytes } from 'node:crypto';
@@ -39,14 +39,25 @@ const SHOW_FIELDS = [
 ];
 
 const NO_PROCESS = new Set(['', '[not set]', '0']);
-const STEPS = new Set(['start', 'poll', 'readback', 'journal', 'release']);
+const STEPS = new Set(['start', 'poll', 'readback', 'journal', 'release', 'scheduled-record']);
+
+const MACHINE_PATH_RE = /^\/[A-Za-z0-9._/-]{1,200}$/;
+const CALENDAR_RE = /^[A-Za-z0-9*:,./ -]{1,64}$/;
+
+// argv is /bin/sh, -c, the script, sh, then the command's own strings.
+// A plain start is 8 strings before operands. With stop-post the driver,
+// two -p pairs, and the starter text sit in front of those, 13 in all.
+const START_ARGV_PREFIX = 8;
+const START_STOP_ARGV_PREFIX = 13;
+const ARGV_MAX = 64;
 
 const VALUE_FLAGS = {
-  start: ['--purpose', '--limit', '--token', '--script'],
+  start: ['--purpose', '--limit', '--token', '--script', '--stop-post', '--stop-post-timeout'],
   poll: ['--unit', '--wait'],
   readback: ['--invocation', '--lines'],
   journal: ['--unit', '--lines'],
   release: ['--unit', '--invocation'],
+  scheduled: ['--purpose', '--limit', '--script-path', '--wrapper-path', '--on-calendar', '--stop-post', '--stop-post-timeout'],
   classify: ['--step', '--answer', '--unit', '--recorded']
 };
 
@@ -56,6 +67,7 @@ const REQUIRED = {
   readback: ['--invocation', '--lines'],
   journal: ['--unit', '--lines'],
   release: ['--unit', '--invocation'],
+  scheduled: ['--purpose', '--limit', '--script-path', '--wrapper-path', '--on-calendar'],
   classify: ['--step', '--answer']
 };
 
@@ -70,6 +82,56 @@ export const RELEASE = shipped('release.sh');
 export const POLL = shipped('poll.sh');
 export const READBACK = shipped('readback.sh');
 export const JOURNAL = shipped('journal.sh');
+export const STOP_POST = shipped('stop-post.sh');
+
+function sliceBetween(text, startMark, endMark, label) {
+  const start = text.indexOf(startMark);
+  const end = text.indexOf(endMark);
+  if (start < 0 || end < 0 || end <= start) {
+    throw new Error(`vm-job: ${label} is not in the shipped text.`);
+  }
+  return text.slice(start, end);
+}
+
+// The release checks the wrapper runs are this slice of release.sh, so the
+// two cannot drift. The slice stops before release.sh's own exit line.
+export const RELEASE_CORE = sliceBetween(
+  RELEASE,
+  'cur=$(systemctl show -p InvocationID --value "$unit.service")',
+  'echo "release-exit:$rc"',
+  'release checks'
+);
+
+// The shim line stop-post.sh installs, and the line the scheduled wrapper
+// installs. One source, so the two prepend the same arguments.
+export const SHIM_EXEC = (() => {
+  const line = STOP_POST.split('\n').find((item) => item.startsWith('exec "$R"'));
+  if (!line) throw new Error('vm-job: stop-post shim exec line is missing.');
+  return line;
+})();
+
+export const ENUM_LINE = (() => {
+  const line = STARTER.split('\n').find((item) => item.startsWith('existing=$(systemctl list-units'));
+  if (!line) throw new Error('vm-job: starter enumeration line is missing.');
+  return line;
+})();
+
+export const STARTER_LOCK_LINES = [
+  'exec 9>/run/lock/vm-job.lock',
+  'flock -w 20 9 || { echo lock-busy; exit 11; }'
+];
+
+if (!STARTER.endsWith('\n') || !RELEASE.endsWith('\n') || !STOP_POST.endsWith('\n')) {
+  throw new Error('vm-job: a shipped script is missing its trailing newline.');
+}
+for (const line of STARTER_LOCK_LINES) {
+  if (!STARTER.split('\n').includes(line)) {
+    throw new Error('vm-job: starter lock line moved.');
+  }
+}
+if (!RELEASE.includes(RELEASE_CORE) || !RELEASE_CORE.includes('active/exited') || !RELEASE_CORE.includes('failed/*')) {
+  throw new Error('vm-job: release core is not the release text.');
+}
 
 export class UsageError extends Error {
   constructor(message) {
@@ -86,11 +148,12 @@ export const HELP = `vm-job: build the argv for one tracked background job, and 
 
 Usage:
   node scripts/vm-job.js help
-  node scripts/vm-job.js start --purpose <purpose> --limit <seconds> --token <token> --script <file> [-- <operand>...]
+  node scripts/vm-job.js start --purpose <purpose> --limit <seconds> --token <token> --script <file> [--stop-post <path> --stop-post-timeout <seconds>] [-- <operand>...]
   node scripts/vm-job.js poll --unit <unit> --wait <seconds>
   node scripts/vm-job.js readback --invocation <id> --lines <count>
   node scripts/vm-job.js journal --unit <unit> --lines <count>
   node scripts/vm-job.js release --unit <unit> --invocation <id>
+  node scripts/vm-job.js scheduled --purpose <purpose> --limit <seconds> --script-path <path> --wrapper-path <path> --on-calendar <spec> [--stop-post <path> --stop-post-timeout <seconds>] [-- <operand>...]
   node scripts/vm-job.js classify --step <step> --answer <file> [--unit <unit>] [--recorded <id>]
 
 Commands:
@@ -100,16 +163,20 @@ Commands:
   readback    Print { command, argv } for one read-back by invocation ID.
   journal     Print { command, argv } for one journal read by unit.
   release     Print { command, argv } for the release script.
+  scheduled   Print { command, purpose, serviceName, timerName, wrapper, service, timer }.
   classify    Print { command, step, class, finished, facts } for one saved answer.
               finished is present only for step poll.
 
 start:
-  --purpose <purpose>   Lowercase letters, digits, and single hyphens. Required.
-  --limit <seconds>     A whole number from 1 to 86400, written in digits. Required.
-  --token <token>       none, or a lowercase UUID. Required.
-  --script <file>       Absolute path of the job script. Required.
-  -- <operand>          Each operand, after --. At most 56. An empty operand is allowed.
-                        An operand may start with a dash. Without --, a dash is a flag.
+  --purpose <purpose>         Lowercase letters, digits, and single hyphens. Required.
+  --limit <seconds>           A whole number from 1 to 86400, written in digits. Required.
+  --token <token>             none, or a lowercase UUID. Required.
+  --script <file>             Absolute path of the job script. Required.
+  --stop-post <path>          Absolute path of the stop-post script on the machine. Only with --stop-post-timeout.
+  --stop-post-timeout <seconds>  A whole number from 30 to 3600, written in digits. Only with --stop-post.
+  -- <operand>                Each operand, after --. At most 56, or 51 when --stop-post is set.
+                              An empty operand is allowed. An operand may start with a dash.
+                              Without --, a dash is a flag.
 
 poll:
   --unit <unit>         The unit name start printed. Required.
@@ -127,8 +194,18 @@ release:
   --unit <unit>         The unit name. Required.
   --invocation <id>     32 lowercase hex characters. Required.
 
+scheduled:
+  --purpose <purpose>         Lowercase letters, digits, and single hyphens. Required.
+  --limit <seconds>           A whole number from 1 to 86400, written in digits. Required.
+  --script-path <path>        Absolute path of the job script on the machine. Required.
+  --wrapper-path <path>       Absolute path where the skill installs the wrapper. Required.
+  --on-calendar <spec>        A systemd calendar expression, checked by pattern only. Required.
+  --stop-post <path>          Absolute path of the stop-post script on the machine. Only with --stop-post-timeout.
+  --stop-post-timeout <seconds>  A whole number from 30 to 3600, written in digits. Only with --stop-post.
+  -- <operand>                Each operand, after --. At most 56. Passed to the job on each firing.
+
 classify:
-  --step <step>         start, poll, readback, journal, or release. Required.
+  --step <step>         start, poll, readback, journal, release, or scheduled-record. Required.
   --answer <file>       Absolute path of the gateway answer, one JSON object. Required.
   --unit <unit>         Required when --step is start. Refused on the other steps.
   --recorded <id>       Optional when --step is poll. Refused on the other steps.
@@ -136,11 +213,13 @@ classify:
 A whole number is written in digits with no sign and no leading zero, except 0 itself.
 A unit name matches vm-job-<purpose>-<yyyymmddthhmmssz>-<six lowercase hex> and is at most 120 characters.
 The job script is UTF-8, at most 4096 code points, contains no NUL, and its first line is exactly set -eu.
+--stop-post, --script-path and --wrapper-path match ^/[A-Za-z0-9._/-]{1,200}$, with no ".." segment and no "//".
+--on-calendar matches ^[A-Za-z0-9*:,./ -]{1,64}$.
 
 No command takes --env. This tool installs nothing, and --install is refused by name like any other unknown flag.
 An unknown flag is refused by name before any file is read. A repeated flag is refused.
 A flag that needs a value, given none or given a value that starts with -, is refused.
-Every path is absolute. A relative path is refused by name.
+Every path this tool opens is absolute. A relative path is refused by name.
 Success prints one JSON object and exits 0. A refusal prints to stderr, leaves stdout empty, and exits 1.
 `;
 
@@ -246,9 +325,9 @@ function checkHex32(flag, value) {
   return value;
 }
 
-function checkOperands(operands) {
-  if (operands.length > MAX_OPERANDS) {
-    fail(`Error: ${operands.length} operands is more than ${MAX_OPERANDS}; argv is at most 64 strings.`);
+function checkOperands(operands, max = MAX_OPERANDS) {
+  if (operands.length > max) {
+    fail(`Error: ${operands.length} operands is more than ${max}; argv is at most ${ARGV_MAX} strings.`);
   }
   operands.forEach((operand, index) => {
     if (operand.includes('\0')) {
@@ -586,21 +665,237 @@ function verdict(step, result) {
   return object;
 }
 
+function machinePath(flag, value) {
+  if (value.split('/').includes('..')) {
+    fail(`Error: ${flag} must not contain a ".." segment; got "${value}".`);
+  }
+  if (value.includes('//')) {
+    fail(`Error: ${flag} must not contain "//"; got "${value}".`);
+  }
+  if (!value.startsWith('/')) {
+    fail(`Error: ${flag} must be an absolute path; got "${value}".`);
+  }
+  if (!MACHINE_PATH_RE.test(value)) {
+    fail(`Error: ${flag} must match ^/[A-Za-z0-9._/-]{1,200}$; got "${value}".`);
+  }
+  return value;
+}
+
+function checkCalendar(value) {
+  if (!CALENDAR_RE.test(value)) {
+    fail(`Error: --on-calendar must match ^[A-Za-z0-9*:,./ -]{1,64}$; got "${value}".`);
+  }
+  return value;
+}
+
+function readStopPost(values) {
+  const hasPath = Object.prototype.hasOwnProperty.call(values, '--stop-post');
+  const hasTime = Object.prototype.hasOwnProperty.call(values, '--stop-post-timeout');
+  if (!hasPath && !hasTime) return null;
+  if (!hasPath || !hasTime) {
+    fail(`Error: --stop-post and --stop-post-timeout are required together. ${HELP_HINT}`);
+  }
+  return {
+    path: machinePath('--stop-post', values['--stop-post']),
+    timeout: wholeNumber('--stop-post-timeout', values['--stop-post-timeout'], 30, 3600)
+  };
+}
+
+function assertPurposeFits(purpose) {
+  const sample = `vm-job-${purpose}-20261010t000000z-abcdef`;
+  if (sample.length > UNIT_MAX) {
+    fail(`Error: the unit name is ${sample.length} characters; the maximum is ${UNIT_MAX}.`);
+  }
+}
+
+function shQuote(value) {
+  return `'${value.replace(/'/g, `'\\''`)}'`;
+}
+
+function serviceNameFor(purpose) {
+  return `vmjob-scheduled-${purpose}.service`;
+}
+
+function timerNameFor(purpose) {
+  return `vmjob-scheduled-${purpose}.timer`;
+}
+
+// systemd's vm-job-* glob is a prefix match. The scheduled service and timer
+// are named vmjob-scheduled-* so a loaded timer never counts as a loaded job.
+export function matchesVmJobEnumeration(name) {
+  return /^vm-job-/.test(name);
+}
+
+function buildService(purpose, wrapperPath) {
+  return `[Unit]
+Description=scheduled vm-job ${purpose}
+
+[Service]
+Type=oneshot
+ExecStart=/bin/sh ${wrapperPath}
+`;
+}
+
+function buildTimer(purpose, spec) {
+  return `[Unit]
+Description=scheduled vm-job ${purpose}
+
+[Timer]
+OnCalendar=${spec}
+Persistent=true
+RandomizedDelaySec=0
+Unit=${serviceNameFor(purpose)}
+
+[Install]
+WantedBy=timers.target
+`;
+}
+
+// The starter's two lock lines are left out of the embedded copy. The wrapper
+// already holds that lock, and opening it again on a second file descriptor
+// would block until the wrapper's own wait ran out.
+function starterWithoutLock() {
+  const drop = new Set(STARTER_LOCK_LINES);
+  return STARTER.split('\n').filter((line) => !drop.has(line)).join('\n').replace(/\n+$/, '');
+}
+
+function buildWrapper(purpose, limit, scriptPath, stop, operands) {
+  const lines = [
+    '#!/bin/sh',
+    'rec() {',
+    'mkdir -p /var/lib/vm-job/scheduled || return 1',
+    'tmp="$record.tmp.$$"',
+    "printf '%s\\n%s\\n%s\\n' \"$1\" \"$2\" \"$3\" > \"$tmp\" || return 1",
+    'mv "$tmp" "$record" || return 1',
+    '}',
+    'exec 9>/run/lock/vm-job.lock',
+    'flock -w 20 9 || { echo scheduled:lock-busy; exit 0; }',
+    `limit=${shQuote(limit)}`,
+    `script_path=${shQuote(scriptPath)}`,
+    `record=/var/lib/vm-job/scheduled/${purpose}`,
+    'u=; i=; k=0',
+    'if [ -f "$record" ]; then',
+    'exec 3< "$record"',
+    'IFS= read -r u <&3 || u=',
+    'IFS= read -r i <&3 || i=',
+    'IFS= read -r k <&3 || k=0',
+    'exec 3<&-',
+    'fi',
+    'case "$k" in 0|[1-9]|[1-9][0-9]*) ;; *) k=0 ;; esac',
+    ENUM_LINE,
+    "set -f; oifs=$IFS; IFS='",
+    "'",
+    'set -- $existing; IFS=$oifs; set +f',
+    'n=0; names=; only=',
+    'for line do',
+    '[ -z "$line" ] && continue',
+    'name=${line%% *}; name=${name%.service}',
+    'n=$((n + 1))',
+    'if [ "$n" -eq 1 ]; then only=$name; else only=; fi',
+    '[ -z "$names" ] && names=$name || names=$names,$name',
+    'done',
+    'released=',
+    'if [ "$n" -eq 1 ] && [ -n "$u" ] && [ "$only" = "$u" ]; then',
+    'rs=0',
+    'release_out=$(',
+    'unit=$u; id=$i',
+    RELEASE_CORE.trimEnd(),
+    'exit "$rc"',
+    ') || rs=$?',
+    'if [ "$rs" -eq 0 ]; then released=1; echo "scheduled:released:$u"; fi',
+    'fi',
+    'if [ "$n" -gt 0 ] && [ -z "$released" ]; then',
+    'rec "$u" "$i" "$((k + 1))" || exit 1',
+    'echo "scheduled:skipped:$names"',
+    'exit 0',
+    'fi',
+    'expect=$(cat /run/vm-job.token 2>/dev/null || echo none)',
+    'job=$(cat "$script_path") || { echo scheduled:script-unreadable; exit 1; }',
+    "stamp=$(date -u +%Y%m%dT%H%M%SZ | tr 'A-Z' 'a-z')",
+    'rand=$(cat /proc/sys/kernel/random/uuid)',
+    "hex=$(printf '%.6s' \"$rand\")",
+    `unit="vm-job-${purpose}-\${stamp}-\${hex}"`,
+    operands.length === 0 ? 'set --' : `set -- ${operands.map(shQuote).join(' ')}`,
+    "sf=$(cat << 'E'",
+    starterWithoutLock(),
+    'E',
+    ')'
+  ];
+  if (stop) {
+    lines.push(
+      'R=$(command -v systemd-run) || { echo stop-post-setup-failed; exit 1; }',
+      'd=/run/vm-job-stop.$$',
+      'A=-p',
+      `B=${shQuote(`ExecStopPost=/bin/sh ${stop.path}`)}`,
+      'C=-p',
+      `D=${shQuote(`TimeoutStopSec=${stop.timeout}`)}`,
+      'um=$(umask); umask 077',
+      'mkdir -p "$d" || { umask "$um"; echo stop-post-setup-failed; exit 1; }',
+      'umask "$um"',
+      `printf '%s\\n' '#!/bin/sh' ${shQuote(SHIM_EXEC)} > "$d/systemd-run" || { rm -rf "$d"; echo stop-post-setup-failed; exit 1; }`,
+      'chmod 700 "$d/systemd-run" || { rm -rf "$d"; echo stop-post-setup-failed; exit 1; }',
+      'PATH="$d:$PATH"; export PATH R A B C D',
+      "trap 'rm -rf \"\$d\"' EXIT"
+    );
+  }
+  lines.push(
+    'status=0',
+    'out=$(set -- "$unit" "$limit" "$expect" "$job" "$@"; eval "$sf") || status=$?',
+    'case "$out" in *"Running as unit: $unit.service; invocation ID: "*"start-exit:0"*) ;; *) printf \'%s\\n\' "$out"; exit "$status" ;; esac',
+    'inv=${out#*"invocation ID: "}',
+    'inv=${inv%%[!0-9a-f]*}',
+    '[ "${#inv}" -eq 32 ] || { printf \'%s\\n\' "$out"; exit "$status"; }',
+    'rec "$unit" "$inv" 0 || exit 1',
+    'exit 0'
+  );
+  return `${lines.join('\n')}\n`;
+}
+
 function commandStart(values, operands) {
   const purpose = checkPurpose(requireFlag(values, '--purpose'));
   const limit = wholeNumber('--limit', requireFlag(values, '--limit'), 1, 86400);
   const token = checkToken(requireFlag(values, '--token'));
+  const stop = readStopPost(values);
   const scriptPath = screenFile('--script', requireFlag(values, '--script'));
   const script = readScript('--script', scriptPath);
-  checkOperands(operands);
+  checkOperands(operands, ARGV_MAX - (stop ? START_STOP_ARGV_PREFIX : START_ARGV_PREFIX));
   const unit = `vm-job-${purpose}-${stampUtc(new Date())}-${randomBytes(3).toString('hex')}`;
   if (unit.length > UNIT_MAX) {
     fail(`Error: the unit name is ${unit.length} characters; the maximum is ${UNIT_MAX}.`);
   }
+  const argv = stop
+    ? [
+      '/bin/sh', '-c', STOP_POST, 'sh',
+      '-p', `ExecStopPost=/bin/sh ${stop.path}`,
+      '-p', `TimeoutStopSec=${stop.timeout}`,
+      STARTER, unit, limit, token, script, ...operands
+    ]
+    : ['/bin/sh', '-c', STARTER, 'sh', unit, limit, token, script, ...operands];
+  return { command: 'start', unit, argv };
+}
+
+function commandScheduled(values, operands) {
+  const purpose = checkPurpose(requireFlag(values, '--purpose'));
+  assertPurposeFits(purpose);
+  const limit = wholeNumber('--limit', requireFlag(values, '--limit'), 1, 86400);
+  const scriptPath = machinePath('--script-path', requireFlag(values, '--script-path'));
+  const wrapperPath = machinePath('--wrapper-path', requireFlag(values, '--wrapper-path'));
+  const calendar = checkCalendar(requireFlag(values, '--on-calendar'));
+  const stop = readStopPost(values);
+  checkOperands(operands);
+  const serviceName = serviceNameFor(purpose);
+  const timerName = timerNameFor(purpose);
+  if (matchesVmJobEnumeration(serviceName) || matchesVmJobEnumeration(timerName)) {
+    fail('Error: the scheduled unit name matches vm-job-*, so it would count as a loaded job.');
+  }
   return {
-    command: 'start',
-    unit,
-    argv: ['/bin/sh', '-c', STARTER, 'sh', unit, limit, token, script, ...operands]
+    command: 'scheduled',
+    purpose,
+    serviceName,
+    timerName,
+    wrapper: buildWrapper(purpose, limit, scriptPath, stop, operands),
+    service: buildService(purpose, wrapperPath),
+    timer: buildTimer(purpose, calendar)
   };
 }
 
@@ -628,10 +923,31 @@ function commandRelease(values) {
   return { command: 'release', argv: ['/bin/sh', '-c', RELEASE, 'sh', unit, id] };
 }
 
+function classifyScheduledRecord(answer) {
+  if ((typeof answer.status === 'string' && answer.status !== '') || answer.outcome !== 'ok') {
+    return { class: 'not-read', facts: {} };
+  }
+  const lines = linesOf(answer.output);
+  if (lines.length === 1 && lines[0] === 'none') {
+    return { class: 'none', facts: {} };
+  }
+  const skipsOk = lines.length === 3
+    && DIGITS_RE.test(lines[2])
+    && Number.isSafeInteger(Number(lines[2]));
+  const unitOk = lines.length === 3 && UNIT_RE.test(lines[0]) && lines[0].length <= UNIT_MAX;
+  if (unitOk && HEX32_RE.test(lines[1]) && skipsOk) {
+    return {
+      class: 'recorded',
+      facts: { unit: lines[0], invocationId: lines[1], skips: Number(lines[2]) }
+    };
+  }
+  return { class: 'not-read', facts: {} };
+}
+
 function commandClassify(values) {
   const step = requireFlag(values, '--step');
   if (!STEPS.has(step)) {
-    fail(`Error: --step must be start, poll, readback, journal, or release; got "${step}".`);
+    fail(`Error: --step must be start, poll, readback, journal, release, or scheduled-record; got "${step}".`);
   }
   if (step === 'start') {
     if (!Object.prototype.hasOwnProperty.call(values, '--unit')) {
@@ -653,6 +969,7 @@ function commandClassify(values) {
   if (step === 'poll') return verdict(step, classifyPoll(answer, recorded));
   if (step === 'readback') return verdict(step, classifyText(answer, false));
   if (step === 'journal') return verdict(step, classifyText(answer, true));
+  if (step === 'scheduled-record') return verdict(step, classifyScheduledRecord(answer));
   return verdict(step, classifyRelease(answer));
 }
 
@@ -669,7 +986,7 @@ export function runVmJob(argv) {
     }
     fail(`Error: unknown command "${command}". ${HELP_HINT}`);
   }
-  const parsed = parseFlags(argv.slice(1), VALUE_FLAGS[command], command === 'start');
+  const parsed = parseFlags(argv.slice(1), VALUE_FLAGS[command], command === 'start' || command === 'scheduled');
   if (parsed.help) return HELP;
   for (const flag of REQUIRED[command]) requireFlag(parsed.values, flag);
   if (command === 'start') return commandStart(parsed.values, parsed.operands);
@@ -677,5 +994,6 @@ export function runVmJob(argv) {
   if (command === 'readback') return commandReadback(parsed.values);
   if (command === 'journal') return commandJournal(parsed.values);
   if (command === 'release') return commandRelease(parsed.values);
+  if (command === 'scheduled') return commandScheduled(parsed.values, parsed.operands);
   return commandClassify(parsed.values);
 }

@@ -1,0 +1,11 @@
+[Unit]
+Description=scheduled vm-job twenty-backup
+
+[Timer]
+OnCalendar=*-*-* 03:00:00
+Persistent=true
+RandomizedDelaySec=0
+Unit=vmjob-scheduled-twenty-backup.service
+
+[Install]
+WantedBy=timers.target

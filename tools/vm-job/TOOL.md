@@ -2,8 +2,8 @@
 name: vm-job
 type: tool
 category: operations
-description: Build the argument vectors that start, poll, read back and release a tracked background job on one machine a router maps, and classify each answer, as one JSON object
-version: 0.2.0
+description: Build the argument vectors that start, poll, read back and release a tracked background job on one machine a router maps, build the texts for a scheduled job, and classify each answer, as one JSON object
+version: 0.3.0
 ---
 
 # vm-job
@@ -12,7 +12,7 @@ One JSON object that builds the `argv` for one tracked background job, or classi
 
 ## Context
 
-Use it when a skill starts, polls, reads back, reads the journal of, or releases one tracked background job on one machine a router maps, or classifies the JSON answer that call returned.
+Use it when a skill starts, polls, reads back, reads the journal of, or releases one tracked background job on one machine a router maps, installs a scheduled job, or classifies the JSON answer that call returned.
 
 Do not use it to call the gateway, to reach a machine, or to write a file. It reads only the files it is given. A skill sends the `argv` it prints, unchanged, as one `vm.command.run`. The answer file is the JSON object the gateway's `execute` returned, unchanged.
 
@@ -28,11 +28,14 @@ Usage text, with nothing installed and nothing configured. The tool needs Node 1
 
 ```bash
 node scripts/vm-job.js start --purpose apt-install --limit 1800 --token none --script /path/to/job.sh -- install pkg=1.0
+node scripts/vm-job.js start --purpose twenty-backup --limit 3600 --token none --script /path/to/job.sh --stop-post /opt/twenty/backup/recover --stop-post-timeout 1200
+node scripts/vm-job.js scheduled --purpose twenty-backup --limit 3600 --script-path /opt/twenty/backup/job.sh --wrapper-path /opt/twenty/backup/wrapper --on-calendar '*-*-* 03:00:00' --stop-post /opt/twenty/backup/recover --stop-post-timeout 1200 -- dump
 node scripts/vm-job.js poll --unit vm-job-apt-install-20261005t120000z-abcdef --wait 0
 node scripts/vm-job.js readback --invocation 0123456789abcdef0123456789abcdef --lines 200
 node scripts/vm-job.js journal --unit vm-job-apt-install-20261005t120000z-abcdef --lines 200
 node scripts/vm-job.js release --unit vm-job-apt-install-20261005t120000z-abcdef --invocation 0123456789abcdef0123456789abcdef
 node scripts/vm-job.js classify --step start --unit vm-job-apt-install-20261005t120000z-abcdef --answer /path/to/answer.json
+node scripts/vm-job.js classify --step scheduled-record --answer /path/to/answer.json
 ```
 
 One JSON object on stdout. Nothing is written. Anything else, see Troubleshooting.
@@ -42,11 +45,12 @@ One JSON object on stdout. Nothing is written. Anything else, see Troubleshootin
 | Command | Purpose | Writes a file |
 |---------|---------|---------------|
 | `node scripts/vm-job.js help` | Print usage and exit | No |
-| `node scripts/vm-job.js start --purpose <purpose> --limit <seconds> --token <token> --script <file> [-- <operand>...]` | Print `{ command, unit, argv }` for the starter | No |
+| `node scripts/vm-job.js start --purpose <purpose> --limit <seconds> --token <token> --script <file> [--stop-post <path> --stop-post-timeout <seconds>] [-- <operand>...]` | Print `{ command, unit, argv }` for the starter | No |
 | `node scripts/vm-job.js poll --unit <unit> --wait <seconds>` | Print `{ command, argv }` for one poll | No |
 | `node scripts/vm-job.js readback --invocation <id> --lines <count>` | Print `{ command, argv }` for one read-back by invocation ID | No |
 | `node scripts/vm-job.js journal --unit <unit> --lines <count>` | Print `{ command, argv }` for one journal read by unit | No |
 | `node scripts/vm-job.js release --unit <unit> --invocation <id>` | Print `{ command, argv }` for the release script | No |
+| `node scripts/vm-job.js scheduled --purpose <purpose> --limit <seconds> --script-path <path> --wrapper-path <path> --on-calendar <spec> [--stop-post <path> --stop-post-timeout <seconds>] [-- <operand>...]` | Print the wrapper, the service and the timer | No |
 | `node scripts/vm-job.js classify --step <step> --answer <file> [--unit <unit>] [--recorded <id>]` | Print the class of one saved answer | No |
 
 `start` options:
@@ -57,7 +61,9 @@ One JSON object on stdout. Nothing is written. Anything else, see Troubleshootin
 | `--limit <seconds>` | A whole number from 1 to 86400, written in digits | None; required |
 | `--token <token>` | `none`, or a lowercase UUID | None; required |
 | `--script <file>` | The job script. Absolute path. UTF-8, at most 4096 code points, no NUL, first line exactly `set -eu` | None; required |
-| `-- <operand>` | Each operand, after `--`. At most 56. Empty is allowed. A leading dash is allowed. Without `--`, a dash is a flag | None |
+| `--stop-post <path>` | Absolute path of the stop-post script on the machine. Only with `--stop-post-timeout` | Omitted |
+| `--stop-post-timeout <seconds>` | A whole number from 30 to 3600, written in digits. Only with `--stop-post` | Omitted |
+| `-- <operand>` | Each operand, after `--`. At most 56, or 51 when `--stop-post` is set. Empty is allowed. A leading dash is allowed. Without `--`, a dash is a flag | None |
 | `--help`, `-h` | Print usage and exit | Off |
 
 `poll` options:
@@ -92,17 +98,33 @@ One JSON object on stdout. Nothing is written. Anything else, see Troubleshootin
 | `--invocation <id>` | 32 lowercase hex characters | None; required |
 | `--help`, `-h` | Print usage and exit | Off |
 
+`scheduled` options:
+
+| Option | Effect | Default |
+|--------|--------|---------|
+| `--purpose <purpose>` | Lowercase letters, digits, and single hyphens: `^[a-z0-9]+(-[a-z0-9]+)*$`. The resulting unit name must fit in 120 characters | None; required |
+| `--limit <seconds>` | A whole number from 1 to 86400, written in digits | None; required |
+| `--script-path <path>` | Absolute path where the skill installs the job script on the machine. The wrapper reads that file at each firing. The script is not embedded | None; required |
+| `--wrapper-path <path>` | Absolute path where the skill installs the wrapper. The service runs it | None; required |
+| `--on-calendar <spec>` | A systemd calendar expression, checked by pattern only: `^[A-Za-z0-9*:,./ -]{1,64}$`. The skill's re-inspection proves systemd accepted it | None; required |
+| `--stop-post <path>` | Absolute path of the stop-post script on the machine. Only with `--stop-post-timeout` | Omitted |
+| `--stop-post-timeout <seconds>` | A whole number from 30 to 3600, written in digits. Only with `--stop-post` | Omitted |
+| `-- <operand>` | Each operand, after `--`. At most 56. Passed to the job on each firing. Empty is allowed. A leading dash is allowed | None |
+| `--help`, `-h` | Print usage and exit | Off |
+
+`--script-path`, `--wrapper-path` and `--stop-post` match `^/[A-Za-z0-9._/-]{1,200}$`, with no `..` segment and no `//`. The tool does not open a machine path. It checks the pattern.
+
 `classify` options:
 
 | Option | Effect | Default |
 |--------|--------|---------|
-| `--step <step>` | `start`, `poll`, `readback`, `journal`, or `release` | None; required |
+| `--step <step>` | `start`, `poll`, `readback`, `journal`, `release`, or `scheduled-record` | None; required |
 | `--answer <file>` | The gateway answer, one JSON object. Absolute path | None; required |
 | `--unit <unit>` | Required when `--step` is `start`. Refused on the other steps | None |
 | `--recorded <id>` | Optional when `--step` is `poll`: the invocation ID already recorded. Refused on the other steps | Omitted |
 | `--help`, `-h` | Print usage and exit | Off |
 
-No command takes `--env`. This tool installs nothing, and `--install` is refused by name like any other unknown flag. An unknown flag is refused by name before any file is read, including when it sits beside `help`. `--flag=value` is an unknown option. A repeated flag is refused. A flag that needs a value, given none or given a value that starts with `-`, is refused. An argument that belongs to no flag is refused. `--` ends flags on `start` only. On the other commands it is an unexpected argument. An unknown command is refused by name.
+No command takes `--env`. This tool installs nothing, and `--install` is refused by name like any other unknown flag. An unknown flag is refused by name before any file is read, including when it sits beside `help`. `--flag=value` is an unknown option. A repeated flag is refused. A flag that needs a value, given none or given a value that starts with `-`, is refused. An argument that belongs to no flag is refused. `--` ends flags on `start` and on `scheduled`. On the other commands it is an unexpected argument. An unknown command is refused by name.
 
 A whole number is written in digits with no sign and no leading zero, except `0` itself. `01`, `+1`, and `1.0` are refused. The digit string is passed through into `argv` unchanged.
 
@@ -114,7 +136,9 @@ Every path is absolute. A relative path is refused by name. The screen is the on
 
 The job script is counted in code points. A file of 4096 code points is accepted when one of them is above the basic multilingual plane. The first line is the text before the first newline, and it must be exactly `set -eu`. A carriage return on that line does not match. A file that is only `set -eu`, with no newline, does. A byte-order mark is kept as text, not removed, so a file that begins with one fails the first-line check rather than reaching `argv` changed.
 
-`argv` for `start` is `/bin/sh`, `-c`, the starter, `sh`, the unit, the limit, the token, the script's text, then each operand. That prefix is 8 strings. The connector bounds one `argv` at 64 strings, so `start` admits at most 56 operands. One more is refused by name.
+`argv` for `start` without `--stop-post` is `/bin/sh`, `-c`, the starter, `sh`, the unit, the limit, the token, the script's text, then each operand. That prefix is 8 strings, and it is the argv 0.2.0 prints for the same inputs. The connector bounds one `argv` at 64 strings, so that form admits at most 56 operands.
+
+With `--stop-post` and `--stop-post-timeout`, both required together, the prefix is 13 strings: `/bin/sh`, `-c`, the stop-post driver, `sh`, `-p`, `ExecStopPost=/bin/sh <path>`, `-p`, `TimeoutStopSec=<seconds>`, the starter, then the unit, the limit, the token, the script's text, and the operands. That form admits at most 51 operands. The two properties are operands of the driver. They are not spliced into the starter, so the starter stays the one shipped file. One more operand is refused by name.
 
 ## The job
 
@@ -128,7 +152,7 @@ The outcome names are the ones `connectors/vm/CONNECTOR.md` in `wiser` publishes
 
 **The generation token** is `/run/vm-job.token`, a fresh random UUID written under the lock by every start and every release. **The inspection a job's plan rests on reads it in the same call as the rest of that inspection**, printing the file's text, or `none` when there is no file, which is what the starter reads too, and the starter refuses unless the token is still that value. So a plan made before another job started, or while one ran, or before one was released, never starts. `/run` is cleared at a reboot, after which the token reads `none` until the next start. **It sees jobs only**: a change made any other way, by hand or by a direct `vm.command.run`, does not renew it, which is why a skill that runs its changes as jobs should run all of them that way.
 
-**Starting it** is one `vm.command.run` whose `argv` is the array `start` prints: `/bin/sh`, `-c`, the starter below, `sh`, the unit name, the limit in seconds, the token the inspection read, the job's script, and then any operands the job takes, which reach the job's script as `$1` onward. The script and its operands are never spliced into the starter's text, so a package name stays an operand all the way to the command that uses it.
+**Starting it** is one `vm.command.run` whose `argv` is the array `start` prints. Without `--stop-post` that is `/bin/sh`, `-c`, the starter below, `sh`, the unit name, the limit in seconds, the token the inspection read, the job's script, and then any operands the job takes, which reach the job's script as `$1` onward. With `--stop-post` the same starter is an operand of the stop-post driver, after `-p`, `ExecStopPost=/bin/sh <path>`, `-p` and `TimeoutStopSec=<seconds>`. The script and its operands are never spliced into the starter's text, so a package name stays an operand all the way to the command that uses it.
 
 **Polling it** is one `vm.command.run` whose `argv` is the array `poll` prints. The wait is at most 10 seconds, which leaves the call headroom inside the Wiser endpoint's bound of 20 seconds without guaranteeing it: an SSH connection slower than usual can still carry a poll past it. That poll is `not-read`, and the next poll reads again. A call that outlasts that bound answers `status` `uncertain`, and the endpoint does not retry it. The router's own limit of 60 seconds is the looser bound.
 
@@ -142,9 +166,27 @@ The outcome names are the ones `connectors/vm/CONNECTOR.md` in `wiser` publishes
 
 **What a job's script must be.** It begins `set -eu`. Every step runs in the foreground: no `&`, no daemonizing. The script's exit status is the last command's, so a step whose failure matters is not followed by one that can succeed regardless. Apt changes carry the skill's own pins, `--no-remove` and keep-old-config options, and the starter sets `DEBIAN_FRONTEND=noninteractive` and `NEEDRESTART_SUSPEND=1`. A job has no home directory; a tool that wants one, `gpg` among them, gets a temporary one. On the router host a job runs outside the router's sandbox, which is why it can install a package there, and also why every path rule the skill applies to a direct call applies to a job unchanged.
 
+**Stop-post.** The started unit is `Type=exec` with `RemainAfterExit=yes`. A unit whose main process exits 0 stays `active/exited`, and `ExecStopPost` runs when release stops it. A unit whose process fails, or is killed at `RuntimeMaxSec`, runs `ExecStopPost` as it deactivates. The driver does not edit the starter. It puts a short-lived `systemd-run` on `PATH` that prepends `-p ExecStopPost=/bin/sh <path>` and `-p TimeoutStopSec=<seconds>` and execs the real `systemd-run`. `systemd-run` takes `-p` anywhere before the command. The shim lives under `/run/vm-job-stop.<pid>` for that one run and is removed on exit. `/run` must be executable. A `noexec` `/run` cannot run the shim, the driver prints `stop-post-setup-failed`, and nothing is started. Without the two flags, the starter's argv is unchanged and no shim is installed.
+
+**Cancelling it.** Under systemd, a job killed by a clean signal (`TERM`, `INT`, `HUP`, `PIPE`) that leaves no process can end `active/exited`. That looks like success, and its `ExecStopPost` waits until release stops the unit. A job script whose stop-post must run on a signal traps `TERM`, `INT`, `HUP` and `PIPE` and exits nonzero, so systemd records a failure and runs `ExecStopPost` as the unit deactivates. A job is cancelled with `systemctl stop <unit>`, which runs `ExecStopPost`. It is not cancelled with `systemctl kill`. The poll class `signal` is unchanged: `active/exited` with `ExecMainCode` other than `1` is still a signal, and it is still finished.
+
+**A scheduled firing** is not a command the tool runs. `scheduled` prints three texts the skill writes to the machine verbatim: a wrapper, a service unit and a timer unit. The JSON is `{ command, purpose, serviceName, timerName, wrapper, service, timer }`. The service is `vmjob-scheduled-<purpose>.service`, `Type=oneshot`, `ExecStart=/bin/sh <wrapper-path>`. The timer is `vmjob-scheduled-<purpose>.timer`, `OnCalendar=<spec>`, `Persistent=true`, `RandomizedDelaySec=0`, and `Unit=` names that service. Those names are outside the starter's enumeration pattern `vm-job-*`. A name that began `vm-job-scheduled-` would match that glob, and `systemctl list-units --all` shows the oneshot as loaded whenever its timer exists, so the service would count as a loaded job and every firing would skip.
+
+The wrapper is `/bin/sh` text. It holds `flock -w 20` on `/run/lock/vm-job.lock` for the whole decision and releases the lock by exiting.
+
+1. The lock is not taken within 20 seconds: it prints `scheduled:lock-busy` and exits 0.
+2. It reads `/var/lib/vm-job/scheduled/<purpose>` when that file exists: the unit, the invocation id of this purpose's last scheduled unit, and the skip count.
+3. It enumerates loaded `vm-job-*` units with the starter's own `systemctl list-units` line.
+4. When that list is exactly the recorded unit, that unit's `InvocationID` equals the recorded one, and the unit passes the release script's finished checks (`active/exited`, or `failed/*` with no tasks remaining), the wrapper stops it or reset-fails it by those same checks and renews the token. It prints `scheduled:released:<unit>` and continues to step 6. It does not run `release.sh`. That script would take the same lock a second time and block. The checks in the wrapper are a slice of `release.sh`, so the two cannot drift.
+5. Any other loaded `vm-job-*` unit, or the recorded unit not finished, or its invocation id different: it prints `scheduled:skipped:<unit list>`, writes the record back with the skip count plus one, and exits 0. The unit list is the loaded names, the `.service` suffix removed, joined with commas.
+6. Otherwise it starts the job by the starter's own text, with the two lock lines left out because the wrapper already holds that lock. The expected token is the current token. The unit name is `vm-job-<purpose>-<stamp>-<6 hex>`, the stamp and the six hex characters made the way the tool makes them. The job script is the file at `--script-path`, read at that firing, so the script is not embedded. `$(cat)` drops trailing newlines from that file. Operands are the ones given to `scheduled` after `--`. The stop-post properties are installed, by the same shim line the driver installs, when they were given. On `start-exit:0` and a 32-hex invocation id, the wrapper writes the record (unit, invocation id, skip count 0) by writing a temporary file and then `mv`. On anything else it prints the starter's output and leaves the record unchanged.
+7. Exiting closes the lock.
+
+A scheduled unit is an ordinary `vm-job-*` unit with `RemainAfterExit=yes`. Poll, read-back and release need no new class. A session that adopts a finished one uses the invocation id that poll reads. A session that adopted and released it first leaves the wrapper with nothing to release, and the firing starts. An unrelated loaded job is the skip in step 5. It is reported, and it is not forced.
+
 ## The scripts it emits
 
-The starter and the release below are the bytes `argv` carries, including the trailing newline. The poll command, the read-back command, and the journal command have no trailing newline. Do not reflow them. A skill does not write these scripts. It runs the command and sends the `argv`.
+The starter, the release, and the stop-post driver below are the bytes `argv` carries, including the trailing newline. The poll command, the read-back command, and the journal command have no trailing newline. Do not reflow them. A skill does not write these scripts. It runs the command and sends the `argv`. The wrapper, the service and the timer are the exception: `scheduled` prints them, and the skill writes those three texts to the machine verbatim.
 
 The starter:
 
@@ -195,6 +237,55 @@ The read-back command, with no trailing newline, is `journalctl --no-pager -o sh
 The journal command, with no trailing newline, is `journalctl --no-pager -o short-iso -n "$2" -u "$1.service"`.
 
 `release-exit:0` with `load-state:not-found` is released, and the token renewed. Exit 11, 13, 14 or 17 released nothing and left the token alone.
+
+The stop-post driver, with its trailing newline, is `argv[2]` only when `start` was given `--stop-post`. It is `scripts/texts/stop-post.sh`. The shim line it installs is the same line the scheduled wrapper installs:
+
+```
+# Arm ExecStopPost for one starter run. p1, v1, p2 and v2 are the two
+# systemd-run properties (-p and the value, twice). The starter text is not
+# modified: a short-lived systemd-run on PATH prepends them and execs the
+# real one. systemd-run takes -p anywhere before the command. Removed on
+# EXIT. /run must be executable; a noexec /run fails closed.
+vm_job_arm_stop_post() {
+  R=$(command -v systemd-run) || return 1
+  d=/run/vm-job-stop.$$
+  A=$p1
+  B=$v1
+  C=$p2
+  D=$v2
+  old_umask=$(umask)
+  umask 077
+  mkdir -p "$d" || { umask "$old_umask"; return 1; }
+  umask "$old_umask"
+  cat > "$d/systemd-run" << 'SHIM' || { rm -rf "$d"; return 1; }
+#!/bin/sh
+exec "$R" "$A" "$B" "$C" "$D" "$@"
+SHIM
+  chmod 700 "$d/systemd-run" || { rm -rf "$d"; return 1; }
+  PATH="$d:$PATH"
+  export PATH R A B C D
+  VM_JOB_STOP_DIR=$d
+  export VM_JOB_STOP_DIR
+  return 0
+}
+vm_job_disarm_stop_post() {
+  if [ -n "${VM_JOB_STOP_DIR-}" ]; then
+    rm -rf "$VM_JOB_STOP_DIR"
+    VM_JOB_STOP_DIR=
+  fi
+}
+p1=$1
+v1=$2
+p2=$3
+v2=$4
+starter=$5
+shift 5
+vm_job_arm_stop_post || { echo stop-post-setup-failed; exit 1; }
+trap 'vm_job_disarm_stop_post' EXIT
+/bin/sh -c "$starter" sh "$@"
+rc=$?
+exit "$rc"
+```
 
 ## Classification
 
@@ -263,6 +354,16 @@ Without `--recorded`, facts also carry `invocationId`, the ID when it is set and
 | `processes-remain` | A line beginning `processes-remain:` and `exit_code` 17. Facts `tasks` is the text after the colon | Released nothing. The token was left alone. Stuck: the person's, over the provider's console |
 | `unknown` | Any other answer. Facts carry `outcome`, `status` and `action` when those values are strings | Name it. Do not treat it as released |
 
+### scheduled-record
+
+Requires no `--unit` and no `--recorded`. The answer's output is the record file, three lines, or the line `none`. A non-empty `status`, or an `outcome` other than `ok`, is `not-read` before the lines are read. `finished` is absent.
+
+| Class | Means | Caller does next |
+|-------|-------|------------------|
+| `recorded` | Three lines. The unit matches the unit pattern and is at most 120 characters. The invocation id is 32 lowercase hex characters. The skip count is a whole number, `0` or digits without a leading zero, and it is a safe integer. Facts are `{ unit, invocationId, skips }`, and `skips` is a number | The status read. `skips` above zero is the starvation case |
+| `none` | The only line is `none`. Facts are `{}` | No scheduled record |
+| `not-read` | A gateway `status`, an `outcome` other than `ok`, or output that is neither `none` nor those three lines. Facts are `{}` | Says nothing about the record. Read it again |
+
 ## Script Contract
 
 Every script in this tool follows `wiser/standards/script-contract.md`. What a user meets when running it is `wiser/tools/RUNNING.md`. Node 18 or later covers the whole tool, the same runtime the local gateway that reaches the `vm` connector already needs. Node built-ins cover it, so the contract's dependency-install, `--env`, and system-dependency clauses have nothing to bind here and the tool carries no Dependencies section. No command checks for a package or runs an install. No command takes `--env`, and `--install` is refused by name. Nothing is written, anywhere. The sections above state what each command does; the contract states how the script behaves getting there.
@@ -277,7 +378,7 @@ Every script in this tool follows `wiser/standards/script-contract.md`. What a u
 |-------|---------|
 | `command` | `start` |
 | `unit` | The unit name built for this run |
-| `argv` | `/bin/sh`, `-c`, the starter, `sh`, the unit, the limit, the token, the script text, then each operand |
+| `argv` | Without `--stop-post`: `/bin/sh`, `-c`, the starter, `sh`, the unit, the limit, the token, the script text, then each operand. With `--stop-post`: `/bin/sh`, `-c`, the stop-post driver, `sh`, `-p`, `ExecStopPost=/bin/sh <path>`, `-p`, `TimeoutStopSec=<seconds>`, the starter, then the unit, the limit, the token, the script text, and each operand |
 
 `poll`, `readback`, `journal`, and `release` print one JSON object, exit 0:
 
@@ -285,6 +386,18 @@ Every script in this tool follows `wiser/standards/script-contract.md`. What a u
 |-------|---------|
 | `command` | `poll`, `readback`, `journal`, or `release` |
 | `argv` | `/bin/sh`, `-c`, that command's script, `sh`, then the command's own strings, in the order the command takes them |
+
+`scheduled` prints one JSON object, exit 0:
+
+| Field | Carries |
+|-------|---------|
+| `command` | `scheduled` |
+| `purpose` | The `--purpose` value |
+| `serviceName` | `vmjob-scheduled-<purpose>.service` |
+| `timerName` | `vmjob-scheduled-<purpose>.timer` |
+| `wrapper` | The wrapper text, including its trailing newline |
+| `service` | The service unit text, including its trailing newline |
+| `timer` | The timer unit text, including its trailing newline |
 
 `classify` prints one JSON object, exit 0:
 
@@ -316,12 +429,16 @@ A refusal prints to stderr, leaves stdout empty, and exits 1. The message names 
 | `must be a whole number` | Digits only, in range. No sign, no leading zero, except `0` for `--wait` |
 | `--token must be none or a lowercase UUID` | Pass `none` or a lowercase UUID |
 | `must be 32 lowercase hex characters` | Pass the invocation ID in lowercase hex |
-| `operands is more than 56` | `argv` holds at most 64 strings, and the starter prefix is 8 |
+| `operands is more than 56` or `more than 51` | `argv` holds at most 64 strings. The plain starter prefix is 8, so 56 operands. The stop-post prefix is 13, so 51 operands |
 | `contains a NUL` or `is not valid UTF-8` | The script or the answer is not the text this tool reads |
 | `the script is` and `code points` | Shorten the script to 4096 code points or fewer |
 | `first line must be exactly "set -eu"` | Make that the first line, with no trailing carriage return |
 | `operand` and `code points` | Shorten that operand to 4096 code points or fewer |
-| `--step must be` | Pass `start`, `poll`, `readback`, `journal`, or `release` |
+| `--step must be` | Pass `start`, `poll`, `readback`, `journal`, `release`, or `scheduled-record` |
+| `--stop-post and --stop-post-timeout are required together` | Pass both, or pass neither |
+| `must not contain a ".." segment` or `must not contain "//"` | The machine path has a `..` segment or a `//`. Pass a single absolute path |
+| `--on-calendar must match` | Use letters, digits, and `* : , . / -` and space, at most 64 characters. The skill's re-inspection is what proves systemd accepted it |
+| `stop-post-setup-failed` | The shim could not be installed. `/run` is missing, not writable, or not executable. Nothing was started |
 | `--unit is required for step start` | Pass `--unit` when classifying a start |
 | `--unit applies to step start` | Drop `--unit`, or pass `--step start` |
 | `--recorded applies to step poll` | Drop `--recorded`, or pass `--step poll` |
@@ -331,7 +448,8 @@ A refusal prints to stderr, leaves stdout empty, and exits 1. The message names 
 ## Success
 
 - `node scripts/vm-job.js help` exits 0 and names every flag, including `--install` and `--env`.
-- `start`, `poll`, `readback`, `journal`, and `release` each exit 0 with one JSON object, and `argv[2]` is that command's script.
+- `start`, `poll`, `readback`, `journal`, and `release` each exit 0 with one JSON object, and `argv[2]` is that command's script. A `start` without `--stop-post` prints the same argv 0.2.0 prints for the same inputs. A `start` with `--stop-post` carries both properties as operands and the unchanged starter.
+- `scheduled` exits 0 with one JSON object whose `wrapper`, `service` and `timer` are the texts to install, and whose service name does not match `vm-job-*`.
 - Two `start` runs print different unit names.
 - `classify` exits 0 with one JSON object for every class, `unknown` and `not-read` included, and `finished` is present only for `poll`.
 - A bad flag, a bad path, a bad script, a bad operand, or an answer that is not one JSON object exits 1 with stdout empty, and the message names the cause.

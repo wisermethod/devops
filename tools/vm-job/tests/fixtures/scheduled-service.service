@@ -1,0 +1,6 @@
+[Unit]
+Description=scheduled vm-job twenty-backup
+
+[Service]
+Type=oneshot
+ExecStart=/bin/sh /opt/twenty/backup/wrapper

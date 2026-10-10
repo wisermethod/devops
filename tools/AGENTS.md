@@ -8,6 +8,6 @@ Deterministic operations that skills and experts call; `wiser/standards/primitiv
 
 | Tool | Description |
 |------|-------------|
-| `vm-job/TOOL.md` | Build the argument vectors that start, poll, read back and release a tracked background job on one machine a router maps, and classify each answer, as one JSON object |
+| `vm-job/TOOL.md` | Build the argument vectors that start, poll, read back and release a tracked background job on one machine a router maps, build the texts for a scheduled job, and classify each answer, as one JSON object |
 
 <!-- /generated:index -->

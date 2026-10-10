@@ -3,7 +3,7 @@
  * The scripts under scripts/texts/ are the contract texts.
  */
 
-import { randomBytes } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import { lstatSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
 
@@ -129,7 +129,7 @@ for (const line of STARTER_LOCK_LINES) {
     throw new Error('vm-job: starter lock line moved.');
   }
 }
-if (!RELEASE.includes(RELEASE_CORE) || !RELEASE_CORE.includes('active/exited') || !RELEASE_CORE.includes('failed/*')) {
+if (!RELEASE.includes(RELEASE_CORE) || !RELEASE_CORE.includes('active/exited') || !RELEASE_CORE.includes("failed/''*)")) {
   throw new Error('vm-job: release core is not the release text.');
 }
 
@@ -163,7 +163,7 @@ Commands:
   readback    Print { command, argv } for one read-back by invocation ID.
   journal     Print { command, argv } for one journal read by unit.
   release     Print { command, argv } for the release script.
-  scheduled   Print { command, purpose, serviceName, timerName, wrapper, service, timer }.
+  scheduled   Print { command, purpose, serviceName, timerName, wrapper, service, timer, sha256, writers }.
   classify    Print { command, step, class, finished, facts } for one saved answer.
               finished is present only for step poll.
 
@@ -203,6 +203,9 @@ scheduled:
   --stop-post <path>          Absolute path of the stop-post script on the machine. Only with --stop-post-timeout.
   --stop-post-timeout <seconds>  A whole number from 30 to 3600, written in digits. Only with --stop-post.
   -- <operand>                Each operand, after --. At most 56. Passed to the job on each firing.
+
+Writers install the wrapper, the service and the timer. Each writer script is at most 4096 code points.
+The wrapper text may be longer. A single line that cannot fit in one writer is refused.
 
 classify:
   --step <step>         start, poll, readback, journal, release, or scheduled-record. Required.
@@ -764,8 +767,11 @@ function buildWrapper(purpose, limit, scriptPath, stop, operands) {
     '#!/bin/sh',
     'rec() {',
     'mkdir -p /var/lib/vm-job/scheduled || return 1',
+    'a=$1; b=$2',
+    '[ -n "$a" ] || a=none',
+    '[ -n "$b" ] || b=none',
     'tmp="$record.tmp.$$"',
-    "printf '%s\\n%s\\n%s\\n' \"$1\" \"$2\" \"$3\" > \"$tmp\" || return 1",
+    "printf '%s\\n%s\\n%s\\n' \"$a\" \"$b\" \"$3\" > \"$tmp\" || return 1",
     'mv "$tmp" "$record" || return 1',
     '}',
     'exec 9>/run/lock/vm-job.lock',
@@ -782,6 +788,8 @@ function buildWrapper(purpose, limit, scriptPath, stop, operands) {
     'exec 3<&-',
     'fi',
     'case "$k" in 0|[1-9]|[1-9][0-9]*) ;; *) k=0 ;; esac',
+    'if [ "$u" = none ]; then u=; fi',
+    'if [ "$i" = none ]; then i=; fi',
     ENUM_LINE,
     "set -f; oifs=$IFS; IFS='",
     "'",
@@ -794,6 +802,9 @@ function buildWrapper(purpose, limit, scriptPath, stop, operands) {
     'if [ "$n" -eq 1 ]; then only=$name; else only=; fi',
     '[ -z "$names" ] && names=$name || names=$names,$name',
     'done',
+    'if [ "$i" = pending ] && [ "$n" -eq 1 ] && [ -n "$u" ] && [ "$only" = "$u" ]; then',
+    'i=$(systemctl show -p InvocationID --value "$u.service") || i=',
+    'fi',
     'released=',
     'if [ "$n" -eq 1 ] && [ -n "$u" ] && [ "$only" = "$u" ]; then',
     'rs=0',
@@ -802,7 +813,24 @@ function buildWrapper(purpose, limit, scriptPath, stop, operands) {
     RELEASE_CORE.trimEnd(),
     'exit "$rc"',
     ') || rs=$?',
-    'if [ "$rs" -eq 0 ]; then released=1; echo "scheduled:released:$u"; fi',
+    'if [ "$rs" -ne 0 ]; then',
+    'first=$(printf \'%s\\n\' "$release_out" | head -n 1)',
+    'echo "scheduled:release-refused:$first"',
+    'else',
+    'tries=0',
+    'while [ "$tries" -lt 30 ]; do',
+    'load=$(systemctl show -p LoadState --value "$u.service") || load=',
+    'if [ "$load" = not-found ]; then released=1; echo "scheduled:released:$u"; break; fi',
+    'tries=$((tries + 1))',
+    '[ "$tries" -lt 30 ] && sleep 1',
+    'done',
+    'if [ -z "$released" ]; then',
+    'active=$(systemctl show -p ActiveState --value "$u.service") || active=',
+    'echo "scheduled:release-incomplete:$u:$active"',
+    'rec "$u" "$i" "$((k + 1))" || exit 1',
+    'exit 0',
+    'fi',
+    'fi',
     'fi',
     'if [ "$n" -gt 0 ] && [ -z "$released" ]; then',
     'rec "$u" "$i" "$((k + 1))" || exit 1',
@@ -824,31 +852,143 @@ function buildWrapper(purpose, limit, scriptPath, stop, operands) {
   if (stop) {
     lines.push(
       'R=$(command -v systemd-run) || { echo stop-post-setup-failed; exit 1; }',
-      'd=/run/vm-job-stop.$$',
       'A=-p',
       `B=${shQuote(`ExecStopPost=/bin/sh ${stop.path}`)}`,
       'C=-p',
       `D=${shQuote(`TimeoutStopSec=${stop.timeout}`)}`,
+      'export R A B C D',
       'um=$(umask); umask 077',
-      'mkdir -p "$d" || { umask "$um"; echo stop-post-setup-failed; exit 1; }',
+      'd=$(mktemp -d /run/vm-job-stop.XXXXXX) || { umask "$um"; echo stop-post-setup-failed; exit 1; }',
       'umask "$um"',
       `printf '%s\\n' '#!/bin/sh' ${shQuote(SHIM_EXEC)} > "$d/systemd-run" || { rm -rf "$d"; echo stop-post-setup-failed; exit 1; }`,
       'chmod 700 "$d/systemd-run" || { rm -rf "$d"; echo stop-post-setup-failed; exit 1; }',
-      'PATH="$d:$PATH"; export PATH R A B C D',
-      "trap 'rm -rf \"\$d\"' EXIT"
+      'trap \'rm -rf "$d"\' EXIT',
+      'trap \'exit 143\' TERM HUP INT',
+      '"$d/systemd-run" --version >/dev/null 2>&1 || { rm -rf "$d"; echo stop-post-setup-failed; exit 1; }',
+      'PATH="$d:$PATH"; export PATH'
     );
   }
   lines.push(
+    'rec "$unit" pending "$k" || exit 1',
     'status=0',
     'out=$(set -- "$unit" "$limit" "$expect" "$job" "$@"; eval "$sf") || status=$?',
-    'case "$out" in *"Running as unit: $unit.service; invocation ID: "*"start-exit:0"*) ;; *) printf \'%s\\n\' "$out"; exit "$status" ;; esac',
+    'case "$out" in',
+    '*"Running as unit: $unit.service; invocation ID: "*"start-exit:0"*)',
     'inv=${out#*"invocation ID: "}',
     'inv=${inv%%[!0-9a-f]*}',
-    '[ "${#inv}" -eq 32 ] || { printf \'%s\\n\' "$out"; exit "$status"; }',
-    'rec "$unit" "$inv" 0 || exit 1',
-    'exit 0'
+    'if [ "${#inv}" -eq 32 ]; then rec "$unit" "$inv" 0 || exit 1; exit 0; fi',
+    'printf \'scheduled:start-unparsed:%s\\n\' "$unit"',
+    'printf \'%s\\n\' "$out"',
+    'exit "$status"',
+    ';;',
+    '*"start-exit:0"*)',
+    'printf \'scheduled:start-unparsed:%s\\n\' "$unit"',
+    'printf \'%s\\n\' "$out"',
+    'exit "$status"',
+    ';;',
+    '*)',
+    'printf \'%s\\n\' "$out"',
+    'exit "$status"',
+    ';;',
+    'esac'
   );
   return `${lines.join('\n')}\n`;
+}
+
+// Each writer script is at most 4096 code points. The installed text may be longer:
+// it is split on line boundaries, and the last writer of each file checks the sha256.
+const WRITER_MAX = 4096;
+const WRITER_DELIM = 'VMJOB_EOF';
+
+function sha256Hex(text) {
+  return createHash('sha256').update(text, 'utf8').digest('hex');
+}
+
+function fileLines(text) {
+  const parts = text.split('\n');
+  const lines = [];
+  for (let index = 0; index < parts.length; index += 1) {
+    if (index === parts.length - 1) {
+      if (parts[index] !== '') lines.push(parts[index]);
+    } else {
+      lines.push(`${parts[index]}\n`);
+    }
+  }
+  return lines;
+}
+
+function writerFrame(path, mode, body, sha, options) {
+  const part = `${path}.part`;
+  let script = '';
+  if (body !== '') {
+    const redir = options.first ? '>' : '>>';
+    script += `cat ${redir} ${shQuote(part)} << '${WRITER_DELIM}'\n${body}${WRITER_DELIM}\n`;
+  }
+  if (options.last) {
+    const mismatch = shQuote(`writer:sha-mismatch:${path}`);
+    script += `got=$(sha256sum ${shQuote(part)}) || { echo ${mismatch}; exit 1; }\n`;
+    script += 'got=${got%% *}\n';
+    script += `[ "$got" = ${shQuote(sha)} ] || { echo ${mismatch}; exit 1; }\n`;
+    if (options.syntax) script += `sh -n ${shQuote(part)} || exit 1\n`;
+    script += `chmod ${mode} ${shQuote(part)} || exit 1\n`;
+    script += `chown root:root ${shQuote(part)} || exit 1\n`;
+    script += `mv ${shQuote(part)} ${shQuote(path)} || exit 1\n`;
+    script += `echo ${shQuote(`installed:${path}`)}\n`;
+  }
+  return script;
+}
+
+function writerFits(path, mode, body, sha, options) {
+  return codePoints(writerFrame(path, mode, body, sha, options)) <= WRITER_MAX;
+}
+
+function refuseWriter(kind, path, mode, body, sha, options) {
+  const size = codePoints(writerFrame(path, mode, body, sha, options));
+  fail(`Error: a ${kind} writer is ${size} code points; the maximum is ${WRITER_MAX}.`);
+}
+
+function packWriters(kind, path, text, mode, sha, syntax) {
+  if (text.includes(WRITER_DELIM)) {
+    fail(`Error: the ${kind} contains the writer delimiter "${WRITER_DELIM}".`);
+  }
+  const lines = fileLines(text);
+  const scripts = [];
+  let index = 0;
+  while (index < lines.length) {
+    const first = scripts.length === 0;
+    const remaining = lines.slice(index);
+    const all = remaining.join('');
+    if (writerFits(path, mode, all, sha, { first, last: true, syntax })) {
+      scripts.push(writerFrame(path, mode, all, sha, { first, last: true, syntax }));
+      break;
+    }
+    let take = 0;
+    let body = '';
+    for (let cursor = 0; cursor < remaining.length; cursor += 1) {
+      const next = body + remaining[cursor];
+      if (!writerFits(path, mode, next, sha, { first, last: false, syntax })) break;
+      body = next;
+      take = cursor + 1;
+    }
+    if (take === 0) {
+      refuseWriter(kind, path, mode, remaining[0], sha, { first, last: false, syntax });
+    }
+    scripts.push(writerFrame(path, mode, body, sha, { first, last: false, syntax }));
+    index += take;
+    if (index === lines.length) {
+      if (!writerFits(path, mode, '', sha, { first: false, last: true, syntax })) {
+        refuseWriter(kind, path, mode, '', sha, { first: false, last: true, syntax });
+      }
+      scripts.push(writerFrame(path, mode, '', sha, { first: false, last: true, syntax }));
+    }
+  }
+  for (const script of scripts) {
+    const size = codePoints(script);
+    if (size > WRITER_MAX) {
+      fail(`Error: a ${kind} writer is ${size} code points; the maximum is ${WRITER_MAX}.`);
+    }
+  }
+  return scripts;
 }
 
 function commandStart(values, operands) {
@@ -888,14 +1028,29 @@ function commandScheduled(values, operands) {
   if (matchesVmJobEnumeration(serviceName) || matchesVmJobEnumeration(timerName)) {
     fail('Error: the scheduled unit name matches vm-job-*, so it would count as a loaded job.');
   }
+  const wrapper = buildWrapper(purpose, limit, scriptPath, stop, operands);
+  const service = buildService(purpose, wrapperPath);
+  const timer = buildTimer(purpose, calendar);
+  const sha256 = {
+    wrapper: sha256Hex(wrapper),
+    service: sha256Hex(service),
+    timer: sha256Hex(timer)
+  };
+  const writers = [
+    ...packWriters('wrapper', wrapperPath, wrapper, '700', sha256.wrapper, true),
+    ...packWriters('service', `/etc/systemd/system/${serviceName}`, service, '644', sha256.service, false),
+    ...packWriters('timer', `/etc/systemd/system/${timerName}`, timer, '644', sha256.timer, false)
+  ].map((script) => ['/bin/sh', '-c', script]);
   return {
     command: 'scheduled',
     purpose,
     serviceName,
     timerName,
-    wrapper: buildWrapper(purpose, limit, scriptPath, stop, operands),
-    service: buildService(purpose, wrapperPath),
-    timer: buildTimer(purpose, calendar)
+    wrapper,
+    service,
+    timer,
+    sha256,
+    writers
   };
 }
 
@@ -934,11 +1089,19 @@ function classifyScheduledRecord(answer) {
   const skipsOk = lines.length === 3
     && DIGITS_RE.test(lines[2])
     && Number.isSafeInteger(Number(lines[2]));
-  const unitOk = lines.length === 3 && UNIT_RE.test(lines[0]) && lines[0].length <= UNIT_MAX;
-  if (unitOk && HEX32_RE.test(lines[1]) && skipsOk) {
+  if (!skipsOk) return { class: 'not-read', facts: {} };
+  const skips = Number(lines[2]);
+  if (lines[0] === 'none' && lines[1] === 'none') {
+    return { class: 'skips-only', facts: { skips } };
+  }
+  const unitOk = UNIT_RE.test(lines[0]) && lines[0].length <= UNIT_MAX;
+  if (unitOk && lines[1] === 'pending') {
+    return { class: 'pending', facts: { unit: lines[0], skips } };
+  }
+  if (unitOk && HEX32_RE.test(lines[1])) {
     return {
       class: 'recorded',
-      facts: { unit: lines[0], invocationId: lines[1], skips: Number(lines[2]) }
+      facts: { unit: lines[0], invocationId: lines[1], skips }
     };
   }
   return { class: 'not-read', facts: {} };

@@ -8,7 +8,7 @@ tasks=$(systemctl show -p TasksCurrent --value "$unit.service")
 if [ "$cur" != "$id" ]; then echo "invocation-mismatch:$cur"; exit 13; fi
 case "$st/$sub" in
   active/exited) ;;
-  failed/*) case "$tasks" in ''|'[not set]'|0) ;; *) echo "processes-remain:$tasks"; exit 17 ;; esac ;;
+  failed/''*) case "$tasks" in ''|'[not set]'|0) ;; *) echo "processes-remain:$tasks"; exit 17 ;; esac ;;
   *) echo "not-finished:$st/$sub"; exit 14 ;;
 esac
 if [ "$st" = active ]; then systemctl stop "$unit.service"; else systemctl reset-failed "$unit.service"; fi

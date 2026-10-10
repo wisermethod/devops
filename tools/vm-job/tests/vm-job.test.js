@@ -1,14 +1,16 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import {
   chmodSync,
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readdirSync,
   readFileSync,
   rmSync,
+  statSync,
   writeFileSync
 } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -32,7 +34,7 @@ const POLL = 'sleep "$2"; systemctl show -p LoadState,ActiveState,SubState,Resul
 const READBACK = 'journalctl --no-pager -o short-iso -n "$2" _SYSTEMD_INVOCATION_ID="$1" + INVOCATION_ID="$1"';
 const JOURNAL = 'journalctl --no-pager -o short-iso -n "$2" -u "$1.service"';
 const STARTER_SHA = 'f077696e413cd0f4fa10aebfb0338befad7472a9758f7a7cff3ea987ad8d477a';
-const RELEASE_SHA = '76560f94be28d5cd41aef6f3858340797aa62a1186efbece9c2f769aaeeb21b2';
+const RELEASE_SHA = 'a6a0a011a1f7aebaf99f9fc2798e8d96aa14e6105903449830f0d48aa772855c';
 const UNIT = 'vm-job-apt-install-20261005t120000z-abcdef';
 const OTHER = 'vm-job-apt-remove-20261005t120001z-123456';
 const ID = '0123456789abcdef0123456789abcdef';
@@ -813,6 +815,7 @@ const SCHEDULED = [
 ];
 const SCHEDULED_UNIT = 'vm-job-twenty-backup-20261010t000000z-012345';
 const SCHEDULED_UNIT_2 = 'vm-job-twenty-backup-20261010t000001z-012345';
+const OLD_UNIT = 'vm-job-twenty-backup-20261009t000000z-abcdef';
 const OTHER_UNIT = 'vm-job-apt-install-20261005t120000z-abcdef';
 const RUN_ID = 'abcdef0123456789abcdef0123456789';
 const RUN_ID_2 = 'fedcba9876543210fedcba9876543210';
@@ -893,7 +896,11 @@ case "$1" in
     if [ -f ${q(join(root, 'state'))}/$prop ]; then /bin/cat ${q(join(root, 'state'))}/$prop; fi
     exit 0 ;;
   stop|reset-failed)
-    : > ${q(join(root, 'units'))}
+    if [ ! -f ${q(join(root, 'stay-loaded'))} ]; then
+      : > ${q(join(root, 'units'))}
+      mkdir -p ${q(join(root, 'state'))}
+      printf 'not-found\\n' > ${q(join(root, 'state'))}/LoadState
+    fi
     exit 0 ;;
 esac
 exit 0
@@ -904,13 +911,21 @@ log systemd-run "$@"
 unit=
 for a do
   case "$a" in
+    --version)
+      if [ -f ${q(join(root, 'probe-fail'))} ]; then exit 1; fi
+      exit 0 ;;
     --unit=*) unit=\${a#--unit=} ;;
   esac
 done
+if [ -f ${q(join(root, 'bad-id'))} ]; then
+  printf 'Running as unit: %s.service; invocation ID: not-an-id\\n' "$unit"
+  exit 0
+fi
 id=$(/bin/cat ${q(join(root, 'invocation'))})
 printf 'Running as unit: %s.service; invocation ID: %s\\n' "$unit" "$id"
 exit 0
 `);
+  writeBin('sleep', `#!/bin/sh\n${logger}\nlog sleep "$@"\nexit 0\n`);
   writeBin('cat', `#!/bin/sh
 for arg do
   case "$arg" in
@@ -1037,6 +1052,16 @@ function shows(unit = SCHEDULED_UNIT) {
   return ['InvocationID', 'ActiveState', 'SubState', 'TasksCurrent'].map((prop) => showCall(prop, unit));
 }
 
+function loadStateCall(unit = SCHEDULED_UNIT) {
+  return showCall('LoadState', unit);
+}
+
+function probeCall() {
+  return [
+    'systemd-run', '-p', 'ExecStopPost=/bin/sh /opt/twenty/backup/recover', '-p', 'TimeoutStopSec=1200', '--version'
+  ];
+}
+
 // job=$(cat file) drops trailing newlines, so the -c text has none.
 function systemdRun(unit) {
   return [
@@ -1048,7 +1073,7 @@ function systemdRun(unit) {
   ];
 }
 
-describe('vm-job 0.3.0', () => {
+describe('vm-job 0.3.1', () => {
   it('pins a start without stop-post to the 0.2.0 argv', () => {
     withDir((dir) => {
       const built = ok(startArgs(dir, ['--', 'install', 'tree=2.1.1']));
@@ -1184,7 +1209,6 @@ describe('vm-job 0.3.0', () => {
       assert.equal(checked.status, 0, `${name}\n${checked.stderr}`);
     }
     const wrapper = readFileSync(join(FIXTURES, 'scheduled-wrapper.sh'), 'utf8');
-    assert.ok(codePoints(wrapper) <= 4096);
     const copy = join(tmpdir(), 'vm-job-fixture-wrapper.sh');
     writeFileSync(copy, wrapper);
     const checked = spawnSync('/bin/dash', ['-n', copy], { encoding: 'utf8' });
@@ -1230,6 +1254,13 @@ describe('vm-job 0.3.0', () => {
       const none = ok(['classify', '--step', 'scheduled-record', '--answer', writeAnswer(dir, { outcome: 'ok', output: 'none\n' })]);
       assert.equal(none.class, 'none');
       assert.deepEqual(none.facts, {});
+      const skipsOnly = ok(['classify', '--step', 'scheduled-record', '--answer', writeAnswer(dir, { outcome: 'ok', output: 'none\nnone\n4\n' })]);
+      assert.equal(skipsOnly.class, 'skips-only');
+      assert.equal(Object.hasOwn(skipsOnly, 'finished'), false);
+      assert.deepEqual(skipsOnly.facts, { skips: 4 });
+      const pending = ok(['classify', '--step', 'scheduled-record', '--answer', writeAnswer(dir, { outcome: 'ok', output: `${SCHEDULED_UNIT}\npending\n3\n` })]);
+      assert.equal(pending.class, 'pending');
+      assert.deepEqual(pending.facts, { unit: SCHEDULED_UNIT, skips: 3 });
       for (const answer of [
         { status: 'needs_confirmation', outcome: 'ok', output: 'none\n' },
         { outcome: 'timeout', output: 'none\n' },
@@ -1237,7 +1268,11 @@ describe('vm-job 0.3.0', () => {
         { outcome: 'ok', output: `not-a-unit\n${RUN_ID}\n0\n` },
         { outcome: 'ok', output: `${SCHEDULED_UNIT}\n${RUN_ID.slice(1)}x\n0\n` },
         { outcome: 'ok', output: `${SCHEDULED_UNIT}\n${RUN_ID}\n01\n` },
-        { outcome: 'ok', output: '' }
+        { outcome: 'ok', output: '' },
+        { outcome: 'ok', output: '\n\n1\n' },
+        { outcome: 'ok', output: 'none\nnone\n01\n' },
+        { outcome: 'ok', output: `none\n${RUN_ID}\n0\n` },
+        { outcome: 'ok', output: `${SCHEDULED_UNIT}\npending\n\n` }
       ]) {
         const result = ok(['classify', '--step', 'scheduled-record', '--answer', writeAnswer(dir, answer)]);
         assert.equal(result.class, 'not-read');
@@ -1260,6 +1295,7 @@ describe('vm-job 0.3.0', () => {
       assert.deepEqual(box.calls(), [
         ['flock', '-w', '20', '9'],
         listCall(),
+        probeCall(),
         listCall(),
         systemdRun(SCHEDULED_UNIT)
       ]);
@@ -1277,8 +1313,10 @@ describe('vm-job 0.3.0', () => {
         listCall(),
         ...shows(),
         ['systemctl', 'stop', `${SCHEDULED_UNIT}.service`],
+        loadStateCall(),
+        probeCall(),
         listCall(),
-        systemdRun(SCHEDULED_UNIT_2, RUN_ID_2)
+        systemdRun(SCHEDULED_UNIT_2)
       ]);
       assert.deepEqual(box.leftovers(), { scheduled: [], shims: [] });
     } finally {
@@ -1300,6 +1338,8 @@ describe('vm-job 0.3.0', () => {
       listCall(),
       ...shows(),
       ['systemctl', 'reset-failed', `${SCHEDULED_UNIT}.service`],
+      loadStateCall(),
+      probeCall(),
       listCall(),
       systemdRun(SCHEDULED_UNIT)
     ]);
@@ -1312,7 +1352,7 @@ describe('vm-job 0.3.0', () => {
       box.setState({ InvocationID: RUN_ID, ActiveState: 'active', SubState: 'running', TasksCurrent: '1' });
     });
     assert.equal(seen.status, 0, seen.stderr);
-    assert.equal(seen.stdout, `scheduled:skipped:${SCHEDULED_UNIT}\n`);
+    assert.equal(seen.stdout, `scheduled:release-refused:not-finished:active/running\nscheduled:skipped:${SCHEDULED_UNIT}\n`);
     assert.equal(seen.record, `${SCHEDULED_UNIT}\n${RUN_ID}\n1\n`);
     assert.deepEqual(seen.calls, [
       ['flock', '-w', '20', '9'],
@@ -1355,7 +1395,7 @@ describe('vm-job 0.3.0', () => {
       box.setState({ InvocationID: RUN_ID_2, ActiveState: 'active', SubState: 'exited', TasksCurrent: '0' });
     });
     assert.equal(seen.status, 0, seen.stderr);
-    assert.equal(seen.stdout, `scheduled:skipped:${SCHEDULED_UNIT}\n`);
+    assert.equal(seen.stdout, `scheduled:release-refused:invocation-mismatch:${RUN_ID_2}\nscheduled:skipped:${SCHEDULED_UNIT}\n`);
     assert.equal(seen.record, `${SCHEDULED_UNIT}\n${RUN_ID}\n1\n`);
     assert.deepEqual(seen.calls, [
       ['flock', '-w', '20', '9'],
@@ -1377,17 +1417,18 @@ describe('vm-job 0.3.0', () => {
     assert.deepEqual(seen.calls, [['flock', '-w', '20', '9']]);
   });
 
-  it('leaves the record unchanged when the starter reports token-changed', () => {
+  it('leaves a pending record when the starter reports token-changed', () => {
     const seen = runBox(ok(SCHEDULED).wrapper, (box) => {
       box.seed(`${SCHEDULED_UNIT}\n${RUN_ID}\n4\n`);
       writeFileSync(join(box.root, 'flip'), '1');
     });
     assert.equal(seen.status, 15, seen.stderr);
     assert.equal(seen.stdout, 'token-changed:bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb\n');
-    assert.equal(seen.record, `${SCHEDULED_UNIT}\n${RUN_ID}\n4\n`);
+    assert.equal(seen.record, `${SCHEDULED_UNIT}\npending\n4\n`);
     assert.deepEqual(seen.calls, [
       ['flock', '-w', '20', '9'],
       listCall(),
+      probeCall(),
       listCall()
     ]);
   });
@@ -1402,5 +1443,410 @@ describe('vm-job 0.3.0', () => {
     assert.equal(run.includes('ExecStopPost=/bin/sh /opt/twenty/backup/recover'), false);
     assert.equal(run[1], `--unit=${SCHEDULED_UNIT}`);
     assert.equal(run.at(-1), 'dump');
+  });
+
+  it('does not start when the shim probe fails, and leaves nothing behind', () => {
+    const box = openBox(ok(SCHEDULED).wrapper);
+    try {
+      writeFileSync(join(box.root, 'probe-fail'), '1');
+      const seen = box.fire();
+      assert.equal(seen.status, 1, seen.stderr);
+      assert.equal(seen.stdout, 'stop-post-setup-failed\n');
+      assert.equal(seen.stderr, '');
+      assert.equal(box.record(), null);
+      assert.deepEqual(box.leftovers(), { scheduled: [], shims: [] });
+      assert.deepEqual(box.calls(), [
+        ['flock', '-w', '20', '9'],
+        listCall(),
+        probeCall()
+      ]);
+      assert.equal(box.calls().some((call) => call.some((arg) => String(arg).startsWith('--unit='))), false);
+    } finally {
+      box.cleanup();
+    }
+  });
+
+  it('reports a release that leaves the unit loaded, and does not start', () => {
+    const seen = runBox(ok(SCHEDULED).wrapper, (box) => {
+      box.seed(`${SCHEDULED_UNIT}\n${RUN_ID}\n0\n`);
+      box.setUnits(`${SCHEDULED_UNIT}.service loaded failed failed\n`);
+      box.setState({
+        InvocationID: RUN_ID,
+        ActiveState: 'failed',
+        SubState: 'failed',
+        TasksCurrent: '0',
+        LoadState: 'loaded'
+      });
+      writeFileSync(join(box.root, 'stay-loaded'), '1');
+    });
+    assert.equal(seen.status, 0, seen.stderr);
+    assert.equal(seen.stdout, `scheduled:release-incomplete:${SCHEDULED_UNIT}:failed\n`);
+    assert.equal(seen.record, `${SCHEDULED_UNIT}\n${RUN_ID}\n1\n`);
+    const expected = [
+      ['flock', '-w', '20', '9'],
+      listCall(),
+      ...shows(),
+      ['systemctl', 'reset-failed', `${SCHEDULED_UNIT}.service`]
+    ];
+    for (let attempt = 0; attempt < 29; attempt += 1) {
+      expected.push(loadStateCall(), ['sleep', '1']);
+    }
+    expected.push(loadStateCall(), showCall('ActiveState'));
+    assert.deepEqual(seen.calls, expected);
+    assert.equal(seen.calls.some((call) => call[0] === 'systemd-run'), false);
+  });
+
+  it('reconciles a pending record when that unit finished, then releases and starts', () => {
+    const box = openBox(ok(SCHEDULED).wrapper);
+    try {
+      box.seed(`${OLD_UNIT}\npending\n3\n`);
+      box.setUnits(`${OLD_UNIT}.service loaded active exited\n`);
+      box.setState({ InvocationID: RUN_ID, ActiveState: 'active', SubState: 'exited', TasksCurrent: '0' });
+      box.setInvocation(RUN_ID_2);
+      const seen = box.fire();
+      assert.equal(seen.status, 0, seen.stderr);
+      assert.equal(seen.stdout, `scheduled:released:${OLD_UNIT}\n`);
+      assert.equal(box.record(), `${SCHEDULED_UNIT}\n${RUN_ID_2}\n0\n`);
+      assert.deepEqual(box.calls(), [
+        ['flock', '-w', '20', '9'],
+        listCall(),
+        showCall('InvocationID', OLD_UNIT),
+        ...shows(OLD_UNIT),
+        ['systemctl', 'stop', `${OLD_UNIT}.service`],
+        loadStateCall(OLD_UNIT),
+        probeCall(),
+        listCall(),
+        systemdRun(SCHEDULED_UNIT)
+      ]);
+    } finally {
+      box.cleanup();
+    }
+  });
+
+  it('starts a new unit when a pending record names one that never loaded', () => {
+    const seen = runBox(ok(SCHEDULED).wrapper, (box) => {
+      box.seed(`${OLD_UNIT}\npending\n2\n`);
+    });
+    assert.equal(seen.status, 0, seen.stderr);
+    assert.equal(seen.stdout, '');
+    assert.equal(seen.record, `${SCHEDULED_UNIT}\n${RUN_ID}\n0\n`);
+    assert.deepEqual(seen.calls, [
+      ['flock', '-w', '20', '9'],
+      listCall(),
+      probeCall(),
+      listCall(),
+      systemdRun(SCHEDULED_UNIT)
+    ]);
+  });
+
+  it('skips a pending record when the loaded unit has a different name', () => {
+    const seen = runBox(ok(SCHEDULED).wrapper, (box) => {
+      box.seed(`${OLD_UNIT}\npending\n0\n`);
+      box.setUnits(`${OTHER_UNIT}.service loaded active exited\n`);
+    });
+    assert.equal(seen.status, 0, seen.stderr);
+    assert.equal(seen.stdout, `scheduled:skipped:${OTHER_UNIT}\n`);
+    assert.equal(seen.record, `${OLD_UNIT}\npending\n1\n`);
+    assert.deepEqual(seen.calls, [
+      ['flock', '-w', '20', '9'],
+      listCall()
+    ]);
+  });
+
+  it('leaves the pending record when a successful start cannot be parsed', () => {
+    const seen = runBox(ok(SCHEDULED).wrapper, (box) => {
+      writeFileSync(join(box.root, 'bad-id'), '1');
+    });
+    assert.equal(seen.status, 0, seen.stderr);
+    assert.match(seen.stdout, new RegExp(`^scheduled:start-unparsed:${SCHEDULED_UNIT}\\n`));
+    assert.match(seen.stdout, /start-exit:0\n$/);
+    assert.match(seen.stdout, /invocation ID: not-an-id/);
+    assert.equal(seen.record, `${SCHEDULED_UNIT}\npending\n0\n`);
+    assert.equal(seen.calls.some((call) => call.includes(`--unit=${SCHEDULED_UNIT}`)), true);
+  });
+
+  it('records a first skip as none and classifies skips-only', () => {
+    const box = openBox(ok(SCHEDULED).wrapper);
+    try {
+      box.setUnits(`${OTHER_UNIT}.service loaded active running\n`);
+      const seen = box.fire();
+      assert.equal(seen.status, 0, seen.stderr);
+      assert.equal(seen.stdout, `scheduled:skipped:${OTHER_UNIT}\n`);
+      assert.equal(box.record(), 'none\nnone\n1\n');
+      assert.deepEqual(box.calls(), [
+        ['flock', '-w', '20', '9'],
+        listCall()
+      ]);
+      withDir((dir) => {
+        const classified = ok(['classify', '--step', 'scheduled-record', '--answer', writeAnswer(dir, {
+          outcome: 'ok',
+          output: box.record()
+        })]);
+        assert.equal(classified.class, 'skips-only');
+        assert.deepEqual(classified.facts, { skips: 1 });
+      });
+    } finally {
+      box.cleanup();
+    }
+  });
+});
+
+function assertNoSlashStar(label, text) {
+  assert.equal(text.includes('/*'), false, `${label} contains /*`);
+  assert.equal(text.includes('*/'), false, `${label} contains */`);
+}
+
+function largestWriter(writers) {
+  return writers.reduce((largest, argv) => Math.max(largest, codePoints(argv[2])), 0);
+}
+
+// Rewrites only the install destinations in a copy of each writer. The heredoc
+// bodies stay the bytes scheduled printed, so the installed files can be compared
+// to those bytes. chown is a PATH double: this account cannot give a file to root.
+function retargetWriter(script, pairs) {
+  let next = script;
+  for (const [from, to] of pairs) {
+    next = next.replaceAll(`'${from}.part'`, `'${to}.part'`);
+    next = next.replaceAll(`writer:sha-mismatch:${from}`, `writer:sha-mismatch:${to}`);
+    next = next.replaceAll(`installed:${from}`, `installed:${to}`);
+    next = next.replaceAll(`'${from}'`, `'${to}'`);
+  }
+  return next;
+}
+
+function writerEnv(bin) {
+  return { ...process.env, PATH: `${bin}:/bin:/usr/bin:/sbin` };
+}
+
+describe('vm-job 0.3.1 writers and stop-post', () => {
+  it('fails closed when stop-post.sh cannot execute its shim', () => {
+    const root = mkdtempSync(join(tmpdir(), 'vm-job-stop-'));
+    try {
+      const bin = join(root, 'bin');
+      mkdirSync(bin);
+      mkdirSync(join(root, 'run'));
+      const text = readFileSync(join(ROOT, 'scripts/texts/stop-post.sh'), 'utf8');
+      assert.match(text, /mktemp -d \/run\/vm-job-stop\.XXXXXX/);
+      assert.match(text, /"\$d\/systemd-run" --version/);
+      assert.match(text, /trap 'exit 143' TERM HUP INT/);
+      assert.equal(text.includes('mkdir -p "$d"'), false);
+      assert.equal(text.includes('/run/vm-job-stop.$$'), false);
+      const script = text.replaceAll('/run/vm-job-stop.', `${join(root, 'run/vm-job-stop.')}`);
+      const scriptPath = join(root, 'stop-post.sh');
+      writeFileSync(scriptPath, script);
+      writeFileSync(join(bin, 'systemd-run'), '#!/bin/sh\nfor a do\n  case "$a" in --version) exit 1 ;; esac\ndone\nprintf started > "$1"\nexit 0\n');
+      chmodSync(join(bin, 'systemd-run'), 0o755);
+      const started = join(root, 'started');
+      const result = spawnSync('/bin/dash', [
+        scriptPath, '-p', 'ExecStopPost=/bin/sh /opt/recover', '-p', 'TimeoutStopSec=30',
+        `printf started > ${JSON.stringify(started)}`
+      ], { encoding: 'utf8', env: writerEnv(bin) });
+      assert.equal(result.status, 1, result.stderr);
+      assert.equal(result.stdout, 'stop-post-setup-failed\n');
+      assert.equal(existsSync(started), false);
+      assert.deepEqual(readdirSync(join(root, 'run')).filter((name) => name.startsWith('vm-job-stop')), []);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('removes the stop-post directory when TERM exits 143', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'vm-job-stop-'));
+    const bin = join(root, 'bin');
+    mkdirSync(bin);
+    mkdirSync(join(root, 'run'));
+    const scriptPath = join(root, 'stop-post.sh');
+    const ready = join(root, 'ready');
+    writeFileSync(scriptPath, readFileSync(join(ROOT, 'scripts/texts/stop-post.sh'), 'utf8')
+      .replaceAll('/run/vm-job-stop.', `${join(root, 'run/vm-job-stop.')}`));
+    writeFileSync(join(bin, 'systemd-run'), '#!/bin/sh\nfor a do\n  case "$a" in --version) exit 0 ;; esac\ndone\nexit 0\n');
+    chmodSync(join(bin, 'systemd-run'), 0o755);
+    const child = spawn('/bin/dash', [
+      scriptPath, '-p', 'ExecStopPost=/bin/sh /opt/recover', '-p', 'TimeoutStopSec=30',
+      `printf ready > ${JSON.stringify(ready)}; sleep 30`
+    ], { detached: true, env: writerEnv(bin) });
+    const killGroup = (signal) => {
+      try {
+        process.kill(-child.pid, signal);
+      } catch {
+        try { child.kill(signal); } catch { /* already gone */ }
+      }
+    };
+    try {
+      const started = Date.now();
+      while (!existsSync(ready)) {
+        if (child.exitCode !== null) throw new Error(`stop-post exited ${child.exitCode} before it was ready`);
+        if (Date.now() - started > 3000) throw new Error('stop-post did not reach the starter');
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      }
+      assert.equal(readdirSync(join(root, 'run')).some((name) => name.startsWith('vm-job-stop')), true);
+      killGroup('SIGTERM');
+      const code = await new Promise((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error('stop-post did not exit')), 3000);
+        child.once('exit', (status) => {
+          clearTimeout(timer);
+          resolve(status);
+        });
+      });
+      assert.equal(code, 143);
+      assert.deepEqual(readdirSync(join(root, 'run')).filter((name) => name.startsWith('vm-job-stop')), []);
+    } finally {
+      killGroup('SIGKILL');
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('installs the fixture texts with writers under dash', () => {
+    const built = ok(SCHEDULED);
+    assert.ok(largestWriter(built.writers) <= 4096);
+    for (const argv of built.writers) {
+      assert.deepEqual(argv.slice(0, 2), ['/bin/sh', '-c']);
+      assert.ok(codePoints(argv[2]) <= 4096);
+      assert.equal(argv.slice(3).length, 0);
+    }
+    const root = mkdtempSync(join(tmpdir(), 'vm-job-writers-'));
+    try {
+      const bin = join(root, 'bin');
+      mkdirSync(bin);
+      writeFileSync(join(bin, 'chown'), '#!/bin/sh\n[ "$1" = root:root ] || exit 1\nexit 0\n');
+      chmodSync(join(bin, 'chown'), 0o755);
+      // The writer's sh -n is the target's sh. This Mac's /bin/sh is bash 3.2, which rejects a case inside $( ).
+      writeFileSync(join(bin, 'sh'), '#!/bin/dash\nexec /bin/dash "$@"\n');
+      chmodSync(join(bin, 'sh'), 0o755);
+      const wrapperDest = join(root, 'opt/twenty/backup/wrapper');
+      const serviceDest = join(root, 'etc/systemd/system', built.serviceName);
+      const timerDest = join(root, 'etc/systemd/system', built.timerName);
+      mkdirSync(dirname(wrapperDest), { recursive: true });
+      mkdirSync(dirname(serviceDest), { recursive: true });
+      const pairs = [
+        ['/opt/twenty/backup/wrapper', wrapperDest],
+        [`/etc/systemd/system/${built.serviceName}`, serviceDest],
+        [`/etc/systemd/system/${built.timerName}`, timerDest]
+      ];
+      const installed = [];
+      for (const argv of built.writers) {
+        const script = retargetWriter(argv[2], pairs);
+        const checked = spawnSync('/bin/dash', ['-n', '-c', script], { encoding: 'utf8' });
+        assert.equal(checked.status, 0, checked.stderr);
+        const result = spawnSync('/bin/dash', ['-c', script], { encoding: 'utf8', env: writerEnv(bin) });
+        assert.equal(result.status, 0, result.stderr);
+        if (result.stdout !== '') installed.push(result.stdout.trim());
+      }
+      assert.deepEqual(installed, [
+        `installed:${wrapperDest}`,
+        `installed:${serviceDest}`,
+        `installed:${timerDest}`
+      ]);
+      assert.equal(readFileSync(wrapperDest, 'utf8'), built.wrapper);
+      assert.equal(readFileSync(serviceDest, 'utf8'), built.service);
+      assert.equal(readFileSync(timerDest, 'utf8'), built.timer);
+      assert.equal(createHash('sha256').update(readFileSync(wrapperDest)).digest('hex'), built.sha256.wrapper);
+      assert.equal(createHash('sha256').update(readFileSync(serviceDest)).digest('hex'), built.sha256.service);
+      assert.equal(createHash('sha256').update(readFileSync(timerDest)).digest('hex'), built.sha256.timer);
+      assert.equal(statSync(wrapperDest).mode & 0o777, 0o700);
+      assert.equal(statSync(serviceDest).mode & 0o777, 0o644);
+      assert.equal(statSync(timerDest).mode & 0o777, 0o644);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('prints writer:sha-mismatch when a chunk is tampered', () => {
+    const built = ok(SCHEDULED);
+    const root = mkdtempSync(join(tmpdir(), 'vm-job-writers-'));
+    try {
+      const bin = join(root, 'bin');
+      mkdirSync(bin);
+      writeFileSync(join(bin, 'chown'), '#!/bin/sh\nexit 0\n');
+      chmodSync(join(bin, 'chown'), 0o755);
+      const wrapperDest = join(root, 'wrapper');
+      const serviceDest = join(root, 'service');
+      const timerDest = join(root, 'timer');
+      const pairs = [
+        ['/opt/twenty/backup/wrapper', wrapperDest],
+        [`/etc/systemd/system/${built.serviceName}`, serviceDest],
+        [`/etc/systemd/system/${built.timerName}`, timerDest]
+      ];
+      let failed = null;
+      for (let index = 0; index < built.writers.length; index += 1) {
+        let script = retargetWriter(built.writers[index][2], pairs);
+        if (index === 0) {
+          const marker = "<< 'VMJOB_EOF'\n";
+          assert.equal(script.includes(marker), true);
+          script = script.replace(marker, `${marker}X`);
+        }
+        const result = spawnSync('/bin/dash', ['-c', script], { encoding: 'utf8', env: writerEnv(bin) });
+        if (result.status !== 0) {
+          failed = result;
+          break;
+        }
+      }
+      assert.ok(failed);
+      assert.equal(failed.status, 1);
+      assert.equal(failed.stdout, `writer:sha-mismatch:${wrapperDest}\n`);
+      assert.equal(existsSync(wrapperDest), false);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('keeps writers within 4096 for the maximum paths and 56 operands', () => {
+    const pathFor = (mark) => `/${mark.repeat(200)}`;
+    const built = ok([
+      'scheduled', '--purpose', 'twenty-backup', '--limit', '3600',
+      '--script-path', pathFor('p'),
+      '--wrapper-path', pathFor('w'),
+      '--on-calendar', '*'.repeat(64),
+      '--stop-post', pathFor('s'),
+      '--stop-post-timeout', '3600',
+      '--',
+      ...Array.from({ length: 56 }, () => 'op')
+    ]);
+    assert.equal(built.writers.length > 0, true);
+    for (const argv of built.writers) {
+      for (const element of argv) assert.ok(codePoints(element) <= 4096);
+      const copy = join(tmpdir(), `vm-job-max-writer-${createHash('sha256').update(argv[2]).digest('hex').slice(0, 8)}.sh`);
+      writeFileSync(copy, argv[2]);
+      const checked = spawnSync('/bin/dash', ['-n', copy], { encoding: 'utf8' });
+      rmSync(copy, { force: true });
+      assert.equal(checked.status, 0, checked.stderr);
+    }
+    const wrapperCopy = join(tmpdir(), 'vm-job-max-wrapper.sh');
+    writeFileSync(wrapperCopy, built.wrapper);
+    const wrapperChecked = spawnSync('/bin/dash', ['-n', wrapperCopy], { encoding: 'utf8' });
+    rmSync(wrapperCopy, { force: true });
+    assert.equal(wrapperChecked.status, 0, wrapperChecked.stderr);
+    assert.ok(largestWriter(built.writers) <= 4096);
+  });
+
+  it('refuses a line that cannot fit in one writer', () => {
+    refused(scheduledArgs(['--', 'x'.repeat(4096)]), /a wrapper writer is \d+ code points; the maximum is 4096/);
+    refused(scheduledArgs(['--', 'VMJOB_EOF']), /the wrapper contains the writer delimiter "VMJOB_EOF"/);
+  });
+
+  it('contains no slash-star pair in shipped texts, wrappers, or writers', () => {
+    const names = readdirSync(join(ROOT, 'scripts/texts'));
+    for (const name of names) {
+      assertNoSlashStar(name, readFileSync(join(ROOT, 'scripts/texts', name), 'utf8'));
+    }
+    for (const built of [ok(SCHEDULED), ok(scheduledArgs(['--', 'dump']))]) {
+      assertNoSlashStar('wrapper', built.wrapper);
+      assertNoSlashStar('service', built.service);
+      assertNoSlashStar('timer', built.timer);
+      built.writers.forEach((argv, index) => assertNoSlashStar(`writer ${index}`, argv[2]));
+    }
+    const pathFor = (mark) => `/${mark.repeat(200)}`;
+    const max = ok([
+      'scheduled', '--purpose', 'twenty-backup', '--limit', '3600',
+      '--script-path', pathFor('p'),
+      '--wrapper-path', pathFor('w'),
+      '--on-calendar', '*-*-* 03:00:00',
+      '--stop-post', pathFor('s'),
+      '--stop-post-timeout', '30',
+      '--',
+      ...Array.from({ length: 56 }, () => 'op')
+    ]);
+    assertNoSlashStar('max wrapper', max.wrapper);
+    max.writers.forEach((argv, index) => assertNoSlashStar(`max writer ${index}`, argv[2]));
   });
 });

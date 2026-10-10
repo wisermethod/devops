@@ -3,7 +3,7 @@ name: Deploy Twenty
 type: skill
 category: operations
 description: Install Twenty CRM v2.45.6 on one machine a person's router maps, behind the Caddy that machine already runs, or add or remove one hostname route for an install this skill made, or remove that install, or take that install offline or bring it back online, and report the URL, what answered, and what is not configured.
-version: 0.1.12
+version: 0.1.13
 gaps:
   - installing a Twenty release other than v2.45.6, or upgrading an install to another release
   - a machine with no Docker, or with no Caddy running in the shape `skills/Deploy Workload/` runs it
@@ -404,14 +404,14 @@ Job 4. Take the first match.
 
 ### Who answers to this install's aliases?
 
-Ask on Job 1 once the name is free, and on Job 2 before an alias is added. Caddy reaches this install's server by its aliases, and another container, running or stopped, can already answer to one of those names, by its own name or an alias another skill gave it. Send the read `skills/Deploy Workload/` sends for its question who answers to the workload name: the same script, `argv` `/bin/sh`, `-c`, that script, and `sh`, a read, read by that question's rules for a successful read and for Caddy's links. Caddy is never absent here, since the Caddy question already found it running.
+Ask on Job 1 once the name is free, and on Job 2 before an alias is added. Caddy reaches this install's server by its aliases, and another container, running or stopped, can already answer to one of those names, by its name, hostname, short ID or an alias another skill gave it, in any case. Send the read `skills/Deploy Workload/` sends for its question who answers to the workload name: the same script, `argv` `/bin/sh`, `-c`, that script, `sh`, and then each name asked about, a read, read by that question's rules for a successful read and for Caddy's links and extra hosts. Caddy is never absent here, since the Caddy question already found it running.
 
 The names asked about are, on Job 1, `<install>-base`, `<install>-app`, and `<install>-<subdomain>`; on Job 2, the one alias being added. Take the first match.
 
 - The read is not successful. Stop. Change nothing.
-- Caddy carries a link. Stop. Change nothing.
-- On Job 1, a container answers to any of those names. Stop. Name its ID and its name. Those names are taken, and Caddy could reach that container instead of this install's server. Change nothing.
-- On Job 2, a container other than this install's server answers to the alias. The server is the container whose ID the inspection's project section gave for service `server` and this install. Stop. Name it. Change nothing.
+- Caddy carries a link or an extra host. Stop. Change nothing.
+- On Job 1, an `owner:` line names any of those names. Stop. Name the container ID. Those names are taken, and Caddy could reach that container instead of this install's server. Change nothing.
+- On Job 2, an `owner:` line names the alias with a container ID other than this install's server. The server is the container whose ID the inspection's project section gave for service `server` and this install. Stop. Name it. Change nothing.
 - Otherwise continue.
 
 ### Has the person confirmed Cloudflare for SaaS, before the plan?

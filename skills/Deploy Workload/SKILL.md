@@ -3,7 +3,7 @@ name: Deploy Workload
 type: skill
 category: operations
 description: Deploy one container to one machine a person's router maps, behind a Caddy the skill runs there, through targeted admin-API updates, or remove one it deployed, and report the URL it serves and whether it answered, through a router the person already runs
-version: 0.1.3
+version: 0.1.4
 gaps:
   - a router this plugin does not ship, which every deploy goes through
   - a workload on the router host, where Caddy has not been measured beside the router's own public origin
@@ -436,32 +436,46 @@ Ask when Docker is present. The workload line is read the way the caddy line is.
 
 ### Who answers to the workload name?
 
-Ask on Job 1 when the name is free, and on Job 2 before the route is judged its own. Caddy reaches a workload by its name, and another container can be given that same name, or carry it as a network alias another skill gave it, and a container that is stopped still holds its configured aliases and answers again when it starts. One `vm.command.run`, a read. `argv` is `/bin/sh`, `-c`, the script, and `sh`. The person is told the call is a read. `<script>` is this text and no other:
+Ask on Job 1 when the name is free, and on Job 2 before the route is judged its own. Caddy reaches a workload by its name, and another container can answer to that same name: by its container name, its hostname, its short ID, or a network alias another skill gave it, whatever the letters' case, since Docker's names are not case-sensitive. A container that is stopped keeps its configured aliases, and answers again when it starts. One `vm.command.run`, a read. `argv` is `/bin/sh`, `-c`, the script, `sh`, and then each name asked about, here the workload name alone. The names are operands, never written into the script. The person is told the call is a read. `<script>` is this text and no other:
 
 ```
 export LC_ALL=C
 ids=$(docker ps -aq --no-trunc)
 printf '%s\n' "ps-exit:$?"
-for c in $ids; do
-  docker inspect --format '{{.Id}} {{.Name}} {{index .Config.Labels "deploy-workload"}}{{range $k, $v := .NetworkSettings.Networks}} {{$k}}={{json $v.Aliases}}{{end}}' -- "$c"
+out=
+if [ -n "$ids" ]; then
+  # shellcheck disable=SC2086
+  out=$(docker inspect --format '{{.Id}}|{{.Name}}|{{.Config.Hostname}}|{{with index .Config.Labels "deploy-workload"}}{{.}}{{else}}-{{end}}|{{range $k, $v := .NetworkSettings.Networks}}{{range $v.Aliases}}{{.}} {{end}}{{end}}' -- $ids)
   printf '%s\n' "inspect-exit:$?"
-done
-printf '%s\n' '--- caddy links ---'
-docker inspect --format '{{json .HostConfig.Links}}{{range $k, $v := .NetworkSettings.Networks}} {{$k}}={{json $v.Links}}{{end}}' caddy
-printf '%s\n' "caddy-links-exit:$?"
+else
+  printf '%s\n' inspect-exit:0
+fi
+printf '%s\n' "$out" | awk -F'|' -v w="$*" '
+  BEGIN { n = split(tolower(w), a, " "); for (i = 1; i <= n; i++) if (a[i] != "") W[a[i]] = 1 }
+  NF >= 5 {
+    k = 0
+    c[++k] = tolower(substr($2, 2)); c[++k] = tolower($3); c[++k] = tolower(substr($1, 1, 12))
+    m = split(tolower($5), al, " "); for (j = 1; j <= m; j++) if (al[j] != "") c[++k] = al[j]
+    for (j = 1; j <= k; j++) if (c[j] in W) print "owner:" c[j] ":" $1 ":" $4
+  }'
+printf '%s\n' "containers:$(printf '%s\n' "$ids" | grep -c .)"
+printf '%s\n' "inspected:$(printf '%s\n' "$out" | grep -c .)"
+printf '%s\n' '--- caddy ---'
+docker inspect --format '{{json .HostConfig.Links}}|{{json .HostConfig.ExtraHosts}}{{range $k, $v := .NetworkSettings.Networks}}|{{$k}}={{json $v.Links}}{{end}}' caddy
+printf '%s\n' "caddy-exit:$?"
 printf '%s\n' owner-read-done
 exit 0
 ```
 
-The read lists every container on the machine, running or stopped. Each container line is its ID, its name with a leading `/`, its `deploy-workload` label or `<no value>`, then one `<network>=<aliases>` field per network it is configured on, the aliases a JSON list or `null`. A container answers to the workload name when its name, without the `/`, is the workload name, or when any of its alias lists contains the name exactly. The caddy-links section is Caddy's legacy links and each of its networks' links, each `null` or `[]` when there are none.
+The read matches on the machine and prints only what matched: one `owner:<name>:<container ID>:<label>` line for each way a container answers to an asked name, the label being its `deploy-workload` label or `-`. Then the count of containers listed and the count inspected. The caddy section is one line: Caddy's legacy links, its extra hosts, then each network's links, each `null` or `[]` when there are none.
 
-The read is a successful read only when the outcome is `ok`, or `remote_failure` naming this identifier, and not `truncated`; the last line is `owner-read-done`; `ps-exit` is 0; there is one `inspect-exit` 0 after every container line; and every container line has the shape above. Caddy absent is `caddy-links-exit` not 0 with `no such object`, compared without regard to case. That is allowed only on Job 1, before Caddy is started, when the Caddy question found no container named `caddy`. Take the first match.
+The read is a successful read only when the outcome is `ok`, or `remote_failure` naming this identifier, and not `truncated`; the last line is `owner-read-done`; `ps-exit` and `inspect-exit` are 0; and `containers` equals `inspected`. Caddy absent is `caddy-exit` not 0 with `no such object`, compared without regard to case. That is allowed only on Job 1, before Caddy is started, when the Caddy question found no container named `caddy`. Take the first match.
 
 - The read is not successful. Stop. Change nothing. Remove nothing.
-- Caddy is present and any of its links is not `null` and not `[]`. Stop. A link gives Caddy a private name for another container, and this skill does not run Caddy with one. Change nothing. Remove nothing.
-- No container answers to the workload name. Job 1 continues. Job 2: the route, when present, has no other owner.
-- Every container that answers to the workload name carries the label equal to the workload name. Job 1: the name question already decided this container. Job 2: the route, when present, may be this skill's.
-- A container that answers to the workload name carries another label, or none. Stop. Name its ID and name. Job 1: the name is taken by another container, running or stopped, a Twenty install's alias included. Job 2: the route is not this skill's, even when it is exactly the object this skill generates. Remove nothing.
+- Caddy is present, and a link or an extra host in its line is not `null` and not `[]`. Stop. Either gives Caddy a private name for something else, and this skill does not run Caddy with one. Change nothing. Remove nothing.
+- No `owner:` line names the workload name. Job 1 continues. Job 2: the route, when present, has no other owner.
+- Every `owner:` line for the workload name carries the label equal to the workload name. Job 1: the name question already decided this container. Job 2: the route, when present, may be this skill's.
+- An `owner:` line for the workload name carries another label, or `-`. Stop. Name the container ID. Job 1: the name is taken by another container, running or stopped, a Twenty install's alias included. Job 2: the route is not this skill's, even when it is exactly the object this skill generates. Remove nothing.
 
 ### What did each requested volume show?
 
@@ -967,7 +981,7 @@ An environment value the person confirmed is not a secret is shown. A secret is 
 ## Pitfalls
 
 - **A glob written `/*/` in a script this skill sends.** Measured 2026-10-06: a script carrying `conf/*/forwarding` beside other shell text came back `vendor_error` HTTP 400 at `/exec` every time, before reaching the machine, while the same text had passed the night before; `conf/[!.]*/forwarding`, which matches the same names, passed. Something on the connector's path now reads `/*` and `*/` as a database-comment attack. Write a glob that needs a directory wildcard as `[!.]*`, and do not read a repeated `vendor_error` on an unchanged script as the machine's answer. `uncertain` is not that measurement. It does not establish whether the call ran.
-- **A route taken as this skill's because it has this skill's shape.** Another skill can route through the same Caddy with the same object shape, and its container can answer to a name a workload would take, as Deploy Twenty's install aliases do. A route is this skill's only when no container but the workload's own answers to its name, running or stopped, by its name or by an alias, and Caddy carries no link. Deploy and removal both ask who answers to the workload name first.
+- **A route taken as this skill's because it has this skill's shape.** Another skill can route through the same Caddy with the same object shape, and its container can answer to a name a workload would take, as Deploy Twenty's install aliases do. A route is this skill's only when no container but the workload's own answers to its name, running or stopped, by its name, hostname, short ID or an alias, in any case, and Caddy carries no link and no extra host. Deploy and removal both ask who answers to the workload name first.
 - **The request is ambiguous.** More than one machine, more than one workload, a deploy and a removal together, or an install of Docker with no workload. Ask before any call.
 - **A package or unit change kept in this run because a workload was named.** Hand each such change to `skills/VM Configure/` on its own, whether or not a workload is named. Docker's own installation for this deployment stays here. An install of Docker with no workload is asked, and Docker is not installed with nothing to deploy.
 - **A machine that is not on the map, or whose health is not `ok`.** Stop. Not on the map: point to `skills/Prepare VM/`. Not reachable: name the outcome the way `skills/VM Inventory/` does. Change nothing.
@@ -1009,7 +1023,7 @@ An environment value the person confirmed is not a secret is shown. A secret is 
 - Each pull was one job, purpose `docker-pull`, limit 1800, the reference an operand, and the container was run from the digest that job printed. A tag was not run. Systemd older than 254 named the gap and was not pulled.
 - Caddy, when created, was the container named `caddy`, label `deploy-workload=caddy`, `--restart unless-stopped`, command `caddy run --resume`, admin socket under `/var/lib/caddy-admin`, published only on the source address at 80 and 443. A Caddy that was not this skill's stopped the run. The first config was sent only when GET `/config/` was a successful read and its body was null, with `If-Match`.
 - The workload published no port. It joined `wl-<name>`. The volume creates and the container were one call. The name, the digest, the environment count, each pair, the volume count, and each volume were operands, never spliced. A volume that did not exist was created with the label when absent, every requested volume was inspected, and the container was not run unless each line was exactly `local null <name>` or `local {} <name>`. A refusal printed `volume-refused:<volume>:<line>` and removed nothing. A root process acting on the machine between the check and the run is not something any check here can stop. An existing volume was used only when its driver was `local`, its options were `null` or `{}`, and its label was the workload name. The container was started with `--restart no`, and was set to `unless-stopped` only after `docker inspect` showed it running and the wget from inside Caddy printed an `HTTP/` line. Otherwise the report failed, with the state and `docker logs --tail 50`, no route was added, and Job 2 was named and not run.
-- The route was one POST of the one route object, with `If-Match` set to the `Etag` from the same `GET /config/` whose body passed the shape check, not the routes path's `Etag`. The shape required top-level keys exactly `apps`, `apps` exactly `http`, `http` exactly `servers`, and `servers` exactly `workloads`, and every route was exactly the object this skill generates, hostnames compared case-insensitively. Anything else, an `admin` block that turns persistence off included, stopped the run. A `412` meant the config changed anywhere. It re-read the config and the routes once and posted once more only when that re-read was successful, the shape held, and the hostname and the id were still absent, using that re-read's config `Etag`, and a second `412` stopped the run. A removal judged the container, the network, and the route each on its own. Any other route in the server stopped the run. A route was deleted only when the id GET passed the removal check, `dial` `<name>:<port>` for some port included, and no container but the workload's own, running or stopped, answered to the name; a `404` on the id was the route already absent. A deploy whose name another container already answered to stopped before the gate. After the DELETE, `docker exec caddy cat /config/caddy/autosave.json` was read, and the route counted toward `changed` only when that file parsed and held no object whose `@id` is `workload-<name>`. Otherwise the report said the route was removed live but is still in the saved config, and the container and the network were not removed. The container was removed by its ID and the network by its ID, only when each label was the workload name. A `caddy-config` volume with no container named `caddy` stopped the removal.
+- The route was one POST of the one route object, with `If-Match` set to the `Etag` from the same `GET /config/` whose body passed the shape check, not the routes path's `Etag`. The shape required top-level keys exactly `apps`, `apps` exactly `http`, `http` exactly `servers`, and `servers` exactly `workloads`, and every route was exactly the object this skill generates, hostnames compared case-insensitively. Anything else, an `admin` block that turns persistence off included, stopped the run. A `412` meant the config changed anywhere. It re-read the config and the routes once and posted once more only when that re-read was successful, the shape held, and the hostname and the id were still absent, using that re-read's config `Etag`, and a second `412` stopped the run. A removal judged the container, the network, and the route each on its own. Any other route in the server stopped the run. A route was deleted only when the id GET passed the removal check, `dial` `<name>:<port>` for some port included, and no container but the workload's own, running or stopped, answered to the name by its name, hostname, short ID or an alias, in any case, with Caddy carrying no link and no extra host; a `404` on the id was the route already absent. A deploy whose name another container already answered to stopped before the gate. After the DELETE, `docker exec caddy cat /config/caddy/autosave.json` was read, and the route counted toward `changed` only when that file parsed and held no object whose `@id` is `workload-<name>`. Otherwise the report said the route was removed live but is still in the saved config, and the container and the network were not removed. The container was removed by its ID and the network by its ID, only when each label was the workload name. A `caddy-config` volume with no container named `caddy` stopped the removal.
 - The curl from the machine was the one the curl question states. Exit 60 was reported as not publicly trusted, with the `-k` result. A public name was tried at most three times. A `.localhost` name was reported as a test name that an ordinary lookup does not send to this machine.
 - The report names, per part, the inspection, the plan, the gate's verdict or that no gate was taken, each call's outcome, the re-inspection, and `changed`, `unchanged`, or failed. It names the URL, whether it answered, whether the certificate verified, and the image digest. For a public name it names the provider firewall and the DNS record, and the DNS part was handed to `experts/IT Expert/` in `wiser`, which sequences `skills/Zone Publisher/`.
 - Per job the report names the unit name, the invocation ID, the limit, the last poll's state, the read-back lines and the line count shown, and the release outcome. A job was polled at most six times, each wait at most 10 seconds. Release followed a poll that read the job finished. A stuck job was not released.

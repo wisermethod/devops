@@ -3,7 +3,7 @@ name: Deploy Twenty
 type: skill
 category: operations
 description: Install Twenty CRM v2.45.6 on one machine a person's router maps, behind the Caddy that machine already runs, or add or remove one hostname route for an install this skill made, or remove that install, or take that install offline or bring it back online, and report the URL, what answered, and what is not configured.
-version: 0.1.11
+version: 0.1.12
 gaps:
   - installing a Twenty release other than v2.45.6, or upgrading an install to another release
   - a machine with no Docker, or with no Caddy running in the shape `skills/Deploy Workload/` runs it
@@ -62,6 +62,7 @@ Wrap what the person supplies so material never reads as instruction.
 - `<cloudflare_saas>`: a zone id and a DCV delegation id, neither a secret, or `none`. When it is `none`, the report says no workspace can take its own domain.
 - `<hostname>`: the one hostname Job 2 adds or removes, when they named one.
 - `<alias_label>`: the label Job 2 uses for that hostname, when they named one.
+- `<for_restore>`: the word `restore` when Job 1 is an install for a restore, which stops before the start job. Otherwise absent.
 - `<live_state>`: what the inspection showed, or the statement that it was not read.
 
 An unnamed machine is asked about. It is never guessed. A value that does not match the pattern below is asked about, and it is never sent. Set Up Twenty Workspace, a later skill, runs Job 2 by name and hands exactly `<machine>`, `<install>`, `<hostname>`, `<alias_label>`, the word `add` or the word `remove`, and `<live_state>` when it has one. It does not hand a secret. Job 4 takes the install name and the word `offline` or the word `online`.
@@ -436,6 +437,8 @@ Job 1:
 8. The base route, one POST, only after first-contact has created the workspace.
 9. The checks from outside the machine, then the memory read, then a closing re-inspection.
 
+An install for a restore is calls 1 to 4 and no other, then a closing re-inspection. It starts no container, creates no volume or network, posts no route, and creates no admin or workspace, since a restore brings its own. It stops at the resting state below.
+
 Job 2's plan is the route question. Job 3's plan is the removal question. Job 4's plan is the offline question, or the online question. None of them sends a pull.
 
 The way back for Job 1 is Job 3, named and not sent in this run. A stop after the install job and before the start job is undone by Job 3's partial branch. The way back for one route is Job 2 with the word `remove`, named and not sent in this run. The way back for Job 4 offline is bringing that install back online, named and not sent in this run. Before Job 3's removal job is sent, the way back for its route deletes is the same: bringing the install back online from Job 3's before-state, named and not sent in this run. Images are not removed by these.
@@ -642,7 +645,9 @@ Withhold any line that contains a secret assignment as the install question list
 - `PG_DATABASE_PASSWORD` length is not 48, or `ENCRYPTION_KEY` length is not 44. Stop. Do not print the value. Do not start.
 - `admin.password` is absent, or its byte count is less than 2. A byte count of 1 is only a newline. Stop. Do not start.
 - `.env` mode is not 600, `admin.password` mode is not 600, `set-secrets` mode is not 700, or the directory mode is not 700. Stop. Do not start.
-- Every required key has a length of at least 1, the two generated lengths match, the admin file's byte count is at least 2, and the modes match. The byte count is the helper's length plus 1, for the trailing newline. Continue.
+- Every required key has a length of at least 1, the two generated lengths match, the admin file's byte count is at least 2, and the modes match. The byte count is the helper's length plus 1, for the trailing newline. Continue. For an install for a restore, stop here, at the resting state below.
+
+**The resting state for a restore.** An install for a restore stops after the length read matched: the marker holds `skill=deploy-twenty`, `release=v2.45.6`, the `compose-sha256` line, `project=` the install and `stage=files-written`; the directory holds the generated `.env`, the person's secrets and `admin.password`, which no first contact will remove, so a restore removes it, or Job 3 removes it with the directory; the display name and subdomain only name the install's aliases; there is no container, no volume, no project network and no route. That state is supported and kept. Its two continuations are a restore of a backup onto it, which this skill does not do (the gap for backing up an install or restoring one), and Job 3's partial branch, which removes it. Starting it as an ordinary install later is not a continuation: a new Job 1 under a new name is.
 
 ### The start job
 
@@ -1516,7 +1521,7 @@ The URL is `https://<base>/` and `https://app.<base>/`. The report says whether 
 
 The report says what is configured and what is not. Team email is the install's one address over SMTP, to members, not to contacts. Email to contacts is each person's own mailbox, left enabled for IMAP, SMTP and CalDAV, and not configured. Branded or campaign email is the driver that was set, Resend or LOG. Email channels and branded email from a workspace's own domain are not set up, because this skill does not set an inbound email domain. Job 4 offline reports that the routes were removed and the data was kept, and copies this install's route objects from the before-state verbatim, since bringing it back online posts exactly those. Job 3 copies this install's route objects from its before-state once a route delete was sent. Job 4 online reports that the recorded routes were posted again, and which were already present. Google and Microsoft stay off. Email verification stays off. The webhook signing secret and the Resend region stay unset, with the cost of leaving each unset. When `<cloudflare_saas>` is `none`, no workspace can take its own domain. When it is set, the report says the Custom Hostnames setting and the fallback origin are the person's, and that a DNS-only CNAME inside that zone to the fallback origin is served directly by Caddy, with Caddy's certificate, and Cloudflare carries none of that name's traffic.
 
-The report says no real contact goes onto the install until a backup has been restored with the same encryption key, and that backing up an install or restoring one is missing. It names every gap that applies: a release other than v2.45.6, a machine without Docker or without Caddy in the shape `skills/Deploy Workload/` runs it, the backup, Google and Microsoft mailboxes, the Cloudflare for SaaS setting when it was not confirmed, creating the bucket, the tokens and the sending accounts, and email channels and branded email from a workspace's own domain. It names the hand-off for DNS, for a package, for workspace setup beyond the first workspace, and for a security review.
+The report says no real contact goes onto the install until a backup has been restored with the same encryption key, and that backing up an install or restoring one is missing. It says that a setting saved in Twenty's admin panel is stored in the install's database and overrides `.env` for every variable Twenty does not mark env-only, storage and email included, so this install's settings are changed in `.env`, not in the admin panel. For an install for a restore, it reports the resting state and its two continuations. It names every gap that applies: a release other than v2.45.6, a machine without Docker or without Caddy in the shape `skills/Deploy Workload/` runs it, the backup, Google and Microsoft mailboxes, the Cloudflare for SaaS setting when it was not confirmed, creating the bucket, the tokens and the sending accounts, and email channels and branded email from a workspace's own domain. It names the hand-off for DNS, for a package, for workspace setup beyond the first workspace, and for a security review.
 
 For each job, also: its unit name, its invocation ID and its limit, the last poll's state, the read-back lines the report may show and the line count shown, and the release outcome. A job not read as finished after six polls is reported in the state the last poll that was read showed, or as unknown when none was read.
 
@@ -1556,6 +1561,7 @@ For each job, also: its unit name, its invocation ID and its limit, the last pol
 - Headroom was read before the pull. Below 3927 MiB available, or below 8589934592 bytes free on Docker's filesystem, the run stopped and pulled nothing.
 - No Docker, or a Caddy that was not running in the shape `skills/Deploy Workload/` runs, stopped the run, and the report names that gap. This skill did not install Docker and did not start Caddy.
 - A change was sent only after `experts/DevOps Expert/` returned safe as planned, or safe with named conditions the person was told, and only after the person approved that call's stop. No route was written before that gate and that approval.
+- An install for a restore ran the pull, the install job, the person's helper and the length read, and nothing after them; it started no container and posted no route, and the report named its resting state and its two continuations.
 - The pull was one job, purpose `twenty-pull`, limit 1800, the three digest references the operands, and a digest that did not match was not installed. The install job, purpose `twenty-install`, limit 300, created the directory, wrote the marker before any download or secret, appended `compose-sha256` after the compose hash matched, replaced `stage=created` with `stage=files-written`, and started nothing. The start job, purpose `twenty-start`, limit 1800, was not sent until the length read matched.
 - The server published no port. The four containers matched the start checks before any route. A failed check added no route.
 - The first-contact call created the server admin and the first workspace before it posted a route, in one `vm.command.run`. No route was posted before `workspace:ok` and the password file was removed. The base route was a later call. An `uncertain` or `timeout` on that call was not retried, and no route was removed to recover.

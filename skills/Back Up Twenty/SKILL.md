@@ -3,7 +3,7 @@ name: Back Up Twenty
 type: skill
 category: operations
 description: Set up scheduled, age-encrypted backups of an install Deploy Twenty made to a Cloudflare R2 bucket, back one up now, check the key's recovery copy, recover after an interrupted backup, stop scheduled backups, or restore a backup onto an install made for a restore, and report what was done.
-version: 0.1.4
+version: 0.1.5
 gaps:
   - authenticating a set's origin, and object lock
   - alerting on an overdue backup
@@ -48,7 +48,7 @@ The success path appends, in order: `begin`, `checks:ok`, `stopping`, `stopped`,
 
 The backup program traps `TERM`, `INT`, `HUP`, and `PIPE` and exits 143, so systemd records a failure and runs `ExecStopPost`. A job is cancelled with `systemctl stop` of the job's unit, which runs `ExecStopPost`, never with `systemctl kill`. `KILL` and the runtime limit already count as unclean. With `RemainAfterExit=yes`, a main process that exits 0 stays `active/exited`, and `ExecStopPost` runs when release stops the unit. A process that fails, or is killed at `RuntimeMaxSec`, runs `ExecStopPost` as the unit deactivates. The poll class `signal` stays the one `tools/vm-job/` already has.
 
-`recover` is the `--stop-post` script. It runs whenever the unit stops, scheduled or manual. When the state shows `stopping` or `starting` with no `restart-verified` after that line, it appends `recovering`, starts `server` and `worker`, and waits until the server is healthy and the worker's status is `running`. Its deadline is 840 seconds, counted from before its first call. Every Docker call is bounded by `timeout 30`, so its last pass, its result and its cleanup end by about 1030 seconds, inside `--stop-post-timeout 1200`. It appends `recovered:ok` or `recovered:fail:deadline`. It always removes this install's containers labelled `backup-twenty=<install>` and the work directory. Only `restart-verified` ends the downtime, so a later stop runs the rule again, and a second `recovered:ok` is the same recovery, not a new backup. Job 6 applies that rule, a `recovered:fail` included.
+`recover` is the `--stop-post` script. It runs whenever the unit stops, scheduled or manual. When the state shows `stopping` or `starting` with no `restart-verified` after that line, it appends `recovering`, starts `server` and `worker`, and waits until the server is healthy and the worker's status is `running`. Its deadline is 840 seconds, counted from before its first call. The start is bounded by `timeout 120`, the bound `run` gives the same start. Compose waits for the server to report healthy before it starts the worker, which took about 30 seconds on a 4 GB machine, and a shorter bound cuts the start off with the worker never started. Every other Docker call is bounded by `timeout 30`. The start falls inside the deadline, so its last pass, its result and its cleanup still end by about 1030 seconds, inside `--stop-post-timeout 1200`. It appends `recovered:ok` or `recovered:fail:deadline`. It always removes this install's containers labelled `backup-twenty=<install>` and the work directory. Only `restart-verified` ends the downtime, so a later stop runs the rule again, and a second `recovered:ok` is the same recovery, not a new backup. Job 6 applies that rule, a `recovered:fail` included.
 
 The disk check runs before `stopping`, on the filesystem of the work directory. The need is `pg_database_size` plus the files bucket's listed bytes plus the local volume's bytes (`du -s -k` in the pinned image times 1024, since its `du` is BusyBox and takes no `-B1`), that sum again for the ciphertext, plus 1073741824. Below it, the run appends `checks:refused:disk` and exits, and the app is never stopped. The memory check follows: `MemAvailable` in `/proc/meminfo` must reach that sum in KiB plus 262144 KiB, since the helper holds the archive whole to upload it. Below it, `checks:refused:memory`, and the app is never stopped. A restore applies the same rule to `COMPLETE`'s size before it downloads the archive.
 
@@ -825,8 +825,8 @@ printf '%s\n' 'run:written'
 
 `recover` is the stop-post script. Mode 700.
 
-The assembled file is 1541 code points.
-Writer 1 of 1, 1803 code points. `argv` is `/bin/sh`, `-c`, this script, `sh`, and the install name.
+The assembled file is 1542 code points.
+Writer 1 of 1, 1804 code points. `argv` is `/bin/sh`, `-c`, this script, `sh`, and the install name.
 ```sh
 set -eu
 export LC_ALL=C
@@ -873,7 +873,7 @@ fi
 
 note recovering
 t0=$(date +%s)
-timeout 30 docker compose -p "$install" start server worker || true
+timeout 120 docker compose -p "$install" start server worker || true
 while :; do
   now=$(date +%s)
   if [ $((now - t0)) -ge 840 ]; then
@@ -900,10 +900,10 @@ printf '%s\n' 'recover:written'
 
 `s3.js` runs inside a one-shot container of the pinned image. The container is `--rm`, `--network` `<install>_default`, `--label backup-twenty=<install>`, `--entrypoint node`, `--env-file` the credential file, and the work directory bind-mounted when the command needs it. `run` passes `backup.env` and `S3_BUCKET`, `S3_ENDPOINT`, and `S3_REGION` for the backup bucket, and passes `files.env` for the files bucket: the five `STORAGE_S3_` lines of `.env` and no other, written mode 600 for the call and removed after it, so no other secret of the install reaches the helper. Every helper container runs as `--user 0:0`, since the backup directory is root-owned, mode 700. The program reads `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_BUCKET`, `S3_ENDPOINT`, and `S3_REGION`, and otherwise the `STORAGE_S3_` names. It loads `@aws-sdk/client-s3` from `@aws-sdk/client-s3`, `/app/node_modules/@aws-sdk/client-s3`, or `/app/packages/twenty-server/node_modules/@aws-sdk/client-s3`, the first that resolves. The pinned image hoists the client to `/app/node_modules`. A bare name resolves from the script's own directory, `/backup`, so it misses there. Deploy Twenty's start check finds it by the bare name only because `node -e` resolves from the server's working directory. It sets `forcePathStyle`. It prints keys, sizes, hashes, and counts. It never prints a credential. A missing client prints `s3-client:absent`. A missing setting prints `s3-config:absent`.
 
-The commands are `list-files`, `get-files` and a directory, `get` and a key and a file, `put` and a file and a key, `head` and a key, `list-sets` and a source id, `delete` and a key, and `retention` and a source id, N, and the set this run wrote. `list-files` follows `ContinuationToken` while `IsTruncated` is set. `get-files` writes every object under the directory and writes `<dir>.list` as key, size, and sha256. `get-files` and `get` stream each object to disk while hashing it, so no download is held whole in memory. It refuses a key that starts with `/` or contains `..`. `put` sends `Content-MD5` and prints the key, the size, the sha256 and the MD5. `head` prints the size and the ETag, or `absent` and exit 2 when the key is missing. `delete` prints `deleted` for a missing key as well. `list-sets` prints each object and, for a key that ends in `/COMPLETE`, each body line as `field`. `retention` keeps the newest N matching sets and the set this run wrote, named by its stamp and hex, always keeps the newest of those, deletes older matching sets, and deletes a prefix with no matching `COMPLETE` once it is older than 24 hours. The last writer runs `node --check` on the assembled file inside the image, with the network off and only that file mounted, and sets mode 644.
+The commands are `list-files`, `get-files` and a directory, `get` and a key and a file, `put` and a file and a key, `head` and a key, `list-sets` and a source id, `delete` and a key, and `retention` and a source id, N, and the set this run wrote. `list-files` follows `ContinuationToken` while `IsTruncated` is set. `get-files` writes every object under the directory and writes `<dir>.list` as key, size, and sha256. `get-files` and `get` stream each object to disk while hashing it, so no download is held whole in memory. It refuses a key that starts with `/` or contains `..`. `put` sends `Content-MD5` and prints the key, the size, the sha256 and the MD5. The client is made with `requestChecksumCalculation` and `responseChecksumValidation` set to `WHEN_REQUIRED`. Without that, the image's SDK adds a CRC32 checksum to every upload, and R2 refuses a request carrying two (`You can only specify one non-default checksum at a time`). A wrong `Content-MD5` is still refused (`BadDigest`). An error the commands do not catch prints `s3:fail`, the error's name, and the HTTP status. `head` prints the size and the ETag, or `absent` and exit 2 when the key is missing. `delete` prints `deleted` for a missing key as well. `list-sets` prints each object and, for a key that ends in `/COMPLETE`, each body line as `field`. `retention` keeps the newest N matching sets and the set this run wrote, named by its stamp and hex, always keeps the newest of those, deletes older matching sets, and deletes a prefix with no matching `COMPLETE` once it is older than 24 hours. The last writer runs `node --check` on the assembled file inside the image, with the network off and only that file mounted, and sets mode 644.
 
-The assembled file is 9985 code points.
-Writer 1 of 3, 3754 code points. `argv` is `/bin/sh`, `-c`, this script, `sh`, and the install name.
+The assembled file is 10233 code points.
+Writer 1 of 3, 3852 code points. `argv` is `/bin/sh`, `-c`, this script, `sh`, and the install name.
 ```sh
 set -eu
 export LC_ALL=C
@@ -1021,6 +1021,8 @@ async function main() {
     region: region,
     endpoint: endpoint,
     forcePathStyle: true,
+    requestChecksumCalculation: "WHEN_REQUIRED",
+    responseChecksumValidation: "WHEN_REQUIRED",
     credentials: { accessKeyId: access, secretAccessKey: secret }
   });
   const cmd = process.argv[2] || "";
@@ -1154,7 +1156,7 @@ S3.J2END
 printf '%s\n' writer-ok
 ```
 
-Writer 3 of 3, 3190 code points. `argv` is `/bin/sh`, `-c`, this script, `sh`, and the install name.
+Writer 3 of 3, 3340 code points. `argv` is `/bin/sh`, `-c`, this script, `sh`, and the install name.
 ```sh
 set -eu
 export LC_ALL=C
@@ -1238,8 +1240,9 @@ cat >> "/opt/$install/backup/s3.js" << 'S3.J3END'
   process.exit(2);
 }
 
-main().catch(function () {
-  say(["s3:fail"]);
+main().catch(function (e) {
+  const status = e && e.$metadata && e.$metadata.httpStatusCode ? String(e.$metadata.httpStatusCode) : "";
+  say(["s3:fail", String((e && e.name) || "error"), status]);
   process.exit(1);
 });
 S3.J3END

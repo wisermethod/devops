@@ -3,7 +3,7 @@ name: Back Up Twenty
 type: skill
 category: operations
 description: Set up scheduled, age-encrypted backups of an install Deploy Twenty made to a Cloudflare R2 bucket, back one up now, check the key's recovery copy, recover after an interrupted backup, stop scheduled backups, or restore a backup onto an install made for a restore, and report what was done.
-version: 0.1.3
+version: 0.1.4
 gaps:
   - authenticating a set's origin, and object lock
   - alerting on an overdue backup
@@ -50,7 +50,7 @@ The backup program traps `TERM`, `INT`, `HUP`, and `PIPE` and exits 143, so syst
 
 `recover` is the `--stop-post` script. It runs whenever the unit stops, scheduled or manual. When the state shows `stopping` or `starting` with no `restart-verified` after that line, it appends `recovering`, starts `server` and `worker`, and waits until the server is healthy and the worker's status is `running`. Its deadline is 840 seconds, counted from before its first call. Every Docker call is bounded by `timeout 30`, so its last pass, its result and its cleanup end by about 1030 seconds, inside `--stop-post-timeout 1200`. It appends `recovered:ok` or `recovered:fail:deadline`. It always removes this install's containers labelled `backup-twenty=<install>` and the work directory. Only `restart-verified` ends the downtime, so a later stop runs the rule again, and a second `recovered:ok` is the same recovery, not a new backup. Job 6 applies that rule, a `recovered:fail` included.
 
-The disk check runs before `stopping`, on the filesystem of the work directory. The need is `pg_database_size` plus the files bucket's listed bytes plus the local volume's bytes, that sum again for the ciphertext, plus 1073741824. Below it, the run appends `checks:refused:disk` and exits, and the app is never stopped. The memory check follows: `MemAvailable` in `/proc/meminfo` must reach that sum in KiB plus 262144 KiB, since the helper holds the archive whole to upload it. Below it, `checks:refused:memory`, and the app is never stopped. A restore applies the same rule to `COMPLETE`'s size before it downloads the archive.
+The disk check runs before `stopping`, on the filesystem of the work directory. The need is `pg_database_size` plus the files bucket's listed bytes plus the local volume's bytes (`du -s -k` in the pinned image times 1024, since its `du` is BusyBox and takes no `-B1`), that sum again for the ciphertext, plus 1073741824. Below it, the run appends `checks:refused:disk` and exits, and the app is never stopped. The memory check follows: `MemAvailable` in `/proc/meminfo` must reach that sum in KiB plus 262144 KiB, since the helper holds the archive whole to upload it. Below it, `checks:refused:memory`, and the app is never stopped. A restore applies the same rule to `COMPLETE`'s size before it downloads the archive.
 
 Retention runs only after `restart-verified`. It lists only `<source-id>/`. It keeps the newest N sets whose `COMPLETE` names this source id, default 14, and deletes older ones. It deletes a prefix with no matching `COMPLETE` once that prefix's newest object is older than 24 hours. It does not delete the set just written. It prints each key it deletes.
 
@@ -115,7 +115,7 @@ The machine question, the map, the health, the role, and the approval questions 
 
 One `vm.command.run`, a read, with `machine` set to the identifier and `argv` exactly `/bin/sh`, `-c`, the script, `sh`, and the install name. The install name is the operand. It is not written into the script. The person is told the call is a read. The script does not print `backup.env` or `.env`. It prints `config` and `source-id`, which hold no secret.
 
-This script is 3215 code points. `argv` is `/bin/sh`, `-c`, this script, `sh`, and the operands the question names.
+This script is 3452 code points. `argv` is `/bin/sh`, `-c`, this script, `sh`, and the operands the question names.
 
 ```sh
 export LC_ALL=C
@@ -563,8 +563,8 @@ printf '%s\n' config:written
 
 `run` is the backup program. The last writer runs `sh -n` on the assembled file and sets mode 700.
 
-The assembled file is 10561 code points.
-Writer 1 of 3, 3671 code points. `argv` is `/bin/sh`, `-c`, this script, `sh`, and the install name.
+The assembled file is 10645 code points.
+Writer 1 of 3, 3755 code points. `argv` is `/bin/sh`, `-c`, this script, `sh`, and the install name.
 ```sh
 set -eu
 export LC_ALL=C
@@ -640,8 +640,10 @@ num "$dump_b" || { note checks:refused:size; exit 2; }
 s3f list-files > "$work/list.out" || { note checks:refused:list; exit 2; }
 listed=$(awk '$1=="bytes" { print $2; exit }' "$work/list.out")
 num "$listed" || { note checks:refused:list; exit 2; }
-local_line=$(timeout 60 docker run --rm --user 0:0 --label "backup-twenty=${install}" --entrypoint du -v "${install}_server-local-data:/s:ro" "$image" -s -B1 /s) || { note checks:refused:local; exit 2; }
-local_b=$(printf '%s\n' "$local_line" | awk 'NR==1 { print $1 }')
+local_line=$(timeout 60 docker run --rm --user 0:0 --label "backup-twenty=${install}" --entrypoint du -v "${install}_server-local-data:/s:ro" "$image" -s -k /s) || { note checks:refused:local; exit 2; }
+local_k=$(printf '%s\n' "$local_line" | awk 'NR==1 { print $1 }')
+num "$local_k" || { note checks:refused:local; exit 2; }
+local_b=$((local_k * 1024))
 RUN1END
 printf '%s\n' writer-ok
 ```
@@ -896,12 +898,12 @@ printf '%s\n' 'recover:written'
 ```
 
 
-`s3.js` runs inside a one-shot container of the pinned image. The container is `--rm`, `--network` `<install>_default`, `--label backup-twenty=<install>`, `--entrypoint node`, `--env-file` the credential file, and the work directory bind-mounted when the command needs it. `run` passes `backup.env` and `S3_BUCKET`, `S3_ENDPOINT`, and `S3_REGION` for the backup bucket, and passes `files.env` for the files bucket: the five `STORAGE_S3_` lines of `.env` and no other, written mode 600 for the call and removed after it, so no other secret of the install reaches the helper. Every helper container runs as `--user 0:0`, since the backup directory is root-owned, mode 700. The program reads `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_BUCKET`, `S3_ENDPOINT`, and `S3_REGION`, and otherwise the `STORAGE_S3_` names. It loads `@aws-sdk/client-s3` from `@aws-sdk/client-s3` or from `/app/packages/twenty-server/node_modules/@aws-sdk/client-s3`, the module path Deploy Twenty's start check proved. It sets `forcePathStyle`. It prints keys, sizes, hashes, and counts. It never prints a credential. A missing client prints `s3-client:absent`. A missing setting prints `s3-config:absent`.
+`s3.js` runs inside a one-shot container of the pinned image. The container is `--rm`, `--network` `<install>_default`, `--label backup-twenty=<install>`, `--entrypoint node`, `--env-file` the credential file, and the work directory bind-mounted when the command needs it. `run` passes `backup.env` and `S3_BUCKET`, `S3_ENDPOINT`, and `S3_REGION` for the backup bucket, and passes `files.env` for the files bucket: the five `STORAGE_S3_` lines of `.env` and no other, written mode 600 for the call and removed after it, so no other secret of the install reaches the helper. Every helper container runs as `--user 0:0`, since the backup directory is root-owned, mode 700. The program reads `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_BUCKET`, `S3_ENDPOINT`, and `S3_REGION`, and otherwise the `STORAGE_S3_` names. It loads `@aws-sdk/client-s3` from `@aws-sdk/client-s3`, `/app/node_modules/@aws-sdk/client-s3`, or `/app/packages/twenty-server/node_modules/@aws-sdk/client-s3`, the first that resolves. The pinned image hoists the client to `/app/node_modules`. A bare name resolves from the script's own directory, `/backup`, so it misses there. Deploy Twenty's start check finds it by the bare name only because `node -e` resolves from the server's working directory. It sets `forcePathStyle`. It prints keys, sizes, hashes, and counts. It never prints a credential. A missing client prints `s3-client:absent`. A missing setting prints `s3-config:absent`.
 
 The commands are `list-files`, `get-files` and a directory, `get` and a key and a file, `put` and a file and a key, `head` and a key, `list-sets` and a source id, `delete` and a key, and `retention` and a source id, N, and the set this run wrote. `list-files` follows `ContinuationToken` while `IsTruncated` is set. `get-files` writes every object under the directory and writes `<dir>.list` as key, size, and sha256. `get-files` and `get` stream each object to disk while hashing it, so no download is held whole in memory. It refuses a key that starts with `/` or contains `..`. `put` sends `Content-MD5` and prints the key, the size, the sha256 and the MD5. `head` prints the size and the ETag, or `absent` and exit 2 when the key is missing. `delete` prints `deleted` for a missing key as well. `list-sets` prints each object and, for a key that ends in `/COMPLETE`, each body line as `field`. `retention` keeps the newest N matching sets and the set this run wrote, named by its stamp and hex, always keeps the newest of those, deletes older matching sets, and deletes a prefix with no matching `COMPLETE` once it is older than 24 hours. The last writer runs `node --check` on the assembled file inside the image, with the network off and only that file mounted, and sets mode 644.
 
-The assembled file is 9945 code points.
-Writer 1 of 3, 3714 code points. `argv` is `/bin/sh`, `-c`, this script, `sh`, and the install name.
+The assembled file is 9985 code points.
+Writer 1 of 3, 3754 code points. `argv` is `/bin/sh`, `-c`, this script, `sh`, and the install name.
 ```sh
 set -eu
 export LC_ALL=C
@@ -914,7 +916,7 @@ const crypto = require("crypto");
 const path = require("path");
 
 function loadClient() {
-  const paths = ["@aws-sdk/client-s3", "/app/packages/twenty-server/node_modules/@aws-sdk/client-s3"];
+  const paths = ["@aws-sdk/client-s3", "/app/node_modules/@aws-sdk/client-s3", "/app/packages/twenty-server/node_modules/@aws-sdk/client-s3"];
   for (let i = 0; i < paths.length; i++) {
     try { return require(paths[i]); } catch (e) {}
   }
@@ -2431,7 +2433,7 @@ It counts only when all of these hold. The poll class is `succeeded`. The read-b
 
 Refused while a `vm-job-twenty-backup-*` unit is `activating`, `deactivating`, or `running`. The inspection's jobs section and this script both refuse that. A finished unit is released by the loaded-job question first. The confirmation names the install. The person says the install name. The gate applies. It is one direct call, operand the install name, because the call removes `/opt/<install>/backup/`, which holds `recover`, so `--stop-post` cannot point there. It disables and removes the timer and the service, removes `/var/lib/vm-job/scheduled/twenty-backup`, and removes that directory. Nothing in the bucket is deleted. It holds `tools/vm-job/`'s admission lock, `/run/lock/vm-job.lock`, from its unit check to its last removal, so neither a timer firing nor another start can begin a backup in between, and a firing already waiting on the lock is stopped with the service. It changes nothing when the scheduled service runs another install's wrapper, or when the lock stays busy for 10 seconds.
 
-This script is 0 code points. `argv` is `/bin/sh`, `-c`, this script, `sh`, and the operands the question names.
+This script is 1247 code points. `argv` is `/bin/sh`, `-c`, this script, `sh`, and the operands the question names.
 
 ```sh
 set -eu

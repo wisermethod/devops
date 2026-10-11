@@ -3,7 +3,7 @@ name: vm-job
 type: tool
 category: operations
 description: Build the argument vectors that start, poll, read back and release a tracked background job on one machine a router maps, build the texts for a scheduled job, and classify each answer, as one JSON object
-version: 0.3.2
+version: 0.3.3
 ---
 
 # vm-job
@@ -168,7 +168,7 @@ The outcome names are the ones `connectors/vm/CONNECTOR.md` in `wiser` publishes
 
 **What a job's script must be.** It begins `set -eu`. Every step runs in the foreground: no `&`, no daemonizing. The script's exit status is the last command's, so a step whose failure matters is not followed by one that can succeed regardless. Apt changes carry the skill's own pins, `--no-remove` and keep-old-config options, and the starter sets `DEBIAN_FRONTEND=noninteractive` and `NEEDRESTART_SUSPEND=1`. A job has no home directory; a tool that wants one, `gpg` among them, gets a temporary one. On the router host a job runs outside the router's sandbox, which is why it can install a package there, and also why every path rule the skill applies to a direct call applies to a job unchanged.
 
-**Stop-post.** The started unit is `Type=exec` with `RemainAfterExit=yes`. A unit whose main process exits 0 stays `active/exited`, and `ExecStopPost` runs when release stops it. A unit whose process fails, or is killed at `RuntimeMaxSec`, runs `ExecStopPost` as it deactivates. The driver does not edit the starter. It puts a short-lived `systemd-run` ahead of the real one on `PATH` that prepends `-p ExecStopPost=/bin/sh <path>` and `-p TimeoutStopSec=<seconds>` and execs the real `systemd-run`. `systemd-run` takes `-p` anywhere before the command. The directory is allocated with `mktemp -d /run/vm-job-stop.XXXXXX`, and that directory is the only one removed. The shim is written there and made mode 700. Before anything is started, the driver probes the shim by its absolute path, `"$d/systemd-run" --version`. When that probe cannot execute, the directory is removed, the driver prints `stop-post-setup-failed`, and nothing is started. A `noexec` mount fails that probe, which is what makes the setup fail closed: the driver does not search `PATH` for another `systemd-run`. `EXIT` removes the directory `mktemp` returned. `TERM`, `HUP` and `INT` exit 143 so that removal runs. Without the two flags, the starter's argv is unchanged and no shim is installed.
+**Stop-post.** The started unit is `Type=exec` with `RemainAfterExit=yes`. A unit whose main process exits 0 stays `active/exited`, and `ExecStopPost` runs when release stops it. A unit whose process fails, or is killed at `RuntimeMaxSec`, runs `ExecStopPost` as it deactivates. The driver does not edit the starter. It puts a short-lived `systemd-run` ahead of the real one on `PATH` that prepends `-p ExecStopPost=/bin/sh <path>` and `-p TimeoutStopSec=<seconds>` and execs the real `systemd-run`. `systemd-run` takes `-p` anywhere before the command. The directory is allocated with `mktemp -d /var/lib/vm-job/stop.XXXXXX`, under umask 077, after `mkdir -p /var/lib/vm-job`, and that directory is the only one removed. It is not under `/run`: Ubuntu mounts `/run` and `/run/lock` `noexec`, so a shim there can never execute, and 0.3.2, which put it there, failed every stop-post start on Ubuntu 24.04. `/var/lib` is on the root file system, which a stock install mounts with execution allowed, and only root writes it. The shim is written there and made mode 700. Before anything is started, the driver probes the shim by its absolute path, `"$d/systemd-run" --version`. When that probe cannot execute, the directory is removed, the driver prints `stop-post-setup-failed`, and nothing is started. A `noexec` mount fails that probe, which is what makes the setup fail closed: the driver does not search `PATH` for another `systemd-run`. `EXIT` removes the directory `mktemp` returned. `TERM`, `HUP` and `INT` exit 143 so that removal runs. A driver killed outright, by `KILL`, leaves its directory, and `/var/lib` is not emptied at boot as `/run` is. It holds only the two-line shim, root's and mode 700, and is safe to remove. On the router host a direct call runs inside the router's sandbox. Where that sandbox does not let the call write `/var/lib/vm-job`, the allocation fails and the setup fails closed the same way. Without the two flags, the starter's argv is unchanged and no shim is installed.
 
 **Cancelling it.** Under systemd, a job killed by a clean signal (`TERM`, `INT`, `HUP`, `PIPE`) that leaves no process can end `active/exited`. That looks like success, and its `ExecStopPost` waits until release stops the unit. A job script whose stop-post must run on a signal traps `TERM`, `INT`, `HUP` and `PIPE` and exits nonzero, so systemd records a failure and runs `ExecStopPost` as the unit deactivates. A job is cancelled with `systemctl stop <unit>`, which runs `ExecStopPost`. It is not cancelled with `systemctl kill`. The poll class `signal` is unchanged: `active/exited` with `ExecMainCode` other than `1` is still a signal, and it is still finished.
 
@@ -249,8 +249,9 @@ The stop-post driver, with its trailing newline, is `argv[2]` only when `start` 
 # Arm ExecStopPost for one starter run. p1, v1, p2 and v2 are the two
 # systemd-run properties (-p and the value, twice). The starter text is not
 # modified: a short-lived systemd-run prepends them and execs the real one.
-# systemd-run takes -p anywhere before the command. mktemp allocates the
-# directory, and that directory is the only one removed. EXIT removes it.
+# systemd-run takes -p anywhere before the command. The shim lives under
+# /var/lib/vm-job, never /run, which Ubuntu mounts noexec. mktemp allocates
+# the directory, and that directory is the only one removed. EXIT removes it.
 # TERM, HUP and INT exit 143 so that removal runs. The shim is probed by its
 # absolute path before anything starts. If the probe cannot execute it,
 # including on a noexec mount, the directory is removed, the driver prints
@@ -264,7 +265,8 @@ vm_job_arm_stop_post() {
   export R A B C D
   old_umask=$(umask)
   umask 077
-  d=$(mktemp -d /run/vm-job-stop.XXXXXX) || { umask "$old_umask"; return 1; }
+  mkdir -p /var/lib/vm-job || { umask "$old_umask"; return 1; }
+  d=$(mktemp -d /var/lib/vm-job/stop.XXXXXX) || { umask "$old_umask"; return 1; }
   umask "$old_umask"
   cat > "$d/systemd-run" << 'SHIM' || { rm -rf "$d"; return 1; }
 #!/bin/sh

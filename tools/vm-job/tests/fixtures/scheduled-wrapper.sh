@@ -116,7 +116,8 @@ C=-p
 D='TimeoutStopSec=1200'
 export R A B C D
 um=$(umask); umask 077
-d=$(mktemp -d /run/vm-job-stop.XXXXXX) || { umask "$um"; echo stop-post-setup-failed; exit 1; }
+mkdir -p /var/lib/vm-job || { umask "$um"; echo stop-post-setup-failed; exit 1; }
+d=$(mktemp -d /var/lib/vm-job/stop.XXXXXX) || { umask "$um"; echo stop-post-setup-failed; exit 1; }
 umask "$um"
 printf '%s\n' '#!/bin/sh' 'exec "$R" "$A" "$B" "$C" "$D" "$@"' > "$d/systemd-run" || { rm -rf "$d"; echo stop-post-setup-failed; exit 1; }
 chmod 700 "$d/systemd-run" || { rm -rf "$d"; echo stop-post-setup-failed; exit 1; }

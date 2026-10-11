@@ -3,7 +3,7 @@ name: Back Up Twenty
 type: skill
 category: operations
 description: Set up scheduled, age-encrypted backups of an install Deploy Twenty made to a Cloudflare R2 bucket, back one up now, check the key's recovery copy, recover after an interrupted backup, stop scheduled backups, or restore a backup onto an install made for a restore, and report what was done.
-version: 0.1.2
+version: 0.1.3
 gaps:
   - authenticating a set's origin, and object lock
   - alerting on an overdue backup
@@ -30,7 +30,7 @@ Not for a package. Hand that part to `skills/VM Configure/`. `age` absent is tha
 
 It acts only on an install whose marker is Deploy Twenty's. The lines Deploy Twenty's Job 2 marker question requires are the whole lines `skill=deploy-twenty`, `release=v2.45.6`, `compose-sha256=bacd817fcef85abbcb6a603a6c093375313460037fae67d73d45c16f6d85bc7d`, and `project=` followed by the install name, and `stat:` was read. A whole line `stage=created` or `stage=files-written` may be present. It does not replace a required line.
 
-The calls are `vm.inventory.list_hosts`, `vm.inventory.health`, and `vm.command.run`, and no other action. This skill never calls `vm.files.write_file` or `vm.files.read_file`. Every long step is a `vm-job` job started with `--stop-post`, except Job 4, which is one direct call for the reason that job names. The contract is `tools/vm-job/` 0.3.2: `start` takes `--stop-post` and `--stop-post-timeout` together, and `scheduled` prints the wrapper, the service, the timer, and the writers that install them. A tool answer that is not the JSON those commands print, a named refusal of either flag included, stops the run. Send no job. Do not start a job on a tool that does not print those flags.
+The calls are `vm.inventory.list_hosts`, `vm.inventory.health`, and `vm.command.run`, and no other action. This skill never calls `vm.files.write_file` or `vm.files.read_file`. Every long step is a `vm-job` job started with `--stop-post`, except Job 4, which is one direct call for the reason that job names. The contract is `tools/vm-job/` 0.3.3. Earlier versions allocate the stop-post shim under `/run`, which Ubuntu mounts `noexec`, so every backup start and every scheduled firing there fails closed with `stop-post-setup-failed`. On 0.3.3 `start` takes `--stop-post` and `--stop-post-timeout` together, and `scheduled` prints the wrapper, the service, the timer, and the writers that install them. A tool answer that is not the JSON those commands print, a named refusal of either flag included, stops the run. Send no job. Do not start a job on a tool that does not print those flags.
 
 What the router does with a command is Deploy Twenty's (`skills/Deploy Twenty/`). The job script, each direct script, and each saved answer go in a temporary directory outside the plugin and outside any repository. The path passed to the tool is absolute. The tool writes nothing. Reaching the gateway is `skills/Set Up Connectors/` and `gateway/SETUP.md` in `wiser`. Connecting a module is `skills/Connect Account/` in `wiser`. The toolkit registration is `connectors/vm/auth.md` in `wiser`. Cite those files. Do not restate them.
 
@@ -2726,7 +2726,7 @@ For each job, also: its unit name, its invocation ID and its limit, the last pol
 - **A schedule that is not daily, called overdue.** Report `interval-not-derived`. Do not say overdue.
 - **Redis's queue expected to come back.** It is not in the set. That is missing. Say so.
 - **A second job started while one is loaded.** The loaded-job question is Deploy Twenty's. A running job stops the run. A finished one is released and the run starts over from its inspection, once.
-- **A start sent on `tools/vm-job/` 0.2.0, without `--stop-post`.** Stop. The backup needs 0.3.2. Send nothing.
+- **A start sent on `tools/vm-job/` 0.2.0, without `--stop-post`.** Stop. The backup needs 0.3.3. Send nothing.
 - **A writer longer than 4096 code points, sent or split past the last check.** Do not send it. The last writer is the one that runs `sh -n` or `node --check` and sets the mode.
 - **The scheduled service read as a loaded job.** `vmjob-scheduled-twenty-backup.service` does not match `vm-job-*`. The units section is where it is read.
 - **A release of a successful backup read as the app being down.** `recover` then sees `restart-verified` and only removes helpers and the work directory.

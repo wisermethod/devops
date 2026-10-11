@@ -837,16 +837,16 @@ function scheduledArgs(extra = []) {
   ];
 }
 
-// The shipped wrapper names /var/lib/vm-job, /run/lock/vm-job.lock,
-// /run/vm-job.token and /run/vm-job-stop.*. The test rewrites only those
-// prefixes, plus the fixture script path, into a temporary directory.
+// The shipped wrapper names /var/lib/vm-job (its scheduled record and the
+// stop-post shim's directory), /run/lock/vm-job.lock and /run/vm-job.token.
+// The test rewrites only those prefixes, plus the fixture script path, into a
+// temporary directory.
 // A bare /run replacement would corrupt a path such as /opt/twenty/backup/run.
 function rewriteWrapper(text, root, scriptPath) {
   return text
     .replaceAll('/var/lib/vm-job', join(root, 'var/lib/vm-job'))
     .replaceAll('/run/lock/vm-job.lock', join(root, 'run/lock/vm-job.lock'))
     .replaceAll('/run/vm-job.token', join(root, 'run/vm-job.token'))
-    .replaceAll('/run/vm-job-stop.', join(root, 'run/vm-job-stop.'))
     .replaceAll('/opt/twenty/backup/job.sh', scriptPath);
 }
 
@@ -1045,7 +1045,7 @@ exec /bin/date "$@"
     },
     leftovers() {
       const scheduled = readdirSync(join(root, 'var/lib/vm-job/scheduled')).filter((name) => name.includes('.tmp.'));
-      const shims = readdirSync(join(root, 'run')).filter((name) => name.startsWith('vm-job-stop'));
+      const shims = readdirSync(join(root, 'var/lib/vm-job')).filter((name) => name.startsWith('stop.'));
       return { scheduled, shims };
     },
     cleanup() {
@@ -1692,20 +1692,20 @@ function writerEnv(bin) {
   return { ...process.env, PATH: `${bin}:/bin:/usr/bin:/sbin` };
 }
 
-describe('vm-job 0.3.2 writers and stop-post', () => {
+describe('vm-job 0.3.2 and 0.3.3 writers and stop-post', () => {
   it('fails closed when stop-post.sh cannot execute its shim', () => {
     const root = mkdtempSync(join(tmpdir(), 'vm-job-stop-'));
     try {
       const bin = join(root, 'bin');
       mkdirSync(bin);
-      mkdirSync(join(root, 'run'));
+      mkdirSync(join(root, 'var/lib'), { recursive: true });
       const text = readFileSync(join(ROOT, 'scripts/texts/stop-post.sh'), 'utf8');
-      assert.match(text, /mktemp -d \/run\/vm-job-stop\.XXXXXX/);
+      assert.match(text, /mktemp -d \/var\/lib\/vm-job\/stop\.XXXXXX/);
       assert.match(text, /"\$d\/systemd-run" --version/);
       assert.match(text, /trap 'exit 143' TERM HUP INT/);
       assert.equal(text.includes('mkdir -p "$d"'), false);
-      assert.equal(text.includes('/run/vm-job-stop.$$'), false);
-      const script = text.replaceAll('/run/vm-job-stop.', `${join(root, 'run/vm-job-stop.')}`);
+      assert.equal(text.includes('/run/vm-job-stop'), false);
+      const script = text.replaceAll('/var/lib/vm-job', join(root, 'var/lib/vm-job'));
       const scriptPath = join(root, 'stop-post.sh');
       writeFileSync(scriptPath, script);
       writeFileSync(join(bin, 'systemd-run'), '#!/bin/sh\nfor a do\n  case "$a" in --version) exit 1 ;; esac\ndone\nprintf started > "$1"\nexit 0\n');
@@ -1718,7 +1718,48 @@ describe('vm-job 0.3.2 writers and stop-post', () => {
       assert.equal(result.status, 1, result.stderr);
       assert.equal(result.stdout, 'stop-post-setup-failed\n');
       assert.equal(existsSync(started), false);
-      assert.deepEqual(readdirSync(join(root, 'run')).filter((name) => name.startsWith('vm-job-stop')), []);
+      assert.deepEqual(readdirSync(join(root, 'var/lib/vm-job')).filter((name) => name.startsWith('stop.')), []);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('never allocates the shim under /run, which Ubuntu mounts noexec (0.3.3)', () => {
+    const texts = [
+      readFileSync(join(ROOT, 'scripts/texts/stop-post.sh'), 'utf8'),
+      ok(SCHEDULED).wrapper,
+      ok(scheduledArgs(['--stop-post', '/opt/recover', '--stop-post-timeout', '30', '--', 'x'])).wrapper
+    ];
+    for (const text of texts) {
+      assert.equal(/mktemp -d \/run/.test(text), false);
+      assert.equal(text.includes('/run/vm-job-stop'), false);
+      assert.equal(text.split('mkdir -p /var/lib/vm-job ||').length - 1, 1);
+      assert.equal(text.split('mktemp -d /var/lib/vm-job/stop.XXXXXX').length - 1, 1);
+      assert.ok(text.indexOf('umask 077') < text.indexOf('mkdir -p /var/lib/vm-job ||'));
+      assert.ok(text.indexOf('mkdir -p /var/lib/vm-job ||') < text.indexOf('mktemp -d /var/lib/vm-job/stop.XXXXXX'));
+    }
+  });
+
+  it('creates /var/lib/vm-job root-only when absent, runs through the shim, and leaves no directory', () => {
+    const root = mkdtempSync(join(tmpdir(), 'vm-job-stop-'));
+    try {
+      const bin = join(root, 'bin');
+      mkdirSync(bin);
+      mkdirSync(join(root, 'var/lib'), { recursive: true });
+      const scriptPath = join(root, 'stop-post.sh');
+      writeFileSync(scriptPath, readFileSync(join(ROOT, 'scripts/texts/stop-post.sh'), 'utf8')
+        .replaceAll('/var/lib/vm-job', join(root, 'var/lib/vm-job')));
+      const seen = join(root, 'seen');
+      writeFileSync(join(bin, 'systemd-run'), `#!/bin/sh\nfor a do\n  case "$a" in --version) exit 0 ;; esac\ndone\nprintf '%s\\n' "$@" > ${JSON.stringify(seen)}\nexit 0\n`);
+      chmodSync(join(bin, 'systemd-run'), 0o755);
+      const result = spawnSync('/bin/dash', [
+        scriptPath, '-p', 'ExecStopPost=/bin/sh /opt/recover', '-p', 'TimeoutStopSec=30',
+        'systemd-run --unit=u -- /bin/true'
+      ], { encoding: 'utf8', env: writerEnv(bin) });
+      assert.equal(result.status, 0, result.stderr);
+      assert.equal(readFileSync(seen, 'utf8'), '-p\nExecStopPost=/bin/sh /opt/recover\n-p\nTimeoutStopSec=30\n--unit=u\n--\n/bin/true\n');
+      assert.equal(statSync(join(root, 'var/lib/vm-job')).mode & 0o777, 0o700);
+      assert.deepEqual(readdirSync(join(root, 'var/lib/vm-job')), []);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
@@ -1728,11 +1769,11 @@ describe('vm-job 0.3.2 writers and stop-post', () => {
     const root = mkdtempSync(join(tmpdir(), 'vm-job-stop-'));
     const bin = join(root, 'bin');
     mkdirSync(bin);
-    mkdirSync(join(root, 'run'));
+    mkdirSync(join(root, 'var/lib'), { recursive: true });
     const scriptPath = join(root, 'stop-post.sh');
     const ready = join(root, 'ready');
     writeFileSync(scriptPath, readFileSync(join(ROOT, 'scripts/texts/stop-post.sh'), 'utf8')
-      .replaceAll('/run/vm-job-stop.', `${join(root, 'run/vm-job-stop.')}`));
+      .replaceAll('/var/lib/vm-job', join(root, 'var/lib/vm-job')));
     writeFileSync(join(bin, 'systemd-run'), '#!/bin/sh\nfor a do\n  case "$a" in --version) exit 0 ;; esac\ndone\nexit 0\n');
     chmodSync(join(bin, 'systemd-run'), 0o755);
     const child = spawn('/bin/dash', [
@@ -1753,7 +1794,7 @@ describe('vm-job 0.3.2 writers and stop-post', () => {
         if (Date.now() - started > 3000) throw new Error('stop-post did not reach the starter');
         await new Promise((resolve) => setTimeout(resolve, 20));
       }
-      assert.equal(readdirSync(join(root, 'run')).some((name) => name.startsWith('vm-job-stop')), true);
+      assert.equal(readdirSync(join(root, 'var/lib/vm-job')).some((name) => name.startsWith('stop.')), true);
       killGroup('SIGTERM');
       const code = await new Promise((resolve, reject) => {
         const timer = setTimeout(() => reject(new Error('stop-post did not exit')), 3000);
@@ -1763,7 +1804,7 @@ describe('vm-job 0.3.2 writers and stop-post', () => {
         });
       });
       assert.equal(code, 143);
-      assert.deepEqual(readdirSync(join(root, 'run')).filter((name) => name.startsWith('vm-job-stop')), []);
+      assert.deepEqual(readdirSync(join(root, 'var/lib/vm-job')).filter((name) => name.startsWith('stop.')), []);
     } finally {
       killGroup('SIGKILL');
       rmSync(root, { recursive: true, force: true });

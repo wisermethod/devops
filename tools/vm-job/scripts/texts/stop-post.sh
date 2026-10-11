@@ -1,8 +1,9 @@
 # Arm ExecStopPost for one starter run. p1, v1, p2 and v2 are the two
 # systemd-run properties (-p and the value, twice). The starter text is not
 # modified: a short-lived systemd-run prepends them and execs the real one.
-# systemd-run takes -p anywhere before the command. mktemp allocates the
-# directory, and that directory is the only one removed. EXIT removes it.
+# systemd-run takes -p anywhere before the command. The shim lives under
+# /var/lib/vm-job, never /run, which Ubuntu mounts noexec. mktemp allocates
+# the directory, and that directory is the only one removed. EXIT removes it.
 # TERM, HUP and INT exit 143 so that removal runs. The shim is probed by its
 # absolute path before anything starts. If the probe cannot execute it,
 # including on a noexec mount, the directory is removed, the driver prints
@@ -16,7 +17,8 @@ vm_job_arm_stop_post() {
   export R A B C D
   old_umask=$(umask)
   umask 077
-  d=$(mktemp -d /run/vm-job-stop.XXXXXX) || { umask "$old_umask"; return 1; }
+  mkdir -p /var/lib/vm-job || { umask "$old_umask"; return 1; }
+  d=$(mktemp -d /var/lib/vm-job/stop.XXXXXX) || { umask "$old_umask"; return 1; }
   umask "$old_umask"
   cat > "$d/systemd-run" << 'SHIM' || { rm -rf "$d"; return 1; }
 #!/bin/sh

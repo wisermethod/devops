@@ -3,7 +3,7 @@ name: Deploy Twenty
 type: skill
 category: operations
 description: Install Twenty CRM v2.45.6 on one machine a person's router maps, behind the Caddy that machine already runs, or add or remove one hostname route for an install this skill made, or remove that install, or take that install offline or bring it back online, and report the URL, what answered, and what is not configured.
-version: 0.1.19
+version: 0.1.20
 gaps:
   - installing a Twenty release other than v2.45.6, or upgrading an install to another release
   - a machine with no Docker, or with no Caddy running in the shape `skills/Deploy Workload/` runs it
@@ -39,13 +39,13 @@ Reaching the gateway is `skills/Set Up Connectors/` and `gateway/SETUP.md` in `w
 
 No secret value is asked for in the conversation, printed, placed in an operand, or written into a file in a repository. A value the person types goes only into the helper on the machine. The report prints lengths, booleans, counts and statuses. Output the report shows is copied verbatim, except a line the report question withholds.
 
-When `<relay>` is named, Job 1 also installs that install's mail relay. The relay is a container on the install's own Docker network, with the network alias `smtp-relay`, and it is the only process that holds the upstream sending credentials. Its program comes from `tools/twenty-relay/`. When `<relay>` is absent, Job 1 is the install this skill already describes, and no relay job is sent.
+When `<relay>` is named, Job 1 also installs that install's mail relay. The relay is a container on the install's own Docker network, with the network alias `smtp-relay`, and it is the only process that holds the upstream sending credentials. Its program comes from `tools/twenty-relay/`. When `<relay>` is absent, Job 1 is the install this skill already describes, and no relay job is sent. When `<relay>` is present and `<for_restore>` is absent, the person's helper also prompts for one token per upstream and writes it under `/opt/<install>/relay/secrets/`, and after the start job the run reads the relay container, checks SMTP from the server and the worker, and checks the outbound allowlist before first contact. `conf/state` stays `hold` through Job 1. Releasing that hold is Job 5, which this skill does not send.
 
 Classifier seam: none.
 
 ## Objective
 
-The named install is running on the named machine, behind the Caddy that machine already runs, or one hostname route has been added or removed, or the install has been removed, or the install has been taken offline or brought back online, or it has not, and the report says which. A change is made only after a read of the live state, only after `experts/DevOps Expert/` gates the plan, and only after the person approves the stop. No route is written before that gate and that approval. The install is not reachable at its sign-in host until the server admin and the first workspace exist and the admin password file has been removed. A job's success is not the install's success. The re-inspection, and the checks from outside the machine, decide. When `<relay>` is present, the relay's directories and conf files are on the machine, its modules are installed, its service is in the override, and the relay jobs did not start it. Verified against Success.
+The named install is running on the named machine, behind the Caddy that machine already runs, or one hostname route has been added or removed, or the install has been removed, or the install has been taken offline or brought back online, or it has not, and the report says which. A change is made only after a read of the live state, only after `experts/DevOps Expert/` gates the plan, and only after the person approves the stop. No route is written before that gate and that approval. The install is not reachable at its sign-in host until the server admin and the first workspace exist and the admin password file has been removed. A job's success is not the install's success. The re-inspection, and the checks from outside the machine, decide. When `<relay>` is present, the relay's directories and conf files are on the machine, its modules are installed, its service is in the override, and the relay jobs did not start it. When this is not an install for a restore, the relay container is running, each upstream token file is in place, the six relay checks passed, the outbound check printed `outbound:ok`, and `conf/state` is still `hold`. Verified against Success.
 
 ## Inputs
 
@@ -145,9 +145,9 @@ The emailing-domain driver is the word `RESEND` or the word `LOG`. The word `AWS
 
 `<cloudflare_saas>` is the word `none`, or both a zone id and a DCV delegation id. One without the other is refused by name.
 
-`<relay>` is absent, or it is the word `relay` followed by one or more upstream names separated by spaces. Each name matches `^[a-z][a-z0-9-]{0,15}$`. A name that does not match is refused by name. The same name twice is refused by name. The word `relay` with no name is refused by name. More than 55 names is refused by name: the relay-files job's first operand is the install name, and a job admits at most 56 operands. When `<relay>` is absent, no relay job is planned and no relay script is sent. `<relay>` with `<for_restore>` makes a restore target for a set that carries a relay: the relay's calls run as they do on any install, so the target holds the relay's directories, program, `node_modules`, the `relay` service in its override and `state` `hold`, with `logins.json` `[]`, no token file and no container; `skills/Back Up Twenty/`'s restore writes the set's logins, upstreams and tokens into it and starts it. The upstream names are the source install's. A request to add a relay to an install that is already past the install job, with no new install, is asked about. These relay jobs run only inside Job 1, after the install job has counted.
+`<relay>` is absent, or it is the word `relay` followed by one or more upstream names separated by spaces. Each name matches `^[a-z][a-z0-9-]{0,15}$`. A name that does not match is refused by name. The same name twice is refused by name. The word `relay` with no name is refused by name. More than 55 names is refused by name: the relay-files job's first operand is the install name, and a job admits at most 56 operands. When `<relay>` is absent, no relay job is planned and no relay script is sent. `<relay>` with `<for_restore>` makes a restore target for a set that carries a relay: the relay's calls through the relay-service job run as they do on any install, and the token-helper edit is not one of them, so the target holds the relay's directories, program, `node_modules`, the `relay` service in its override and `state` `hold`, with `logins.json` `[]`, no token file and no container; `skills/Back Up Twenty/`'s restore writes the set's logins, upstreams and tokens into it and starts it. The upstream names are the source install's. A request to add a relay to an install that is already past the install job, with no new install, is asked about. These relay jobs run only inside Job 1, after the install job has counted.
 
-Job 1 requires `<base>`, `<admin_email>`, a display name and a subdomain, a bucket, an endpoint, a region, a from address, a from name, and a driver. When the driver is `RESEND`, Job 1 also requires `<inbound_domain>`. The subdomain matches an alias label, and it is not `app` and not `base`. The labels `base` and `app` are reserved for the install's own hostnames. Host, port and user may be unnamed, and then they are `smtp.mx.cloudflare.net`, `465`, and `api_token`. When the host is named, the port and the user are named too. The user matches `^[A-Za-z0-9._-]{1,64}$`. The host matches the hostname rule. When the host is `smtp.mx.cloudflare.net`, the port is `465`. A different port with that host is refused by name. `<relay>` is not required. When it is present, the upstream names are operands of the relay-files job and of no other script.
+Job 1 requires `<base>`, `<admin_email>`, a display name and a subdomain, a bucket, an endpoint, a region, a from address, a from name, and a driver. When the driver is `RESEND`, Job 1 also requires `<inbound_domain>`. The subdomain matches an alias label, and it is not `app` and not `base`. The labels `base` and `app` are reserved for the install's own hostnames. Host, port and user may be unnamed, and then they are `smtp.mx.cloudflare.net`, `465`, and `api_token`. When the host is named, the port and the user are named too. The user matches `^[A-Za-z0-9._-]{1,64}$`. The host matches the hostname rule. When the host is `smtp.mx.cloudflare.net`, the port is `465`. A different port with that host is refused by name. `<relay>` is not required. When it is present, the upstream names are operands of the relay-files job, and, when this is not an install for a restore, of the token-helper edit and of the token length read, and of no other script.
 
 Job 2 requires the install, one hostname, one alias label, and the word `add` or the word `remove`. The label is not `base` and not `app`. A Job 2 request that also names a new base, a new admin, or a new bucket: ask whether the request is the one route. Do not send the extra value. Do not guess.
 
@@ -437,17 +437,19 @@ Job 1:
 1. The pull job. Purpose `twenty-pull`, limit 1800, the references below as operands, in this order. `twentycrm/twenty@sha256:dca6d82985901468b391c0335aa8f0519a52b9809709e66f2de1dbff04351e53`, then `postgres@sha256:65b16a8b326e0cfbdf33fa7e783f2a0cb352a61448616ccccfd616ef42aa0f65`, then `redis@sha256:c94085d298b738be22c9ccdc0ac3761fa6649df7dd82ad1d42367f3cb9714935`. When `<relay>` is present, a fourth operand follows, `node:24-alpine@sha256:ebfe2f90462722a7a4de65e91990e97fe0d401c70e0e762c5b53302f905ec1c1`. When `<relay>` is absent, the operands are the three. The pull script is the same text either way.
 2. The install job. Purpose `twenty-install`, limit 300, sixteen operands when the driver is `LOG` and seventeen when the driver is `RESEND`. It writes the marker before any download or secret, then the rest of the directory, and starts nothing. When the driver is `RESEND`, the plan names `<inbound_domain>`. It says the person adds that name's MX record at Resend's direction, through `experts/IT Expert/` and `skills/Zone Publisher/` in `wiser`, and that the record is the MX record with the lowest priority number for that name. Resend's dashboard shows the host and the priority. Resend recommends a subdomain so the parent domain's own mail records stay as they are.
 
-When `<relay>` is present, the relay's calls are inserted after call 2 has counted and before call 3. They are not a renumbering of calls 3 to 9. In order: the relay-files job, purpose `twenty-relay-files`, limit 60, operands the install name and then each upstream name; then one direct call per relay writer; then the relay-install job, purpose `twenty-relay-install`, limit 420, one operand, the install name; then the relay-service job, purpose `twenty-relay-service`, limit 120, one operand, the install name. The image those calls name is `node:24-alpine@sha256:ebfe2f90462722a7a4de65e91990e97fe0d401c70e0e762c5b53302f905ec1c1`. `experts/DevOps Expert/` gates each of the three jobs with this same plan, before any of them is sent. The gate covers each job's purpose, unit name, limit, token, script and operands. The writer calls are in that plan. They are not jobs, and they are not a separate gate. A re-inspection that changes a later call is a new plan, gated again. When `<relay>` is absent, those calls are not in the plan.
+When `<relay>` is present, the relay's calls are inserted after call 2 has counted and before call 3. They are not a renumbering of calls 3 to 9. In order: the relay-files job, purpose `twenty-relay-files`, limit 60, operands the install name and then each upstream name; then one direct call per relay writer; then the relay-install job, purpose `twenty-relay-install`, limit 420, one operand, the install name; then the relay-service job, purpose `twenty-relay-service`, limit 120, one operand, the install name. The image those calls name is `node:24-alpine@sha256:ebfe2f90462722a7a4de65e91990e97fe0d401c70e0e762c5b53302f905ec1c1`. `experts/DevOps Expert/` gates each of the three jobs with this same plan, before any of them is sent. The gate covers each job's purpose, unit name, limit, token, script and operands. The writer calls are in that plan. They are not jobs, and they are not a separate gate. A re-inspection that changes a later call is a new plan, gated again. When `<relay>` is absent, those calls are not in the plan. `conf/state` stays the four bytes `hold` through Job 1. No call in this plan writes `send`. Releasing the hold is Job 5, which a later part adds, and this run does not send it.
 
-3. The person runs the helper over a shell they hold on the machine, outside the router. On Oracle, that shell is the route `skills/Prepare VM/providers/oracle.md` names, Cloud Shell's ephemeral private network. The plan names the helper path and the key names. It does not name a secret value. For each vendor key it says where that value's length will come from: the `clipboard-length:` line the clipboard command below prints when the session loads the value for the paste, a length the vendor documents for that kind of token, or none. A length is not a secret. When the driver is `RESEND`, the key names include `RESEND_WEBHOOK_SIGNING_SECRET` immediately after `RESEND_API_KEY`. The plan tells the person, before the helper, to enable receiving on `<inbound_domain>`, to add the webhook to `https://<base>/webhooks/messaging/resend` for `email.received`, `email.delivered`, `email.failed`, `email.bounced`, and `email.complained`, and to have that webhook's signing secret ready to type. It does not name the secret.
-4. The length read.
-5. The start job. Purpose `twenty-start`, limit 1800, one operand, the install name.
-6. A read of the server's published ports.
+When `<relay>` is present and `<for_restore>` is absent, one more direct call follows the relay-service job and still precedes call 3. It edits `/opt/<install>/set-secrets` so the helper prompts for each upstream token. It is not a job. It does not take the lock. Its `argv` is `/bin/sh`, `-c`, the script, `sh`, the install name, and each upstream name. It stays inside the endpoint's 20 seconds. The same plan gates it with the relay jobs. It is not a separate gate. When `<relay>` is absent, or when `<for_restore>` is present, that call is not in the plan, and the helper stays the text the install job wrote.
+
+3. The person runs the helper over a shell they hold on the machine, outside the router. On Oracle, that shell is the route `skills/Prepare VM/providers/oracle.md` names, Cloud Shell's ephemeral private network. The plan names the helper path and the key names. It does not name a secret value. For each vendor key it says where that value's length will come from: the `clipboard-length:` line the clipboard command below prints when the session loads the value for the paste, a length the vendor documents for that kind of token, or none. A length is not a secret. When the driver is `RESEND`, the key names include `RESEND_WEBHOOK_SIGNING_SECRET` immediately after `RESEND_API_KEY`. The plan tells the person, before the helper, to enable receiving on `<inbound_domain>`, to add the webhook to `https://<base>/webhooks/messaging/resend` for `email.received`, `email.delivered`, `email.failed`, `email.bounced`, and `email.complained`, and to have that webhook's signing secret ready to type. It does not name the secret. When `<relay>` is present and `<for_restore>` is absent, the plan also names each `RELAY_TOKEN_<NAME>` key, one per upstream, and where that token's length will come from, by the same three sources. `<NAME>` is the upstream name with every letter turned to upper case and every `-` turned to `_`. The token file is `/opt/<install>/relay/secrets/<name>.token`. It holds the typed bytes and no trailing newline, so the recorded length is the file's byte count. A restore's plan does not name these keys. The helper is not edited, and the restore brings the token files.
+4. The length read. When `<relay>` is present and `<for_restore>` is absent, the token length read follows it, one direct call, before the start job.
+5. The start job. Purpose `twenty-start`, limit 1800, one operand, the install name. The start script is the same text whether or not `<relay>` is present. When `<relay>` is present, the relay start read follows the start job, one direct call, before the ports read.
+6. A read of the server's published ports. When `<relay>` is present, the relay checks follow that read, then the outbound check, both direct calls, both before the first-contact writers. The first-contact writers are sent only after `outbound:ok`.
 7. The writer calls that place the first-contact program, three when the driver is `LOG` and four when the driver is `RESEND`, then the one first-contact call. That call creates the server admin and the first workspace on the install's Docker network, and posts the `app.<base>` route and the first workspace's route only after `workspace:ok` and the password file is removed. The order is the first-contact question.
 8. The base route, one POST, only after first-contact has created the workspace.
 9. The checks from outside the machine, then the memory read, then a closing re-inspection.
 
-An install for a restore is calls 1 to 4 and no other, then a closing re-inspection. It starts no container, creates no volume or network, posts no route, and creates no admin or workspace, since a restore brings its own. It stops at the resting state below. When `<relay>` is present, the relay's calls are inserted after call 2 here too, and the helper does not ask for the relay's upstream tokens, which the restore brings.
+An install for a restore is calls 1 to 4 and no other, then a closing re-inspection. It starts no container, creates no volume or network, posts no route, and creates no admin or workspace, since a restore brings its own. It stops at the resting state below. When `<relay>` is present, the relay's calls through the relay-service job are inserted after call 2 here too. The token-helper edit, the token length read, the start read, the relay checks and the outbound check are not in that plan. The helper does not ask for the relay's upstream tokens, which the restore brings. `conf/state` stays `hold`. Releasing the hold is Job 5, which a later part adds, and this run does not send it.
 
 Job 2's plan is the route question. Job 3's plan is the removal question. Job 4's plan is the offline question, or the online question. None of them sends a pull.
 
@@ -1019,9 +1021,96 @@ printf '%s\n' \
 
 The relay-service job counts only when its class is `succeeded` and the text after `]: ` includes `relay-svc:image:` followed by `node:24-alpine@sha256:ebfe2f90462722a7a4de65e91990e97fe0d401c70e0e762c5b53302f905ec1c1`, `relay-svc:container_name:` followed by the install name and `-relay`, `relay-svc:command:node /relay/relay.js`, `relay-svc:user:1000:1000`, `relay-svc:read_only:true`, `relay-svc:tmpfs:/tmp:size=16m`, `relay-svc:mem_limit:128m`, `relay-svc:pids_limit:64`, `relay-svc:restart:unless-stopped`, `relay-svc:mount:/relay:ro`, `relay-svc:mount:/conf:ro`, `relay-svc:mount:/secrets:ro`, `relay-svc:mount:/journal:rw`, `relay-svc:ports:none`, `relay-svc:network:default`, `relay-svc:alias:smtp-relay`, `relay-svc:outbound:server`, `relay-svc:outbound:worker`, and `relay-service:ok`. A line `relay-service:fail:` is a failed job. Do not start the helper. Do not start the start job. When the failure is after `mv`, the override may already hold the edit. Do not retry the edit in this run. A new plan is gated before another edit.
 
+### What adds the relay token prompts?
+
+Ask only after the relay-service job has counted, and only when `<relay>` is present and `<for_restore>` is absent. When `<relay>` is absent, do not send this call. The helper and `secrets.list` stay the bytes the install job wrote. When `<for_restore>` is present, do not send this call. The restore brings the token files, and the helper does not prompt for them.
+
+One `vm.command.run`. It is not a job. Send it only inside the endpoint's 20 seconds. `argv` is `/bin/sh`, `-c`, the script, `sh`, the install name, and each upstream name in the order `<relay>` named them. The person is told it edits the helper and writes no token value.
+
+The install job's two scripts are unchanged. An install with no relay still writes the helper this skill already wrote. This call is the writer that adds the prompts. It leaves `secrets.list` byte for byte. It rewrites `set-secrets` only when that file's last two lines are exactly `done < secrets.list` and `echo helper-done`. It keeps every line above those two, drops the final `echo helper-done`, and appends one prompt per upstream, then `echo helper-done` again. Each prompt's key is `RELAY_TOKEN_` plus the upstream name with `a-z` turned to `A-Z` and `-` turned to `_`, which is `tr 'a-z-' 'A-Z_'` under `LC_ALL=C`. The name `main` prompts `RELAY_TOKEN_MAIN` and writes `relay/secrets/main.token`. The name `effective-sc` prompts `RELAY_TOKEN_EFFECTIVE_SC` and writes `relay/secrets/effective-sc.token`. The value is read from `/dev/tty` with `read -rsp`, the same way the other keys are read. An empty value, or a value that contains whitespace, is refused. The file is written with `printf '%s'` and no trailing newline, by `mktemp` in `relay/secrets`, `chmod 640`, `chown 0:1000`, and `mv -T --` onto `<name>.token`. It is not written into `.env`. The helper prints `saved:<key>:length:<n>` for the token. `n` is the byte length under `LC_ALL=C`, which this added loop sets before it reads. The newline after the hidden prompt goes to `/dev/tty`, so the token prompt adds no blank line on standard output. The vendor loop above it is the install job's loop, unchanged, and its blank `echo` lines stay.
+
+`<script>` is this text and no other:
+
+```
+set -eu
+export LC_ALL=C
+install=$1
+shift
+fail() {
+  if [ -n "${listtmp:-}" ]; then rm -f -- "$listtmp"; fi
+  printf '%s\n' "relay-tokens:fail:$1"
+  exit 1
+}
+case "$install" in *[!a-z0-9]*|""|caddy) fail install;; esac
+n=${#install}
+[ "$n" -ge 2 ] && [ "$n" -le 13 ] || fail install
+case $(printf '%.1s' "$install") in [a-z]);; *) fail install;; esac
+[ "$#" -ge 1 ] || fail names
+dir=/opt/$install
+sec=$dir/relay/secrets
+[ -d "$sec" ] || fail no-secrets
+[ -f "$dir/set-secrets" ] || fail no-helper
+[ -f "$dir/secrets.list" ] || fail no-list
+listtmp=$dir/relay-tokens.list.tmp
+: > "$listtmp"
+for name in "$@"; do
+  case "$name" in ""|*[!a-z0-9-]*) fail name;; esac
+  wn=${#name}
+  [ "$wn" -ge 1 ] && [ "$wn" -le 16 ] || fail name
+  case $(printf '%.1s' "$name") in [a-z]);; *) fail name;; esac
+  key=$(printf '%s' "$name" | tr 'a-z-' 'A-Z_')
+  printf '%s\n' "$name" >> "$listtmp"
+  printf '%s\n' "relay-token-key:$name:RELAY_TOKEN_$key"
+done
+dups=$(sort "$listtmp" | uniq -d || true)
+[ -z "$dups" ] || fail duplicate
+mv "$listtmp" "$dir/relay-tokens.list"
+listtmp=
+chmod 600 "$dir/relay-tokens.list"
+last=$(tail -n 2 "$dir/set-secrets")
+exp='done < secrets.list
+echo helper-done'
+[ "$last" = "$exp" ] || fail ending
+lines=$(wc -l < "$dir/set-secrets")
+lines=$(printf '%s' "$lines" | tr -d ' ')
+keep=$((lines - 1))
+tmp=$(mktemp "$dir/set-secrets.XXXXXX")
+trap 'rm -f -- "$tmp"' EXIT
+head -n "$keep" "$dir/set-secrets" > "$tmp"
+cat >> "$tmp" << 'END'
+export LC_ALL=C
+while IFS= read -r name || [ -n "$name" ]; do
+  [ -n "$name" ] || continue
+  k=$(LC_ALL=C printf '%s' "$name" | LC_ALL=C tr 'a-z-' 'A-Z_')
+  k=RELAY_TOKEN_$k
+  read -rsp "Type ${k}, then Enter (hidden): " v </dev/tty || true
+  printf '\n' >/dev/tty
+  case "$v" in ''|*[[:space:]]*) printf '%s\n' "refused:$k:empty-or-whitespace"; exit 1 ;; esac
+  n=${#v}
+  d=relay/secrets
+  t=$(mktemp "$d/.token.XXXXXX")
+  trap 'rm -f -- "$t"' EXIT
+  printf '%s' "$v" > "$t"
+  chmod 640 "$t"
+  chown 0:1000 "$t"
+  mv -T -- "$t" "$d/$name.token"
+  trap - EXIT
+  unset v
+  printf '%s\n' "saved:$k:length:$n"
+done < relay-tokens.list
+echo helper-done
+END
+mv "$tmp" "$dir/set-secrets"
+trap - EXIT
+chmod 700 "$dir/set-secrets"
+printf '%s\n' "relay-tokens:helper:ok"
+```
+
+The call counts only when `outcome` is `ok`, the answer names this identifier, and the output contains `relay-tokens:helper:ok` and one `relay-token-key:<name>:RELAY_TOKEN_<KEY>` line for each upstream, in operand order. A line `relay-tokens:fail:` does not count. Do not ask the person to run the helper. The helper file is unchanged when the failure is `ending`. A new plan is gated before another edit. An unknown outcome is the direct-call question. Do not send this call again in this run.
+
 ### What does the person run?
 
-Ask only after the install job counted, and, when `<relay>` is present, only after the relay-service job has counted and every relay writer has counted. The helper is `/opt/<install>/set-secrets`, mode 700, run with sudo, over the shell the person holds. It reads the key names from `secrets.list` and each value from the person's terminal (`/dev/tty`), never from that list, prompting with `read -rsp`, one key at a time, for exactly the keys in `secrets.list`: `STORAGE_S3_ACCESS_KEY_ID`, `STORAGE_S3_SECRET_ACCESS_KEY`, `EMAIL_SMTP_PASSWORD`, `RESEND_API_KEY` when the driver is `RESEND`, then `RESEND_WEBHOOK_SIGNING_SECRET` when the driver is `RESEND`, `CLOUDFLARE_API_KEY` when `<cloudflare_saas>` is not `none`, and `ADMIN_PASSWORD`. `RESEND_WEBHOOK_SIGNING_SECRET` is typed through this helper and is never an operand. Its value is not printed. `EMAIL_SMTP_PASSWORD` is a Cloudflare API token with Email Sending: Edit, on the account where the from address's domain is onboarded for sending. `RESEND_API_KEY` is a full-access key, because Twenty creates, verifies and deletes domains through it as well as sending. `CLOUDFLARE_API_KEY` is a token with Zone, SSL and Certificates, Edit on that zone. The server admin's password goes to `admin.password`, mode 600, which the first-contact call deletes after the workspace exists.
+Ask only after the install job counted, and, when `<relay>` is present, only after the relay-service job has counted and every relay writer has counted. When `<relay>` is present and `<for_restore>` is absent, ask only after the token-helper edit has counted as well. The helper is `/opt/<install>/set-secrets`, mode 700, run with sudo, over the shell the person holds. It reads the key names from `secrets.list` and each value from the person's terminal (`/dev/tty`), never from that list, prompting with `read -rsp`, one key at a time, for exactly the keys in `secrets.list`: `STORAGE_S3_ACCESS_KEY_ID`, `STORAGE_S3_SECRET_ACCESS_KEY`, `EMAIL_SMTP_PASSWORD`, `RESEND_API_KEY` when the driver is `RESEND`, then `RESEND_WEBHOOK_SIGNING_SECRET` when the driver is `RESEND`, `CLOUDFLARE_API_KEY` when `<cloudflare_saas>` is not `none`, and `ADMIN_PASSWORD`. `RESEND_WEBHOOK_SIGNING_SECRET` is typed through this helper and is never an operand. Its value is not printed. `EMAIL_SMTP_PASSWORD` is a Cloudflare API token with Email Sending: Edit, on the account where the from address's domain is onboarded for sending. `RESEND_API_KEY` is a full-access key, because Twenty creates, verifies and deletes domains through it as well as sending. `CLOUDFLARE_API_KEY` is a token with Zone, SSL and Certificates, Edit on that zone. The server admin's password goes to `admin.password`, mode 600, which the first-contact call deletes after the workspace exists. When `<relay>` is present and this is not an install for a restore, the helper then prompts once more per upstream, after the keys in `secrets.list`, for `RELAY_TOKEN_<NAME>` as the token-helper edit names it. The person types the upstream sending token. The helper writes `/opt/<install>/relay/secrets/<name>.token`, mode 640, owner `0:1000`, and does not write that value into `.env`. It prints `saved:RELAY_TOKEN_<NAME>:length:<n>`. The plan's recorded length for that key comes from the same three sources as the other vendor keys: the clipboard command's `clipboard-length:` line, a length the vendor documents, or the `saved:` line the person reads back. The token file has no trailing newline, so that length is the file's byte count.
 
 The helper refuses an empty value or a value that contains whitespace. It writes under umask 077, it never echoes, and it prints `saved:<key>:length:<n>` and then `helper-done`. The person reads those lines back. A value is not repeated into the conversation.
 
@@ -1031,7 +1120,7 @@ A vendor token is recovered by reissuing it at the vendor and typing it again th
 
 Creating the bucket, the API tokens and the sending accounts is the person's work with each vendor. Name that gap in the report. This skill does not create them.
 
-- The person says the helper printed `helper-done` and one `saved:` line for each key in the plan. Continue to the length read.
+- The person says the helper printed `helper-done` and one `saved:` line for each key in the plan. When the token prompts were added, that includes one `saved:` line for each `RELAY_TOKEN_` key. Continue to the length read.
 - The person says a prompt refused a value, or they did not run it. Do not start containers. The files stay. A later run of the helper is the same plan only when no file changed. Otherwise gate again.
 
 ### What did the length read show?
@@ -1073,9 +1162,50 @@ Withhold any line that contains a secret assignment as the install question list
 - `.env` mode is not 600, `admin.password` mode is not 600, `set-secrets` mode is not 700, or the directory mode is not 700. Stop. Do not start.
 - Every required key has a length of at least 1, every vendor key with a recorded or named length has that length, the two generated lengths match, the admin file's byte count is at least 2, and the modes match. When the driver is `RESEND`, that includes `RESEND_WEBHOOK_SIGNING_SECRET` at a length of at least 1, and `INBOUND_EMAIL_DOMAIN` at a length equal to `<inbound_domain>`. The byte count is the helper's length plus 1, for the trailing newline. Continue. For an install for a restore, stop here, at the resting state below.
 
+### What did the relay token read show?
+
+Ask only when the length read continued and `<relay>` is present. An install for a restore stopped at the length read and does not ask this. When `<relay>` is absent, do not send this call. The length read above is the whole of that step, and its script stays the text above.
+
+One `vm.command.run`, a read, inside the endpoint's 20 seconds. `argv` is `/bin/sh`, `-c`, the script, `sh`, the install name, and each upstream name. The person is told it is a read. The script prints each token file's mode, owner and byte count. It does not print the file.
+
+`<script>` is this text and no other:
+
+```
+set -eu
+export LC_ALL=C
+install=$1
+shift
+dir=/opt/$install/relay/secrets
+[ "$#" -ge 1 ]
+for name in "$@"; do
+  case "$name" in ""|*[!a-z0-9-]*) printf '%s\n' "relay-token:fail:name"; exit 1 ;; esac
+  wn=${#name}
+  [ "$wn" -ge 1 ] && [ "$wn" -le 16 ] || { printf '%s\n' "relay-token:fail:name"; exit 1; }
+  case $(printf '%.1s' "$name") in [a-z]);; *) printf '%s\n' "relay-token:fail:name"; exit 1 ;; esac
+  f=$dir/$name.token
+  if [ ! -f "$f" ]; then
+    printf '%s\n' "relay-token:absent:$name"
+  else
+    st=$(stat -c '%a %u:%g %s' -- "$f")
+    printf '%s\n' "relay-token:$name:$st"
+  fi
+done
+printf '%s\n' "relay-token:read:ok"
+```
+
+The script exits 0 after it has printed the facts, and exits 1 when an operand is not an upstream name. The bullets below decide. Withhold any line that contains a token value. This script does not print one.
+
+- A line `relay-token:fail:name`. Stop. Do not start.
+- A line `relay-token:absent:<name>`. Stop. That token file is missing. Do not start. Do not print a value.
+- A line `relay-token:<name>:<mode> <uid>:<gid> <bytes>` whose mode is not `640`, or whose owner is not `0:1000`, or whose byte count is not the recorded length for that upstream's `RELAY_TOKEN_` key. Stop. Do not print a value. Do not start. The byte count is `stat -c '%a %u:%g %s'`. It equals the helper's length, because the token file has no trailing newline.
+- The output contains `relay-token:read:ok` and one passing line per upstream. Continue to the start job.
+- Any other line. Stop. Do not start.
+
 **The resting state for a restore.** An install for a restore stops after the length read matched: the marker holds `skill=deploy-twenty`, `release=v2.45.6`, the `compose-sha256` line, `project=` the install and `stage=files-written`; the directory holds the generated `.env`, the person's secrets and `admin.password`, which no first contact will remove, so a restore removes it, or Job 3 removes it with the directory; the display name and subdomain only name the install's aliases; there is no container, no volume, no project network and no route. When `<relay>` was named, it also holds `/opt/<install>/relay/` with the program, `node_modules`, `state` `hold`, `logins.json` `[]`, the named upstreams and no token file, and the `relay` service in the override. That state is supported and kept. Its two continuations are a restore of a backup onto it, which is `skills/Back Up Twenty/`'s, and Job 3's partial branch, which removes it. Starting it as an ordinary install later is not a continuation: a new Job 1 under a new name is.
 
 ### The start job
+
+Ask only after the length read matched. When `<relay>` is present and `<for_restore>` is absent, ask only after the token length read matched as well. An install for a restore does not reach this question.
 
 Write the script verbatim. Run `start` with `--purpose twenty-start`, `--limit 1800`, `--token` the token the latest inspection read, `--script` that file, and the install name as the only operand. Then the job question.
 
@@ -1127,14 +1257,207 @@ The length idiom inside the containers is not yet proved on the image's shell. A
 
 Compose `--wait` treats a worker with no health check as ready once it has started. If the worker line is missing, the check fails.
 
+### What did the relay start read show?
+
+Ask only after the start job counted, and only when `<relay>` is present. When `<relay>` is absent, the ports question is next. The start script is unchanged. `docker compose up -d --wait` already starts `relay`, because the override names that service. The start job's own checks do not read the relay container. This call does.
+
+One `vm.command.run`, a read, inside the endpoint's 20 seconds. `argv` is `/bin/sh`, `-c`, the script, `sh`, and the install name. The person is told it is a read.
+
+The script prints `relay-container:<id>:running 0` for the container `<install>-relay`. The status is `running` and the restart count is `0`. It prints `relay-user:1000:1000`. It prints the one Docker network the container is attached to. That network's Compose labels are the install name and `default`, so it is the project's default network, and the container has no other network. It prints `relay-alias:smtp-relay` when `smtp-relay` is one of the container's aliases on that network. It prints `relay-mount:/relay:ro`, `relay-mount:/conf:ro`, `relay-mount:/secrets:ro`, and `relay-mount:/journal:rw`. A writable `/tmp` is the override's tmpfs and is not a failure. Any other mount destination is a failure. It prints the last log line that begins with `config hash=` and contains ` status=loaded`, and that hash is 64 hex characters. Then it prints `relay-start:ok`.
+
+`<script>` is this text and no other:
+
+```
+set -eu
+export LC_ALL=C
+install=$1
+fail() { printf '%s\n' "relay-start:fail:$1"; exit 1; }
+case "$install" in *[!a-z0-9]*|""|caddy) fail install;; esac
+cd "/opt/$install"
+id=$(docker compose -p "$install" ps -aq -- relay)
+[ -n "$id" ] || fail absent
+case "$id" in *[!0-9a-f]*|*[!a-f0-9]*) fail id;; esac
+st=$(docker inspect --format '{{.State.Status}} {{.RestartCount}}' -- "$id")
+printf '%s\n' "relay-container:$id:$st"
+[ "$st" = "running 0" ] || fail status
+user=$(docker inspect --format '{{.Config.User}}' -- "$id")
+printf '%s\n' "relay-user:$user"
+[ "$user" = "1000:1000" ] || fail user
+nets=$(docker inspect --format '{{range $n, $c := .NetworkSettings.Networks}}{{printf "%s\n" $n}}{{end}}' -- "$id")
+count=0
+netname=
+for net in $nets; do
+  count=$((count + 1))
+  netname=$net
+done
+[ "$count" -eq 1 ] || fail networks
+labels=$(docker network inspect --format '{{index .Labels "com.docker.compose.project"}} {{index .Labels "com.docker.compose.network"}}' -- "$netname")
+printf '%s\n' "relay-net:$netname:$labels"
+[ "$labels" = "$install default" ] || fail network
+aliases=$(docker inspect --format '{{range $n, $c := .NetworkSettings.Networks}}{{range $c.Aliases}}{{printf "%s\n" .}}{{end}}{{end}}' -- "$id")
+okalias=0
+for alias in $aliases; do
+  if [ "$alias" = smtp-relay ]; then okalias=1; fi
+done
+[ "$okalias" -eq 1 ] || fail alias
+printf '%s\n' "relay-alias:smtp-relay"
+mounts=$(docker inspect --format '{{range .Mounts}}{{printf "%s %s\n" .Destination .RW}}{{end}}' -- "$id")
+printf '%s\n' "$mounts" | awk '
+$1 == "/relay" && $2 == "false" { r++; next }
+$1 == "/conf" && $2 == "false" { c++; next }
+$1 == "/secrets" && $2 == "false" { s++; next }
+$1 == "/journal" && $2 == "true" { j++; next }
+$1 == "/tmp" { next }
+{ bad = 1 }
+END { if (r != 1 || c != 1 || s != 1 || j != 1 || bad) exit 1 }
+' || fail mounts
+printf '%s\n' "relay-mount:/relay:ro" "relay-mount:/conf:ro" "relay-mount:/secrets:ro" "relay-mount:/journal:rw"
+cfg=$(docker logs --tail 400 -- "$id" | awk '
+/^config hash=/ && index($0, " status=loaded") { line = $0 }
+END { if (line == "") exit 1; print line }
+') || fail config
+printf '%s\n' "$cfg"
+printf '%s\n' "$cfg" | awk '
+function hex64(s) {
+  if (length(s) != 64) return 0
+  return s ~ /^[0-9a-f]+$/
+}
+$1 == "config" && index($2, "hash=") == 1 {
+  if (hex64(substr($2, 6)) && index($0, " status=loaded")) ok = 1
+}
+END { exit ok ? 0 : 1 }
+' || fail config
+printf '%s\n' "relay-start:ok"
+```
+
+Count the call only when `outcome` is `ok`, the answer names this identifier, and every line below is present.
+
+- `relay-container:<id>:running 0` for `<install>-relay`. A status other than `running`, or a restart count other than `0`, fails.
+- `relay-user:1000:1000`.
+- `relay-net:<network>:<install> default`, and no second network.
+- `relay-alias:smtp-relay`.
+- `relay-mount:/relay:ro`, `relay-mount:/conf:ro`, `relay-mount:/secrets:ro`, and `relay-mount:/journal:rw`.
+- One `config hash=<64 hex>` line that contains ` status=loaded`.
+- `relay-start:ok`.
+
+All of those passed. Continue to the ports read.
+
+A line `relay-start:fail:`, a missing line above, or a line that does not match its bullet, stops the run. Do not treat the ports read as a pass. Do not add a route. Name Job 3. Do not remove the install in this run. An unknown outcome is the direct-call question. Do not send this call again.
+
 ### What ports does the server publish?
 
-Ask only after the start checks passed. One read. `argv` is `docker`, `inspect`, `--format`, `{{json .HostConfig.PortBindings}}`, `--`, and the server container id from the start read-back. The person is told it is a read.
+Ask only after the start checks passed, and, when `<relay>` is present, only after the relay start read passed. One read. `argv` is `docker`, `inspect`, `--format`, `{{json .HostConfig.PortBindings}}`, `--`, and the server container id from the start read-back. The person is told it is a read.
 
 - The output is `{}` or `null`. The server publishes no port. Continue.
 - Anything else. Stop. Do not add a route. The override did not remove the published port. Name Job 3. Do not remove the install in this run.
 
+### What did the relay checks show?
+
+Ask only after the ports read passed, and only when `<relay>` is present. When `<relay>` is absent, the first-contact writers are next. Nothing in this question runs, and nothing else changes because `<relay>` is absent.
+
+One `vm.command.run`, inside the endpoint's 20 seconds. `argv` is `/bin/sh`, `-c`, the script, `sh`, and the install name. The call's environment does not set `RELAY_CHECK_HOST` or `RELAY_CHECK_PORT`. Unset, the program connects to `smtp-relay` port `2525`.
+
+The script runs one Node program with `docker compose -p <install> exec -T server node -e`, then the same program with `worker` in place of `server`. The server image has Node on its `PATH`. Each of the three checks opens its own connection. `relay:greet:ok` means the name resolved and the greeting code is `220`. `relay:auth-refused:ok` means `AUTH PLAIN` for the login `nosuchlogin`, with a password that is not a login, was answered `535`. `relay:unauth-refused:ok` means `MAIL FROM` with no AUTH was answered `530`. Any other result is `relay:<check>:fail:<code or reason>`. The reason is the socket error code, `timeout`, or `exec` when `docker compose exec` itself failed. A failed exec still prints the three fail lines, so each check has a line of its own. The program prints the marker and not the password.
+
+`<script>` is this text and no other:
+
+```
+set -eu
+export LC_ALL=C
+install=$1
+cd "/opt/$install"
+prog='const net=require("net");
+const host=process.env.RELAY_CHECK_HOST||"smtp-relay";
+const port=Number(process.env.RELAY_CHECK_PORT||2525);
+function say(s){console.log(s)}
+function why(e){return (e&&(e.code||e.message))||"error"}
+function conn(){return new Promise((ok,no)=>{const s=net.connect({host:host,port:port},()=>ok(s));s.setTimeout(2000);s.on("error",no);s.on("timeout",()=>{s.destroy();no(new Error("timeout"))})})}
+function reader(s){let b="";const q=[];function pump(){while(q.length){const i=b.indexOf("\n");if(i<0)return;const line=b.slice(0,i).replace(/\r$/,"");b=b.slice(i+1);q.shift()(line)}}s.on("data",d=>{b+=d;s.setTimeout(2000);pump()});return function(){return new Promise((ok,no)=>{q.push(ok);pump();s.on("error",no);s.on("timeout",()=>no(new Error("timeout")))})}}
+async function greet(){let s;try{s=await conn();const g=await reader(s)();const c=g.slice(0,3);say(c==="220"?"relay:greet:ok":"relay:greet:fail:"+c);s.end()}catch(e){say("relay:greet:fail:"+why(e))}}
+async function ehlo(s,next){s.setTimeout(2000);s.write("EHLO relay-check\r\n");let x="";do{x=await next()}while(x.slice(0,4)!=="250 ")}
+async function auth(){let s;try{s=await conn();const next=reader(s);await next();await ehlo(s,next);s.setTimeout(2000);const t=Buffer.from("\0nosuchlogin\0wrong-password").toString("base64");s.write("AUTH PLAIN "+t+"\r\n");const a=await next();const c=a.slice(0,3);say(c==="535"?"relay:auth-refused:ok":"relay:auth-refused:fail:"+c);s.end()}catch(e){say("relay:auth-refused:fail:"+why(e))}}
+async function mail(){let s;try{s=await conn();const next=reader(s);await next();await ehlo(s,next);s.setTimeout(2000);s.write("MAIL FROM:<a@example.test>\r\n");const m=await next();const c=m.slice(0,3);say(c==="530"?"relay:unauth-refused:ok":"relay:unauth-refused:fail:"+c);s.end()}catch(e){say("relay:unauth-refused:fail:"+why(e))}}
+(async()=>{await greet();await auth();await mail()})().catch(e=>{say("relay:greet:fail:"+why(e))});'
+for svc in server worker; do
+  printf '%s\n' "relay-from:$svc"
+  if ! docker compose -p "$install" exec -T "$svc" node -e "$prog"; then
+    printf '%s\n' "relay:greet:fail:exec" "relay:auth-refused:fail:exec" "relay:unauth-refused:fail:exec"
+  fi
+done
+```
+
+Count each of these lines as its own bullet. The `relay-from:` line says which container printed the three that follow it.
+
+- After `relay-from:server`, `relay:greet:ok`.
+- After `relay-from:server`, `relay:auth-refused:ok`.
+- After `relay-from:server`, `relay:unauth-refused:ok`.
+- After `relay-from:worker`, `relay:greet:ok`.
+- After `relay-from:worker`, `relay:auth-refused:ok`.
+- After `relay-from:worker`, `relay:unauth-refused:ok`.
+
+All six passed. Continue to the outbound check.
+
+A line `relay:greet:fail:`, `relay:auth-refused:fail:`, or `relay:unauth-refused:fail:` stops the run. Do not treat the outbound check as a pass. Do not send first contact. Do not add a route. Name Job 3. Do not remove the install in this run. An unknown outcome is the direct-call question. Do not send this call again.
+
+### What did the outbound check show?
+
+Ask only after the six relay checks passed, and only when `<relay>` is present. When `<relay>` is absent, this call is not sent and no other call changes because of it.
+
+One `vm.command.run`, inside the endpoint's 20 seconds. `argv` is `/bin/sh`, `-c`, the script, `sh`, and the install name. The person is told it is a read.
+
+For `server` and for `worker`, the script runs `printenv` in the container. `OUTBOUND_HTTP_ALLOWED_INTERNAL_HOSTS` equals exactly `smtp-relay`, printed as `outbound-env:<svc>:allowlist:ok`, or `outbound-env:<svc>:allowlist:bad`. `OUTBOUND_HTTP_SAFE_MODE_ENABLED` is unset, printed as `outbound-env:<svc>:safe-mode:unset`, or `outbound-env:<svc>:safe-mode:set` when `printenv` exits 0, an empty value included. The value is not printed. The database read is the `CONFIG_VARIABLE` name query `skills/Back Up Twenty/` uses: `select "key" from core."keyValuePair" where type = 'CONFIG_VARIABLE' and "userId" is null and "workspaceId" is null order by 1`, through `docker compose -p <install> exec -T db psql -v ON_ERROR_STOP=1 -U postgres -d default -At -c`. The limit here is `timeout 15`. Back Up Twenty uses `timeout 60` inside a job. Fifteen seconds keeps this direct call inside the endpoint's 20 seconds. Neither key is among those names: `outbound-db:ok`. A name that is present is `outbound-db:override:<key>`. A psql failure is `outbound-db:fail` and the script exits 1. The script prints `outbound:ok` only when both services printed `allowlist:ok` and `safe-mode:unset` and the database printed `outbound-db:ok`. Any other result exits 1 and does not print `outbound:ok`.
+
+`<script>` is this text and no other:
+
+```
+set -eu
+export LC_ALL=C
+install=$1
+cd "/opt/$install"
+bad=0
+for svc in server worker; do
+  allow=$(docker compose -p "$install" exec -T "$svc" printenv OUTBOUND_HTTP_ALLOWED_INTERNAL_HOSTS || true)
+  if [ "$allow" = smtp-relay ]; then
+    printf '%s\n' "outbound-env:$svc:allowlist:ok"
+  else
+    printf '%s\n' "outbound-env:$svc:allowlist:bad"
+    bad=1
+  fi
+  if docker compose -p "$install" exec -T "$svc" printenv OUTBOUND_HTTP_SAFE_MODE_ENABLED >/dev/null 2>&1; then
+    printf '%s\n' "outbound-env:$svc:safe-mode:set"
+    bad=1
+  else
+    printf '%s\n' "outbound-env:$svc:safe-mode:unset"
+  fi
+done
+if ! names=$(timeout 15 docker compose -p "$install" exec -T db psql -v ON_ERROR_STOP=1 -U postgres -d default -At -c "select \"key\" from core.\"keyValuePair\" where type = 'CONFIG_VARIABLE' and \"userId\" is null and \"workspaceId\" is null order by 1"); then
+  printf '%s\n' "outbound-db:fail"
+  exit 1
+fi
+over=$(printf '%s\n' "$names" | awk '$0 == "OUTBOUND_HTTP_ALLOWED_INTERNAL_HOSTS" || $0 == "OUTBOUND_HTTP_SAFE_MODE_ENABLED" { print }')
+if [ -n "$over" ]; then
+  printf '%s\n' "$over" | while IFS= read -r name; do
+    [ -n "$name" ] || continue
+    printf '%s\n' "outbound-db:override:$name"
+  done
+  bad=1
+else
+  printf '%s\n' "outbound-db:ok"
+fi
+if [ "$bad" -eq 0 ]; then
+  printf '%s\n' "outbound:ok"
+else
+  exit 1
+fi
+```
+
+- The output contains `outbound-env:server:allowlist:ok`, `outbound-env:server:safe-mode:unset`, `outbound-env:worker:allowlist:ok`, `outbound-env:worker:safe-mode:unset`, `outbound-db:ok`, and `outbound:ok`, and it contains no `allowlist:bad`, no `safe-mode:set`, no `outbound-db:override:`, and no `outbound-db:fail`. Continue to the first-contact writers. `conf/state` is still `hold`. This call does not write it, and no earlier call in Job 1 wrote `send`. Job 1 does not release the hold. Releasing it is Job 5, which this run does not send.
+- Any other line, or a missing `outbound:ok`. Stop before first contact. Do not add a route. Do not write `send`. Name Job 3. Do not remove the install in this run.
+- An unknown outcome. The direct-call question. Do not send this call again. Do not add a route.
+
 ### What writes the first-contact program?
+
+Ask only after the ports read passed. When `<relay>` is present, ask only after the outbound check printed `outbound:ok`. When `<relay>` is absent, the ports read is the step this question follows, and the relay checks and the outbound check were not sent.
 
 The program does not fit in one router argument. The connector bounds one `argv` element at 4096 code points, and the program is longer. When the driver is `LOG`, three reads-as-writes place it, and a fourth call runs it. When the driver is `RESEND`, four reads-as-writes place it, and a fifth call runs it. The writes contain no secret and add no route. Each is one `vm.command.run`. `argv` is `/bin/sh`, `-c`, the script, `sh`, and the install name. Send them in the order this question names, once each. Do not send the run until each printed `writer-ok`. The last of the program writes parses the assembled `first-contact.py` and sets its mode to 600. No `writer-ok` from it means the program was not assembled. The RESEND inbound module is parsed and set to 600 by its own write. A `LOG` run does not send the RESEND scripts.
 
@@ -1786,7 +2109,7 @@ printf '%s\n' "stats-exit:$?"
 exit 0
 ```
 
-Report `MemUsage` for the ids whose service label is `server`, `worker`, `db`, or `redis`. Do not report other containers. A missing stats line is reported as unread. It does not by itself undo a route.
+Report `MemUsage` for the ids whose service label is `server`, `worker`, `db`, or `redis`. Do not report other containers. When `<relay>` is present the id list may also name `relay`. That line is not one of the four, and this read does not judge it. A missing stats line is reported as unread. It does not by itself undo a route.
 
 ### Job 2. Add or remove one hostname on an install this skill made
 
@@ -2202,7 +2525,7 @@ Job 3's full removal requested state is the one its question states. Job 3's par
 
 One report. For each part: what was inspected, what was planned, the gate's verdict or that no gate was taken, each call's action and its `outcome`, any `exit_code`, the output copied verbatim where the report shows it, the re-inspection, and `changed`, `unchanged`, or failed. A line that contains `PG_DATABASE_PASSWORD=`, `ENCRYPTION_KEY=`, `CLOUDFLARE_API_KEY=`, `EMAIL_SMTP_PASSWORD=`, `RESEND_API_KEY=`, `RESEND_WEBHOOK_SIGNING_SECRET=`, `STORAGE_S3_SECRET_ACCESS_KEY=`, `STORAGE_S3_ACCESS_KEY_ID=`, or `ADMIN_PASSWORD=` is withheld, and the report says the line was withheld. A secret value is not a report line. Lengths, booleans, counts and statuses are.
 
-The URL is `https://<base>/` and `https://app.<base>/`. The report says whether each `/healthz` answered and whether the certificate verified. It names the image digests. It does not name the source address as a field. When `<relay>` is present, it names each upstream by name, the relay state `hold`, that this run wrote no token file, and that the relay service is in the override. It does not name a token.
+The URL is `https://<base>/` and `https://app.<base>/`. The report says whether each `/healthz` answered and whether the certificate verified. It names the image digests. It does not name the source address as a field. When `<relay>` is present, it names each upstream by name, the relay state `hold`, and that the relay service is in the override. It does not name a token. On an install that is not a restore, it names each token file's byte count, mode and owner from the token length read, the `relay-container:` line, the six relay-check markers, and `outbound:ok`. It says Job 1 left `conf/state` at `hold` and did not release it. Releasing the hold is Job 5, which this run does not send. On an install for a restore, it says this run wrote no token file, because the restore brings the tokens, and that the helper did not prompt for them.
 
 The report says what is configured and what is not. Team email is the install's one address over SMTP, to members, not to contacts. Email to contacts is each person's own mailbox, left enabled for IMAP, SMTP and CalDAV, and not configured. Branded or campaign email is the driver that was set, Resend or LOG. When the driver is `RESEND`, the inbound email domain is set to `<inbound_domain>`. When the driver is `LOG`, no inbound email domain is set. Job 4 offline reports that the routes were removed and the data was kept, and copies this install's route objects from the before-state verbatim, since bringing it back online posts exactly those. Job 3 copies this install's route objects from its before-state once a route delete was sent. Job 4 online reports that the recorded routes were posted again, and which were already present. Google and Microsoft stay off. Email verification stays off. When the driver is `LOG`, the webhook signing secret stays unset, so signatures on `/webhooks/messaging/resend` are not verified. When the driver is `RESEND`, the signing secret is set through the helper and first contact has probed the route. `RESEND_DOMAIN_REGION` stays unset either way, so Resend provisions a new emailing domain in its default region. When `<cloudflare_saas>` is `none`, no workspace can take its own domain. When it is set, the report says the Custom Hostnames setting and the fallback origin are the person's, and that a DNS-only CNAME inside that zone to the fallback origin is served directly by Caddy, with Caddy's certificate, and Cloudflare carries none of that name's traffic.
 
@@ -2250,6 +2573,11 @@ For each job, also: its unit name, its invocation ID and its limit, the last pol
 - **The relay published on a port, or attached to the proxy network.** The service has no `ports`. Its only network is the project default, with the alias `smtp-relay`.
 - **The relay npm container left on the machine.** `docker run` carries `--rm`, and the trap runs `docker rm -f` on `<install>-relay-npm` on every exit, a failed `npm ci` and a timeout included.
 - **A group-writable `node_modules`, or an `smtp-server` other than `3.19.17`.** After `npm ci` the tree is `chown -R 0:1000` and `chmod -R g-w,o-rwx`. Any other version does not count.
+- **The token-helper edit sent when `<relay>` is absent, or on a restore.** The install job's helper and `secrets.list` stay the bytes that job wrote. A restore does not prompt for the relay's tokens. The restore brings those files.
+- **An upstream token written into `.env`, or printed.** The added prompts write `/opt/<install>/relay/secrets/<name>.token` only. The report prints the length, the mode and the owner.
+- **The start script changed so that it reads the relay.** The start script stays the text this skill already sends. `docker compose up -d --wait` starts `relay`. The relay start read is the next call, and only when `<relay>` is present.
+- **First contact sent before the relay checks and `outbound:ok`.** When `<relay>` is present those two calls follow the ports read and precede the first-contact writers. A line other than the passing markers stops the run. No route is added.
+- **`conf/state` written `send` in Job 1.** The relay-files job writes `hold`. No later call in Job 1 writes `state`. Job 5 releases the hold, and this skill does not send Job 5.
 - **The fleet called down.** A router-host failure, or a `list_hosts` `vendor_error`, means connector access to the whole fleet depends on the router host. A `list_hosts` `uncertain` does not establish whether the call ran, and it does not say that. Installs keep serving.
 
 ## Success
@@ -2262,9 +2590,9 @@ For each job, also: its unit name, its invocation ID and its limit, the last pol
 - Headroom was read before the pull. Below 3927 MiB available, or below 8589934592 bytes free on Docker's filesystem, the run stopped and pulled nothing.
 - No Docker, or a Caddy that was not running in the shape `skills/Deploy Workload/` runs, stopped the run, and the report names that gap. This skill did not install Docker and did not start Caddy.
 - A change was sent only after `experts/DevOps Expert/` returned safe as planned, or safe with named conditions the person was told, and only after the person approved that call's stop. No route was written before that gate and that approval.
-- An install for a restore ran the pull, the install job, the person's helper and the length read, and nothing after them; it started no container and posted no route, and the report named its resting state and its two continuations.
-- The pull was one job, purpose `twenty-pull`, limit 1800, the digest references the operands, three when `<relay>` is absent and those three plus the node digest when `<relay>` is present, and a digest that did not match was not installed. The install job, purpose `twenty-install`, limit 300, created the directory, wrote the marker before any download or secret, appended `compose-sha256` after the compose hash matched, replaced `stage=created` with `stage=files-written`, and started nothing. When `<relay>` is present, the relay-files job, the writer calls, the relay-install job and the relay-service job counted, in that order, after the install job and before the helper, and the relay-service job did not start a container. When `<relay>` is absent, none of those ran. The start job, purpose `twenty-start`, limit 1800, was not sent until the length read matched.
-- The server published no port. The four containers matched the start checks before any route. A failed check added no route.
+- An install for a restore ran the pull, the install job, the person's helper and the length read, and nothing after them; it started no container and posted no route, and the report named its resting state and its two continuations. When `<relay>` was present it also ran the relay calls through the relay-service job, it did not edit the helper for tokens, and it did not run the token length read, the start read, the relay checks or the outbound check.
+- The pull was one job, purpose `twenty-pull`, limit 1800, the digest references the operands, three when `<relay>` is absent and those three plus the node digest when `<relay>` is present, and a digest that did not match was not installed. The install job, purpose `twenty-install`, limit 300, created the directory, wrote the marker before any download or secret, appended `compose-sha256` after the compose hash matched, replaced `stage=created` with `stage=files-written`, and started nothing. When `<relay>` is present, the relay-files job, the writer calls, the relay-install job and the relay-service job counted, in that order, after the install job and before the helper, and the relay-service job did not start a container. When `<relay>` is present and this is not a restore, the token-helper edit counted before the person ran the helper, the token length read matched before the start job, the relay start read passed before the ports read, and the six relay checks and `outbound:ok` passed before a first-contact writer. `conf/state` was still `hold` at the report. When `<relay>` is absent, none of those calls ran, and the helper text was the install job's. The start job, purpose `twenty-start`, limit 1800, was not sent until the length read matched.
+- The server published no port. The four containers matched the start checks before any route. When `<relay>` is present, the relay start read passed before the ports read, and the six relay checks and `outbound:ok` passed before a route. A failed check added no route.
 - The first-contact call created the server admin and the first workspace before it posted a route, in one `vm.command.run`. No route was posted before `workspace:ok` and the password file was removed. The base route was a later call. An `uncertain` or `timeout` on that call was not retried, and no route was removed to recover. When the driver is `RESEND`, the call also printed `inbound-domain:ok` and `inbound-webhook:refused` before it posted a route, and a not-configured answer or a 404 stopped the call before a route. When the driver is `LOG`, the call's output had no `inbound-domain:` line and no `inbound-webhook:` line.
 - When the driver is `RESEND`, the install job wrote `INBOUND_EMAIL_DOMAIN` and mapped `RESEND_WEBHOOK_SIGNING_SECRET`, and the report named the person's Resend steps, IT Expert Rule 5's question without answering it, and the receiving price. When the driver is `LOG`, the install job wrote no inbound domain and mapped no signing secret.
 - Job 2 added an alias by reattaching the full list and then posting the route, or removed the route, confirmed the saved config, and then removed the alias. A half-finished pair was reported and not repaired in the same run.

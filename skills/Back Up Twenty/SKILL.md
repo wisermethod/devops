@@ -3,7 +3,7 @@ name: Back Up Twenty
 type: skill
 category: operations
 description: Set up scheduled, age-encrypted backups of an install Deploy Twenty made to a Cloudflare R2 bucket, back one up now, check the key's recovery copy, recover after an interrupted backup, stop scheduled backups, or restore a backup onto an install made for a restore, and report what was done.
-version: 0.1.8
+version: 0.1.9
 gaps:
   - authenticating a set's origin, and object lock
   - alerting on an overdue backup
@@ -36,13 +36,13 @@ What the router does with a command is Deploy Twenty's (`skills/Deploy Twenty/`)
 
 `vm.command.run` runs the argument vector as root. Every call, a read included, is `confirmation: always`. The approval question is Deploy Twenty's (`skills/Deploy Twenty/`). No secret value is asked for in the conversation, printed, placed in an operand, or written into a file in a repository. `backup.env`, `.env`, and the age identity are never `cat`ed by any call. A value the person types goes only into a helper on the machine, over the shell they hold. The report prints lengths, booleans, counts, statuses, the source id, the recipient's sha256, and the set's stamp. It does not print a credential or the identity.
 
-A backup set is `<source-id>/<stamp>-<6 hex>/backup.tar.age`, then `COMPLETE` beside it. `<source-id>` is 32 hex characters made once and kept at `/opt/<install>/backup/source-id`. `COMPLETE` holds `source-id`, `stamp`, `size`, `sha256`, `format=1`, `recipient`, `server-url`, and `files-bucket`, the source install's files bucket, which a restore refuses to write into. Creation lists that source id and stops if the new prefix is already there. The archive holds `db.dump` (`pg_dump -Fc`), `counts.txt`, `state.txt`, `config-db.txt`, `local.tgz`, `files/` and `files.list`, `secrets.env`, and `SHA256SUMS`. `SHA256SUMS` covers those named files. `files.list` holds each object's key, size, and sha256. A directory is not a `sha256sum` argument. The archive is uploaded with its `Content-MD5`, so the bucket refuses bytes that differ from the file, and `COMPLETE` is written only after the bucket's size and ETag for the archive equal the file's size and MD5.
+A backup set is `<source-id>/<stamp>-<6 hex>/backup.tar.age`, then `COMPLETE` beside it. `<source-id>` is 32 hex characters made once and kept at `/opt/<install>/backup/source-id`. `COMPLETE` holds `source-id`, `stamp`, `size`, `sha256`, `format=1`, `recipient`, `server-url`, `files-bucket`, and `relay=present` or `relay=absent`. `files-bucket` is the source install's files bucket, which a restore refuses to write into. Creation lists that source id and stops if the new prefix is already there. The archive holds `db.dump` (`pg_dump -Fc`), `counts.txt`, `state.txt`, `config-db.txt`, `local.tgz`, `files/` and `files.list`, `secrets.env`, and `SHA256SUMS`. `SHA256SUMS` covers those named files. `files.list` holds each object's key, size, and sha256. A directory is not a `sha256sum` argument. When `/opt/<install>/relay/` is a directory, the work tree also holds `relay/conf/logins.json`, `relay/conf/upstreams.json` and every `relay/secrets/*.token`, and `SHA256SUMS` names each of them. The archive never holds `relay/conf/state`, anything under `relay/journal/`, anything under `relay/app/`, or `node_modules`. `conf/state` is the relay's hold or send word, and a restore decides that word itself, so the set does not carry it. `state.txt` ends with the same `relay=present` or `relay=absent` line as `COMPLETE`. An install with no relay directory writes `relay=absent` and adds no `relay/` member. That line is new text in `state.txt`, so its line in `SHA256SUMS` changes, the archive's bytes change, and `COMPLETE`'s `size` and `sha256` change with them. The other members are unchanged. A set with no `relay=` line in `COMPLETE` and none in `state.txt` is a set written before this line, and a restore reads it as `relay=absent`. The archive is uploaded with its `Content-MD5`, so the bucket refuses bytes that differ from the file, and `COMPLETE` is written only after the bucket's size and ETag for the archive equal the file's size and MD5.
 
 The inputs are staged in a mode-700 work directory under `/opt/<install>/backup/work/`, then streamed, `tar -cf - -C` the work directory `.` piped to `age -r` the recipient `-o` the ciphertext beside that directory, so no plaintext tar is written. Each side's exit status is written by a subshell to a status file, because `dash` has no `pipefail`, and either side failing fails the stage. The inputs are removed once the ciphertext is written and checked. Only the ciphertext leaves the machine. The work directory is removed whatever the outcome. Without the person's identity, nobody holding the bucket's key can read the records, the files, or the keys. Age does not authenticate who made a set. Authenticating a set's origin, and object lock, are missing. A restore shows the set's source id, stamp, and `SERVER_URL`, and the person confirms them. That confirmation is Job 3's.
 
 Redis is not carried. Twenty's compose gives Redis no volume, so queued and delayed work never survives the container being recreated. That is missing. The server re-registers its cron jobs at start. Job 3 checks that it did. A reboot needs no script: `restart: always` restarts the containers when Docker starts. Job 6 still reads the state afterwards and records it.
 
-`secrets.env` is `ENCRYPTION_KEY` and `FALLBACK_ENCRYPTION_KEY`, the latter possibly empty, so a set taken mid-rotation still holds the previous key. The restore parses it as exactly two validated `KEY=value` lines and never sources it. That parse is Job 3's. `config-db.txt` is the names, never the values, of every `core."keyValuePair"` row of type `CONFIG_VARIABLE` with no user and no workspace, read after `server` and `worker` stop. The backup refuses when any name is a variable Deploy Twenty sets in `.env`: `SERVER_URL`, every name that begins `STORAGE_`, every name that begins `EMAIL_`, `EMAILING_DOMAIN_DRIVER`, `INBOUND_EMAIL_DOMAIN`, every name that begins `RESEND_`, every name that begins `CLOUDFLARE_`, `IS_MULTIWORKSPACE_ENABLED`, `DEFAULT_SUBDOMAIN`, `ENCRYPTION_KEY`, and `FALLBACK_ENCRYPTION_KEY`. The refusal starts `server` and `worker` again before it exits.
+`secrets.env` is `ENCRYPTION_KEY` and `FALLBACK_ENCRYPTION_KEY`, the latter possibly empty, so a set taken mid-rotation still holds the previous key. The restore parses it as exactly two validated `KEY=value` lines and never sources it. That parse is Job 3's. `config-db.txt` is the names, never the values, of every `core."keyValuePair"` row of type `CONFIG_VARIABLE` with no user and no workspace, read after `server` and `worker` stop. The backup refuses, and the restore refuses on the same list, when any name is a variable Deploy Twenty sets in `.env`: `SERVER_URL`, every name that begins `STORAGE_`, every name that begins `EMAIL_`, `EMAILING_DOMAIN_DRIVER`, `INBOUND_EMAIL_DOMAIN`, every name that begins `RESEND_`, every name that begins `CLOUDFLARE_`, `IS_MULTIWORKSPACE_ENABLED`, `DEFAULT_SUBDOMAIN`, `ENCRYPTION_KEY`, and `FALLBACK_ENCRYPTION_KEY`. The list also names `OUTBOUND_HTTP_ALLOWED_INTERNAL_HOSTS` and `OUTBOUND_HTTP_SAFE_MODE_ENABLED`. A config table that carries either is refused the same way `INBOUND_EMAIL_DOMAIN` is, because a row of this table overrides the value the process was given. The refusal starts `server` and `worker` again before it exits.
 
 The success path appends, in order: `begin`, `checks:ok`, `stopping`, `stopped`, `config-db:ok`, `dump:ok`, `local:ok`, `files:ok`, `archive:ok`, `encrypted:ok`, `uploaded:ok`, `complete:ok`, `starting`, `restart-verified`, `retention:ok`, `end`. Downtime is `stopping` to `restart-verified`. The report states the measured length, from the journal timestamps of those two lines. The text that counts is the text after the first `]: `.
 
@@ -327,7 +327,7 @@ The direct-call question is Deploy Twenty's (`skills/Deploy Twenty/`). On `ok` o
 
 What is the newest set, and is it overdue?
 
-A set counts when a `field` line `source-id=` equals the source id on the machine and a sibling `field` line is `format=1`. The newest is the greatest `stamp=` among those. Its age is the time of the read minus that stamp read as UTC `YYYYMMDDTHHMMSSZ`.
+A set counts when a `field` line `source-id=` equals the source id on the machine and a sibling `field` line is `format=1`. The newest is the greatest `stamp=` among those. Its age is the time of the read minus that stamp read as UTC `YYYYMMDDTHHMMSSZ`. A sibling `field` line `relay=present` or `relay=absent` says whether that set carries a relay. No `relay=` line is an older set, read as `relay=absent`.
 
 The schedule in `config` derives an interval only when it matches `*-*-*` then a space, then `HH:MM:SS`, then a space, then `UTC`. That interval is 86400 seconds. Twice it is 172800 seconds. The default matches.
 
@@ -563,8 +563,8 @@ printf '%s\n' config:written
 
 `run` is the backup program. It starts `server` and `worker` under `timeout 120`, and a start cut off at that bound does not end the run: while the worker is not running, its wait of 900 seconds reads the clock again and starts them again, each start bounded by 120 seconds or the time left. The deadline bounds starts, not readings: a pass begun before it reports what its reads saw, so a restart read just past 900 seconds still counts, and no start is sent after the deadline. When a helper fails, `run` prints the helper's last output line to the journal as `s3-detail:`, tabs turned to colons and every character but letters, digits and `:._/-` removed, at most 160 characters, before the stage's failure line. The helper's output files are deleted with the work directory, so without that line a failed upload needs a separate probe to diagnose. The files-bucket helper returns the status of its Docker call, not of the cleanup after it. The last writer runs `sh -n` on the assembled file and sets mode 700.
 
-The assembled file is 11319 code points.
-Writer 1 of 3, 3984 code points. `argv` is `/bin/sh`, `-c`, this script, `sh`, and the install name.
+The assembled file is 12168 code points.
+Writer 1 of 4, 4041 code points. `argv` is `/bin/sh`, `-c`, this script, `sh`, and the install name.
 ```sh
 set -eu
 export LC_ALL=C
@@ -650,18 +650,18 @@ local_line=$(timeout 60 docker run --rm --user 0:0 --label "backup-twenty=${inst
 local_k=$(printf '%s\n' "$local_line" | awk 'NR==1 { print $1 }')
 num "$local_k" || { note checks:refused:local; exit 2; }
 local_b=$((local_k * 1024))
+num "$local_b" || { note checks:refused:local; exit 2; }
 RUN1END
 printf '%s\n' writer-ok
 ```
 
-Writer 2 of 3, 3791 code points. `argv` is `/bin/sh`, `-c`, this script, `sh`, and the install name.
+Writer 2 of 4, 4062 code points. `argv` is `/bin/sh`, `-c`, this script, `sh`, and the install name.
 ```sh
 set -eu
 export LC_ALL=C
 install=$1
 umask 077
 cat >> "/opt/$install/backup/run" << 'RUN2END'
-num "$local_b" || { note checks:refused:local; exit 2; }
 need=$(( (dump_b + listed + local_b) * 2 + 1073741824 ))
 avail=$(df -B1 -P -- "$work" | awk 'NR==2 { print $4 }')
 num "$avail" || { note checks:refused:df; exit 2; }
@@ -689,6 +689,7 @@ while IFS= read -r name; do
   [ -n "$name" ] || continue
   case "$name" in
     SERVER_URL|EMAILING_DOMAIN_DRIVER|INBOUND_EMAIL_DOMAIN|IS_MULTIWORKSPACE_ENABLED|DEFAULT_SUBDOMAIN|ENCRYPTION_KEY|FALLBACK_ENCRYPTION_KEY) refused=1 ;;
+    OUTBOUND_HTTP_ALLOWED_INTERNAL_HOSTS|OUTBOUND_HTTP_SAFE_MODE_ENABLED) refused=1 ;;
     STORAGE_*|EMAIL_*|RESEND_*|CLOUDFLARE_*) refused=1 ;;
   esac
 done < "$work/config-db.txt"
@@ -732,19 +733,41 @@ case "$fb" in *[[:space:]]*|*[!A-Za-z0-9+/=]*) note secrets:refused; exit 4 ;; e
 printf 'ENCRYPTION_KEY=%s\nFALLBACK_ENCRYPTION_KEY=%s\n' "$enc" "$fb" > "$work/secrets.env"
 unset enc fb
 url=$(awk -F= '$1=="SERVER_URL" { print substr($0, index($0, "=") + 1); exit }' "$base/.env")
+fbk=$(awk -F= '$1=="STORAGE_S3_NAME" { print substr($0, index($0, "=") + 1); exit }' "$base/.env")
+relay=absent
+sumf="db.dump counts.txt state.txt config-db.txt local.tgz files.list secrets.env"
+if [ -d "$base/relay" ]; then
+  relay=present
 RUN2END
 printf '%s\n' writer-ok
 ```
 
-Writer 3 of 3, 4032 code points. `argv` is `/bin/sh`, `-c`, this script, `sh`, and the install name.
+Writer 3 of 4, 4077 code points. `argv` is `/bin/sh`, `-c`, this script, `sh`, and the install name.
 ```sh
 set -eu
 export LC_ALL=C
 install=$1
 umask 077
 cat >> "/opt/$install/backup/run" << 'RUN3END'
-fbk=$(awk -F= '$1=="STORAGE_S3_NAME" { print substr($0, index($0, "=") + 1); exit }' "$base/.env")
-( cd "$work" && sha256sum db.dump counts.txt state.txt config-db.txt local.tgz files.list secrets.env > SHA256SUMS )
+  if [ ! -f "$base/relay/conf/logins.json" ] || [ ! -f "$base/relay/conf/upstreams.json" ]; then
+    note relay:fail
+    exit 4
+  fi
+  mkdir -p "$work/relay/conf" "$work/relay/secrets"
+  cp "$base/relay/conf/logins.json" "$base/relay/conf/upstreams.json" "$work/relay/conf/"
+  sumf="$sumf relay/conf/logins.json relay/conf/upstreams.json"
+  for tok in "$base/relay/secrets/"*.token; do
+    [ -f "$tok" ] || continue
+    bn=$(basename "$tok")
+    case "$bn" in
+      *[!A-Za-z0-9._-]*|.*) note relay:fail; exit 4 ;;
+    esac
+    cp "$tok" "$work/relay/secrets/$bn"
+    sumf="$sumf relay/secrets/$bn"
+  done
+fi
+printf 'relay=%s\n' "$relay" >> "$work/state.txt"
+( cd "$work" && sha256sum $sumf > SHA256SUMS )
 recip=$(awk 'NR==1 { print; exit }' "$bk/recipient")
 [ -n "$recip" ] || { note encrypted:fail; exit 4; }
 rm -f "$bk/tar.rc" "$bk/age.rc"
@@ -784,6 +807,7 @@ s3b put /backup/backup.tar.age "$prefix/backup.tar.age" > "$work/put.out" || { s
   printf 'recipient=%s\n' "$recip"
   printf 'server-url=%s\n' "$url"
   printf 'files-bucket=%s\n' "$fbk"
+  printf 'relay=%s\n' "$relay"
 } > "$bk/COMPLETE.part"
 s3b head "$prefix/backup.tar.age" > "$work/head.out" || { s3why "$work/head.out"; note uploaded:fail; exit 4; }
 h=$(cat "$work/head.out")
@@ -816,6 +840,17 @@ while :; do
     left=$((900 - (now - t0)))
     [ "$left" -gt 0 ] || break
     [ "$left" -le 120 ] || left=120
+RUN3END
+printf '%s\n' writer-ok
+```
+
+Writer 4 of 4, 600 code points. `argv` is `/bin/sh`, `-c`, this script, `sh`, and the install name.
+```sh
+set -eu
+export LC_ALL=C
+install=$1
+umask 077
+cat >> "/opt/$install/backup/run" << 'RUN4END'
     timeout "$left" docker compose -p "$install" start server worker || true
   fi
   sleep 5
@@ -831,7 +866,7 @@ fi
 note retention:ok
 note end
 exit 0
-RUN3END
+RUN4END
 sh -n "/opt/$install/backup/run"
 chmod 700 "/opt/$install/backup/run"
 chown root:root "/opt/$install/backup/run"
@@ -1590,14 +1625,14 @@ Then the restore's files, each by its writers, in this order: `run`, `restore-re
 - **Data before the app.** `docker compose create` for every service; both volumes exist with Compose's project and volume labels; `db` and `redis` up and healthy; `pg_restore`; the row counts equal to the set's `counts.txt`; the restored database's `CONFIG_VARIABLE` names equal to the set's `config-db.txt` and passing the backup's refusal list; the local volume extracted, owner `1000:1000`.
 - **Files.** For each line of the set's `files.list`, the key is appended to `attempted.list` before its upload, and the upload's answer after it. A key with `..` or a leading `/` stops the stage. Each upload's sha256 must equal the list's.
 - **The app.** `server` started, and its log since that start must hold `Successfully migrated DB!` and `Successfully registered all background sync jobs!` and neither `Upgrade completed with errors` nor `Failed to register background jobs`, within 300 seconds. Then healthy within 300 seconds. Then `worker`, running within 300 seconds.
-- **The witness.** The restored state rows equal the set's `state.txt`, and every workspace's activation status is unchanged. Then the program makes `/run/twenty-restore-<target>/password` a FIFO and prints `witness-ready`. The person runs `witness-helper` then, and types the witness user's password. Like `identity-helper`, it writes only into the FIFO that exists and waits at most 30 seconds, otherwise printing `witness:refused:closed`. `witness.js`, in a one-shot container on the target's proxy network, signs in at the server's private address, with the host, `X-Forwarded-Host`, `X-Forwarded-Proto` and `Origin` set to `<witness_host>`, as Deploy Twenty's first contact does. It prints `witness:login:ok`, then `witness:kid:match` when the fresh token's key id is the signing key the set's `state.txt` marked current, then `witness:record:ok` and `witness:attachment:<n>` for the record and its attachments, then `witness:attachment:match` when one of those attachments holds the file whose id is `<witness_file_key>`'s last segment without its extension. Last, the file at `<witness_file_key>` is fetched from the target's bucket and its sha256 compared with the set's `files.list`: `file:match`.
+- **The witness.** The restored state rows equal the database rows in the set's `state.txt`, and every workspace's activation status is unchanged. A line `relay=present` or `relay=absent` is not a row, and the comparison skips it. A set with no such line is an older set, read as `relay=absent`. Then the program makes `/run/twenty-restore-<target>/password` a FIFO and prints `witness-ready`. The person runs `witness-helper` then, and types the witness user's password. Like `identity-helper`, it writes only into the FIFO that exists and waits at most 30 seconds, otherwise printing `witness:refused:closed`. `witness.js`, in a one-shot container on the target's proxy network, signs in at the server's private address, with the host, `X-Forwarded-Host`, `X-Forwarded-Proto` and `Origin` set to `<witness_host>`, as Deploy Twenty's first contact does. It prints `witness:login:ok`, then `witness:kid:match` when the fresh token's key id is the signing key the set's `state.txt` marked current, then `witness:record:ok` and `witness:attachment:<n>` for the record and its attachments, then `witness:attachment:match` when one of those attachments holds the file whose id is `<witness_file_key>`'s last segment without its extension. Last, the file at `<witness_file_key>` is fetched from the target's bucket and its sha256 compared with the set's `files.list`: `file:match`.
 - **The end.** The decrypted archive and the work directory are removed, `admin.password` is removed, which no first contact will, and the state ends `end`.
 
 `restore-recover` is the restore's stop-post. When the state has `server` and no `end` after it, it stops `server` and `worker`, counting a service stopped only when Docker's read succeeded and showed it absent or `exited`, `created` or `dead`, and retrying a failed read until the deadline, so a restore that did not count never leaves a half-restored app serving. Its deadline is 840 seconds and every Docker call is bounded by `timeout 30`, so it ends inside `--stop-post-timeout 1200`. It always removes the FIFOs, the decrypted archive, `files.env`, the S3 diagnostic file `s3.out`, the work directory and this install's labelled helper containers.
 
 `run`, the restore program.
 
-The assembled file is 18348 code points.
+The assembled file is 18527 code points.
 Writer 1 of 6, 3664 code points. `argv` is `/bin/sh`, `-c`, this script, `sh`, and the install name.
 ```sh
 set -eu
@@ -1909,7 +1944,7 @@ RST3END
 printf '%s\n' writer-ok
 ```
 
-Writer 4 of 6, 3792 code points. `argv` is `/bin/sh`, `-c`, this script, `sh`, and the install name.
+Writer 4 of 6, 3879 code points. `argv` is `/bin/sh`, `-c`, this script, `sh`, and the install name.
 ```sh
 set -eu
 export LC_ALL=C
@@ -1960,6 +1995,7 @@ while IFS= read -r name || [ -n "$name" ]; do
   [ -n "$name" ] || continue
   case "$name" in
     SERVER_URL|EMAILING_DOMAIN_DRIVER|INBOUND_EMAIL_DOMAIN|IS_MULTIWORKSPACE_ENABLED|DEFAULT_SUBDOMAIN|ENCRYPTION_KEY|FALLBACK_ENCRYPTION_KEY) refused=1 ;;
+    OUTBOUND_HTTP_ALLOWED_INTERNAL_HOSTS|OUTBOUND_HTTP_SAFE_MODE_ENABLED) refused=1 ;;
     STORAGE_*|EMAIL_*|RESEND_*|CLOUDFLARE_*) refused=1 ;;
   esac
 done < "$work/config-db.now"
@@ -2004,7 +2040,7 @@ RST4END
 printf '%s\n' writer-ok
 ```
 
-Writer 5 of 6, 3743 code points. `argv` is `/bin/sh`, `-c`, this script, `sh`, and the install name.
+Writer 5 of 6, 3835 code points. `argv` is `/bin/sh`, `-c`, this script, `sh`, and the install name.
 ```sh
 set -eu
 export LC_ALL=C
@@ -2071,7 +2107,8 @@ note witness
   psqlc "select 'signingKey', id, \"isCurrent\", \"privateKey\" is not null from core.\"signingKey\" order by 2"
   psqlc "select 'apiKey', id, \"revokedAt\" is null from core.\"apiKey\" order by 2"
 } > "$work/state.now"
-if ! cmp -s "$work/state.txt" "$work/state.now"; then note witness:fail:state; exit 5; fi
+awk '$0 != "relay=present" && $0 != "relay=absent"' "$work/state.txt" > "$work/state.rows"
+if ! cmp -s "$work/state.rows" "$work/state.now"; then note witness:fail:state; exit 5; fi
 note witness:state:equal
 if ! awk -F'|' '
   NR==FNR { if ($1=="workspace") a[$2]=$4; next }
@@ -2798,7 +2835,7 @@ One report. For each part: what was inspected, what was planned, the gate's verd
 
 A line that contains `PG_DATABASE_PASSWORD=`, `ENCRYPTION_KEY=`, `FALLBACK_ENCRYPTION_KEY=`, `CLOUDFLARE_API_KEY=`, `EMAIL_SMTP_PASSWORD=`, `RESEND_API_KEY=`, `STORAGE_S3_SECRET_ACCESS_KEY=`, `STORAGE_S3_ACCESS_KEY_ID=`, `S3_SECRET_ACCESS_KEY=`, `S3_ACCESS_KEY_ID=`, `ADMIN_PASSWORD=`, or `AGE-SECRET-KEY-` is withheld, and the report says the line was withheld. A secret value is not a report line. Lengths, booleans, counts, and statuses are.
 
-The report names the install, the bucket, the schedule, the retention, the source id, and the recipient's sha256. It names the newest set's stamp and age, or `no-set`, and `overdue` or `interval-not-derived` when Job 0's rule says so. It names the skip count and the state file's last line. It names a backup's unit, invocation id, limit, whether it counted, the archive sha256 and size, the set prefix, and the measured downtime when both lines were read. It says Redis's queue was not carried. It says a holder of the bucket key cannot read the set without the identity, and that age does not authenticate who made the set. It names every gap that applies. A restore names the target, the set's source id, stamp and `server-url`, each stage reached, the witness's lines, and `changed` or the stage that stopped it. A cleanup names each key it deleted and its last line.
+The report names the install, the bucket, the schedule, the retention, the source id, and the recipient's sha256. It names the newest set's stamp and age, or `no-set`, and `overdue` or `interval-not-derived` when Job 0's rule says so. It names the skip count and the state file's last line. It names a backup's unit, invocation id, limit, whether it counted, the archive sha256 and size, the set prefix, and the measured downtime when both lines were read. It says Redis's queue was not carried. When the install has a relay, it says the set carries that relay's logins, its upstream names and its tokens, and that it does not carry `conf/state`, because a restore decides hold or send for itself. When the install has no relay, or the newest set has no `relay=` field line, it says `relay=absent`. It says a holder of the bucket key cannot read the set without the identity, and that age does not authenticate who made the set. It names every gap that applies. A restore names the target, the set's source id, stamp and `server-url`, each stage reached, the witness's lines, and `changed` or the stage that stopped it. A cleanup names each key it deleted and its last line.
 
 For each job, also: its unit name, its invocation ID and its limit, the last poll's state, the read-back lines the report may show and the line count shown, and the release outcome. A job not read as finished after six polls is reported in the state the last poll that was read showed, or as unknown when none was read.
 
@@ -2848,5 +2885,5 @@ For each job, also: its unit name, its invocation ID and its limit, the last pol
 - Job 4 ran only after the person named the install, refused a running `vm-job-twenty-backup-*` unit, and removed the units, the record, and the directory. The re-inspection showed the units not loaded and the directory gone. Nothing in the bucket was deleted.
 - Job 6 was the recovery rule as a job. A `recovered:fail` did not count. The way back named was Job 6 again.
 - A restore ran only onto a target Deploy Twenty made for a restore, with an empty files bucket that was neither the source's nor the backup bucket, after the person confirmed the set's source id, stamp and `server-url`. The identity and the witness's password reached the job through FIFOs from helpers the person ran. It counted only on every stage line through `end`, `witness:kid:match` and `file:match` included. A restore that did not count was not re-sent: Job 7 cleaned the target, deleting only the keys the restore attempted, and Deploy Twenty's removal was named.
-- The report names the recipient sha256, the source id, the newest set's age, overdue or not, the skip count, the last state, whether a backup counted, the measured downtime when both lines were read, that Redis's queue was not carried, and every gap that applies.
+- The report names the recipient sha256, the source id, the newest set's age, overdue or not, the skip count, the last state, whether a backup counted, the measured downtime when both lines were read, that Redis's queue was not carried, and every gap that applies. When the install has a relay, the report says the set carries the relay's logins, upstream names and tokens, and that `state` was not carried.
 - DNS was handed to `experts/IT Expert/` in `wiser`. A package was handed to `skills/VM Configure/`. An install, a route, or a removal was handed to `skills/Deploy Twenty/`.

@@ -3,7 +3,7 @@ name: Back Up Twenty
 type: skill
 category: operations
 description: Set up scheduled, age-encrypted backups of an install Deploy Twenty made to a Cloudflare R2 bucket, back one up now, check the key's recovery copy, recover after an interrupted backup, stop scheduled backups, or restore a backup onto an install made for a restore, and report what was done.
-version: 0.1.6
+version: 0.1.7
 gaps:
   - authenticating a set's origin, and object lock
   - alerting on an overdue backup
@@ -926,9 +926,9 @@ printf '%s\n' 'recover:written'
 
 `s3.js` runs inside a one-shot container of the pinned image. The container is `--rm`, `--network` `<install>_default`, `--label backup-twenty=<install>`, `--entrypoint node`, `--env-file` the credential file, and the work directory bind-mounted when the command needs it. `run` passes `backup.env` and `S3_BUCKET`, `S3_ENDPOINT`, and `S3_REGION` for the backup bucket, and passes `files.env` for the files bucket: the five `STORAGE_S3_` lines of `.env` and no other, written mode 600 for the call and removed after it, so no other secret of the install reaches the helper. Every helper container runs as `--user 0:0`, since the backup directory is root-owned, mode 700. The program reads `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_BUCKET`, `S3_ENDPOINT`, and `S3_REGION`, and otherwise the `STORAGE_S3_` names. It loads `@aws-sdk/client-s3` from `@aws-sdk/client-s3`, `/app/node_modules/@aws-sdk/client-s3`, or `/app/packages/twenty-server/node_modules/@aws-sdk/client-s3`, the first that resolves. The pinned image hoists the client to `/app/node_modules`. A bare name resolves from the script's own directory, `/backup`, so it misses there. Deploy Twenty's start check finds it by the bare name only because `node -e` resolves from the server's working directory. It sets `forcePathStyle`. It prints keys, sizes, hashes, and counts. It never prints a credential. A missing client prints `s3-client:absent`. A missing setting prints `s3-config:absent`.
 
-The commands are `list-files`, `get-files` and a directory, `get` and a key and a file, `put` and a file and a key, `head` and a key, `list-sets` and a source id, `delete` and a key, and `retention` and a source id, N, and the set this run wrote. `list-files` follows `ContinuationToken` while `IsTruncated` is set. `get-files` writes every object under the directory and writes `<dir>.list` as key, size, and sha256. `get-files` and `get` stream each object to disk while hashing it, so no download is held whole in memory. It refuses a key that starts with `/` or contains `..`. `put` sends `Content-MD5` and prints the key, the size, the sha256 and the MD5. The client is made with `requestChecksumCalculation` and `responseChecksumValidation` set to `WHEN_REQUIRED`. Without that, the image's SDK adds a CRC32 checksum to every upload, and R2 refuses a request carrying two (`You can only specify one non-default checksum at a time`). A wrong `Content-MD5` is still refused (`BadDigest`). An error the commands do not catch prints `s3:fail`, the error's name, and the HTTP status, which `run` copies into the journal as its `s3-detail:` line. `head` prints the size and the ETag, or `absent` and exit 2 when the key is missing. `delete` prints `deleted` for a missing key as well. `list-sets` prints each object and, for a key that ends in `/COMPLETE`, each body line as `field`. `retention` keeps the newest N matching sets and the set this run wrote, named by its stamp and hex, always keeps the newest of those, deletes older matching sets, and deletes a prefix with no matching `COMPLETE` once it is older than 24 hours. The last writer runs `node --check` on the assembled file inside the image, with the network off and only that file mounted, and sets mode 644.
+The commands are `list-files`, `get-files` and a directory, `get` and a key and a file, `put` and a file and a key, `head` and a key, `list-sets` and a source id, `delete` and a key, and `retention` and a source id, N, and the set this run wrote. `list-files` follows `ContinuationToken` while `IsTruncated` is set. `get-files` writes every object under the directory and writes `<dir>.list` as key, size, and sha256. `get-files` and `get` stream each object to disk while hashing it, so no download is held whole in memory. It refuses a key that starts with `/` or contains `..`. `put` sends `Content-MD5` and prints the key, the size, the sha256 and the MD5. The client is made with `requestChecksumCalculation` and `responseChecksumValidation` set to `WHEN_REQUIRED`. Without that, the image's SDK adds a CRC32 checksum to every upload, and R2 refuses a request carrying two (`You can only specify one non-default checksum at a time`). A wrong `Content-MD5` is still refused (`BadDigest`). An error the commands do not catch prints `s3:fail`, the error's name, and the HTTP status, which `run` copies into the journal as its `s3-detail:` line. `head` prints the size and the ETag, or `absent` and exit 2 when the key is missing. `get` prints `absent` and exits 2 when the key is missing. Any other error from `head`, `get` or `delete` prints `head:fail`, `get:fail` or `delete:fail`, the error's name, and the HTTP status, then exits 1. `delete` prints `deleted` for a missing key as well. `list-sets` prints each object and, for a key that ends in `/COMPLETE`, each body line as `field`. `retention` keeps the newest N matching sets and the set this run wrote, named by its stamp and hex, always keeps the newest of those, deletes older matching sets, and deletes a prefix with no matching `COMPLETE` once it is older than 24 hours. The last writer runs `node --check` on the assembled file inside the image, with the network off and only that file mounted, and sets mode 644.
 
-The assembled file is 10233 code points.
+The assembled file is 10694 code points.
 Writer 1 of 3, 3852 code points. `argv` is `/bin/sh`, `-c`, this script, `sh`, and the install name.
 ```sh
 set -eu
@@ -1064,7 +1064,7 @@ S3.J1END
 printf '%s\n' writer-ok
 ```
 
-Writer 2 of 3, 3723 code points. `argv` is `/bin/sh`, `-c`, this script, `sh`, and the install name.
+Writer 2 of 3, 4088 code points. `argv` is `/bin/sh`, `-c`, this script, `sh`, and the install name.
 ```sh
 set -eu
 export LC_ALL=C
@@ -1124,7 +1124,8 @@ cat >> "/opt/$install/backup/s3.js" << 'S3.J2END'
         say(["absent", key]);
         process.exit(2);
       }
-      say(["head:fail"]);
+      const status = e && e.$metadata && e.$metadata.httpStatusCode ? String(e.$metadata.httpStatusCode) : "";
+      say(["head:fail", String((e && e.name) || "error"), status]);
       process.exit(1);
     }
     return;
@@ -1138,7 +1139,8 @@ cat >> "/opt/$install/backup/s3.js" << 'S3.J2END'
     } catch (e) {
       const name = e && e.name ? e.name : "";
       if (name !== "NotFound" && name !== "NoSuchKey") {
-        say(["delete:fail"]);
+        const status = e && e.$metadata && e.$metadata.httpStatusCode ? String(e.$metadata.httpStatusCode) : "";
+        say(["delete:fail", String((e && e.name) || "error"), status]);
         process.exit(1);
       }
     }
@@ -1175,20 +1177,21 @@ cat >> "/opt/$install/backup/s3.js" << 'S3.J2END'
     } catch (e) {
       const name = e && e.name ? e.name : "";
       if (name === "NoSuchKey" || name === "NotFound") { say(["absent", key]); process.exit(2); }
-      say(["get:fail"]);
-      process.exit(1);
-    }
+      const status = e && e.$metadata && e.$metadata.httpStatusCode ? String(e.$metadata.httpStatusCode) : "";
 S3.J2END
 printf '%s\n' writer-ok
 ```
 
-Writer 3 of 3, 3340 code points. `argv` is `/bin/sh`, `-c`, this script, `sh`, and the install name.
+Writer 3 of 3, 3436 code points. `argv` is `/bin/sh`, `-c`, this script, `sh`, and the install name.
 ```sh
 set -eu
 export LC_ALL=C
 install=$1
 umask 022
 cat >> "/opt/$install/backup/s3.js" << 'S3.J3END'
+      say(["get:fail", String((e && e.name) || "error"), status]);
+      process.exit(1);
+    }
     say(["get", key, String(got.size), got.sum]);
     return;
   }
@@ -1415,9 +1418,9 @@ The restore reads the backup bucket with the target's own `backup.env`, and runs
 
 Which set, and is it whole?
 
-One `vm.command.run`, operands the target, the set, the bucket, the endpoint and the region. It downloads the set's `COMPLETE` into `/opt/<target>/restore/` and reads it, heads the archive, and lists the target's files bucket. It writes nothing else and prints no credential.
+One `vm.command.run`, operands the target, the set, the bucket, the endpoint and the region. It downloads the set's `COMPLETE` into `/opt/<target>/restore/` and reads it, heads the archive, and lists the target's files bucket. `complete:absent` and `archive:absent` mean the set has no such object. `complete:fail` and `archive:fail` mean the read failed and say nothing about the set, and each follows one `s3-detail:` line built as the backup's is: the helper's last output line, tabs turned to colons and every character but letters, digits and `:._/-` removed, at most 160 characters. A failed list prints that detail line and then `list:fail`. It writes nothing else and prints no credential.
 
-This script is 3594 code points. `argv` is `/bin/sh`, `-c`, this script, `sh`, and the operands the question names.
+This script is 4037 code points. `argv` is `/bin/sh`, `-c`, this script, `sh`, and the operands the question names.
 
 ```sh
 set -eu
@@ -1447,11 +1450,26 @@ tgt=$(awk -F= '$1=="STORAGE_S3_NAME" { print substr($0, index($0, "=") + 1); exi
 mkdir -p "$rs"
 chmod 700 "$rs"
 if [ -f "$rs/state" ]; then printf '%s\n' set:refused:again; exit 2; fi
-if ! timeout 1800 docker run --rm --user 0:0 --label "backup-twenty=${install}" --entrypoint node --env-file "$bk/backup.env" -e "S3_BUCKET=$bucket" -e "S3_ENDPOINT=$endpoint" -e "S3_REGION=$region" -v "$bk:/backup:ro" -v "$rs:/restore" "$image" /backup/s3.js get "$prefix/COMPLETE" /restore/COMPLETE >/dev/null; then
+s3b() {
+  timeout 1800 docker run --rm --user 0:0 --label "backup-twenty=${install}" --entrypoint node --env-file "$bk/backup.env" -e "S3_BUCKET=$bucket" -e "S3_ENDPOINT=$endpoint" -e "S3_REGION=$region" -v "$bk:/backup:ro" -v "$rs:/restore" "$image" /backup/s3.js "$@"
+}
+s3why() {
+  [ -s "$1" ] || return 0
+  awk 'NF { l = $0 } END { gsub(/\t/, ":", l); gsub(/[^A-Za-z0-9:._\/-]/, "", l); if (l != "") print "s3-detail:" substr(l, 1, 160) }' "$1"
+}
+set +e
+s3b get "$prefix/COMPLETE" /restore/COMPLETE > "$rs/s3.out"
+rc=$?
+set -e
+if [ "$rc" -ne 0 ]; then
   rm -f "$rs/COMPLETE"
-  printf '%s\n' complete:absent
+  if [ "$rc" -eq 2 ]; then rm -f "$rs/s3.out"; printf '%s\n' complete:absent; exit 2; fi
+  s3why "$rs/s3.out"
+  rm -f "$rs/s3.out"
+  printf '%s\n' complete:fail
   exit 2
 fi
+rm -f "$rs/s3.out"
 chmod 600 "$rs/COMPLETE"
 field() { awk -F= -v k="$1" '$1==k { print substr($0, index($0, "=") + 1); exit }' "$rs/COMPLETE"; }
 for k in source-id stamp size sha256 format recipient server-url files-bucket; do
@@ -1460,7 +1478,19 @@ done
 srcb=$(field files-bucket)
 [ -n "$srcb" ] || { printf '%s\n' files-bucket:absent; exit 2; }
 [ "$tgt" != "$srcb" ] && [ "$tgt" != "$bucket" ] || { printf '%s\n' buckets:same; exit 2; }
-h=$(timeout 1800 docker run --rm --user 0:0 --label "backup-twenty=${install}" --entrypoint node --env-file "$bk/backup.env" -e "S3_BUCKET=$bucket" -e "S3_ENDPOINT=$endpoint" -e "S3_REGION=$region" -v "$bk:/backup:ro" -v "$rs:/restore" "$image" /backup/s3.js head "$prefix/backup.tar.age") || { printf '%s\n' archive:absent; exit 2; }
+set +e
+s3b head "$prefix/backup.tar.age" > "$rs/s3.out"
+rc=$?
+set -e
+if [ "$rc" -ne 0 ]; then
+  if [ "$rc" -eq 2 ]; then rm -f "$rs/s3.out"; printf '%s\n' archive:absent; exit 2; fi
+  s3why "$rs/s3.out"
+  rm -f "$rs/s3.out"
+  printf '%s\n' archive:fail
+  exit 2
+fi
+h=$(cat "$rs/s3.out")
+rm -f "$rs/s3.out"
 hsz=$(printf '%s\n' "$h" | awk -F "$tab" '$1=="head" { print $3; exit }')
 [ "$hsz" = "$(field size)" ] || { printf '%s\n' size:mismatch; exit 2; }
 awk -F= '$1 ~ /^STORAGE_S3_(ACCESS_KEY_ID|SECRET_ACCESS_KEY|NAME|ENDPOINT|REGION)$/' "$base/.env" > "$bk/files.env"
@@ -1470,7 +1500,13 @@ out=$(timeout 1800 docker run --rm --user 0:0 --label "backup-twenty=${install}"
 rc=$?
 set -e
 rm -f "$bk/files.env"
-[ "$rc" -eq 0 ] || { printf '%s\n' list:fail; exit 2; }
+if [ "$rc" -ne 0 ]; then
+  printf '%s\n' "$out" > "$rs/s3.out"
+  s3why "$rs/s3.out"
+  rm -f "$rs/s3.out"
+  printf '%s\n' list:fail
+  exit 2
+fi
 lcount=$(printf '%s\n' "$out" | awk -F "$tab" '$1=="count" { print $2; exit }')
 lbytes=$(printf '%s\n' "$out" | awk -F "$tab" '$1=="bytes" { print $2; exit }')
 [ "$lcount" = 0 ] && [ "$lbytes" = 0 ] || { printf '%s\n' bucket-not-empty; exit 2; }
@@ -1479,7 +1515,7 @@ exit 0
 ```
 
 - The output lists the set's `source-id`, `stamp`, `size`, `sha256`, `format`, `recipient`, `server-url` and `files-bucket`, then `target-files-bucket:<name>`, `buckets:differ` and `sha:in-job`. The set is present, its archive's size matches, and the target's bucket is empty and differs from both. Continue.
-- `set:refused`, `bucket:refused`, `region:refused`, `endpoint:refused`, `credential:absent`, `credential:refused`, `s3:absent`, `image:refused`, `files-bucket:absent`, `set:refused:again`, `complete:absent`, `buckets:same`, `archive:absent`, `size:mismatch`, `list:fail` or `bucket-not-empty`. Stop. Name the line. Send nothing further.
+- `set:refused`, `bucket:refused`, `region:refused`, `endpoint:refused`, `credential:absent`, `credential:refused`, `s3:absent`, `image:refused`, `files-bucket:absent`, `set:refused:again`, `complete:absent`, `complete:fail`, `buckets:same`, `archive:absent`, `archive:fail`, `size:mismatch`, `list:fail` or `bucket-not-empty`. Stop. Name the line. Send nothing further. `complete:absent` and `archive:absent` mean the set has no such object. `complete:fail` and `archive:fail` mean the read failed and say nothing about the set.
 - The call's outcome is unknown. Stop. Do not repeat it in this run.
 
 Has the person confirmed the restore?
@@ -1550,7 +1586,7 @@ exit 0
 
 Then the restore's files, each by its writers, in this order: `run`, `restore-recover`, `identity-helper`, `witness-helper`, `witness.js`, then `job`. The last writer of each checks it (`sh -n`, or `node --check` in the pinned image) and sets its mode. A writer whose call was unclear is not sent again alone: the file's writers are sent again from its first, after a re-read shows what is there.
 
-`run` is the restore program. Its stages, each appended to `/opt/<target>/restore/state` before it starts and with its result after: `begin`, `checks` (the plan's values, the marker, `admin.password`, no container, volume or network, the set's `COMPLETE` downloaded, `format=1`, the source id, stamp and `server-url` equal to the plan's, `MemAvailable` at least `COMPLETE`'s size plus 256 MiB, the archive downloaded, the archive's sha256 and size equal to `COMPLETE`'s, the target's files bucket empty and neither the source's nor the backup bucket), `handoff`, `sums`, `secrets`, `create` and `created`, `volumes`, `data`, `dump`, `counts`, `config-db`, `local`, `files`, `server`, `worker`, `witness`, then `end`. Each stage's failure is a line naming it, and the program exits nonzero.
+`run` is the restore program. Its stages, each appended to `/opt/<target>/restore/state` before it starts and with its result after: `begin`, `checks` (the plan's values, the marker, `admin.password`, no container, volume or network, the set's `COMPLETE` downloaded, `format=1`, the source id, stamp and `server-url` equal to the plan's, `MemAvailable` at least `COMPLETE`'s size plus 256 MiB, the archive downloaded, the archive's sha256 and size equal to `COMPLETE`'s, the target's files bucket empty and neither the source's nor the backup bucket), `handoff`, `sums`, `secrets`, `create` and `created`, `volumes`, `data`, `dump`, `counts`, `config-db`, `local`, `files`, `server`, `worker`, `witness`, then `end`. Each stage's failure is a line naming it, and the program exits nonzero. When one of its S3 calls fails, it prints that call's last output line to the journal as `s3-detail:`, tabs turned to colons and every character but letters, digits and `:._/-` removed, at most 160 characters, before the failure line, and it does not append that line to the state. The files-bucket helper returns the status of its Docker call, not of the cleanup after it.
 
 - **The handoff.** The program makes `/run/twenty-restore-<target>/identity` a FIFO, mode 600, prints `fifo-ready`, and waits at most 600 seconds for one line. The person runs `identity-helper` then, over the shell they hold, and types the age identity into its no-echo prompt. The helper writes it into the FIFO that exists, never creating a file in its place, and waits at most 30 seconds for the program to read; otherwise it prints `identity:refused:closed`. The program pipes it into `age -d -i -`, so the identity reaches only that process. The ciphertext is a file. A timeout, a line that is not an identity, or a failed decryption is `handoff:refused`, then `restore:nothing-written`. Any partial `archive.tar` is removed.
 - **The secrets.** `secrets.env` must be exactly two lines, `ENCRYPTION_KEY=` and `FALLBACK_ENCRYPTION_KEY=`, their values in the base64 alphabet. They replace the target's `ENCRYPTION_KEY` line and its `FALLBACK_ENCRYPTION_KEY` line, adding the latter when the target has none, as an install Deploy Twenty made does not, through `.env.new` and a move, mode 600. The program never sources the file.
@@ -1564,8 +1600,8 @@ Then the restore's files, each by its writers, in this order: `run`, `restore-re
 
 `run`, the restore program.
 
-The assembled file is 17821 code points.
-Writer 1 of 6, 3469 code points. `argv` is `/bin/sh`, `-c`, this script, `sh`, and the install name.
+The assembled file is 18348 code points.
+Writer 1 of 6, 3664 code points. `argv` is `/bin/sh`, `-c`, this script, `sh`, and the install name.
 ```sh
 set -eu
 export LC_ALL=C
@@ -1592,7 +1628,7 @@ cleanup() {
   status=$?
   rm -f "$runfifo/identity" "$runfifo/password" || true
   rmdir "$runfifo" 2>/dev/null || true
-  rm -f "$bk/files.env" "$rs/archive.tar" "$rs/psql.err" "$base/.env.new" || true
+  rm -f "$bk/files.env" "$rs/archive.tar" "$rs/psql.err" "$base/.env.new" "$rs/s3.out" || true
   rm -rf "$work" || true
   exit "$status"
 }
@@ -1631,10 +1667,14 @@ s3files() {
   else
     timeout 1800 docker run --rm --user 0:0 --label "backup-twenty=${install}" --entrypoint node --env-file "$bk/files.env" -v "$bk:/backup:ro" -v "$rs:/restore" "$image" /backup/s3.js "$@"
   fi
-  rc=$?
-  set -e
+  s3rc=$?
   rm -f "$bk/files.env"
-  return "$rc"
+  set -e
+  return "$s3rc"
+}
+s3why() {
+  [ -s "$1" ] || return 0
+  awk 'NF { l = $0 } END { gsub(/\t/, ":", l); gsub(/[^A-Za-z0-9:._\/-]/, "", l); if (l != "") print "s3-detail:" substr(l, 1, 160) }' "$1"
 }
 private4() {
   oldifs=$IFS
@@ -1680,7 +1720,7 @@ RST1END
 printf '%s\n' writer-ok
 ```
 
-Writer 2 of 6, 3702 code points. `argv` is `/bin/sh`, `-c`, this script, `sh`, and the install name.
+Writer 2 of 6, 3834 code points. `argv` is `/bin/sh`, `-c`, this script, `sh`, and the install name.
 ```sh
 set -eu
 export LC_ALL=C
@@ -1723,7 +1763,12 @@ vols=$(timeout 60 docker volume ls -q --filter "label=com.docker.compose.project
 [ -z "$vols" ] || stop checks:refused:volumes 2
 nets=$(timeout 60 docker network ls -q --filter "label=com.docker.compose.project=$install")
 [ -z "$nets" ] || stop checks:refused:networks 2
-if ! s3bak get "$prefix/COMPLETE" /restore/COMPLETE >/dev/null; then stop checks:refused:complete 2; fi
+if ! s3bak get "$prefix/COMPLETE" /restore/COMPLETE > "$rs/s3.out"; then
+  s3why "$rs/s3.out"
+  rm -f "$rs/s3.out"
+  stop checks:refused:complete 2
+fi
+rm -f "$rs/s3.out"
 [ "$(field format)" = 1 ] || stop checks:refused:format 2
 [ "$(field source-id)" = "$source_id" ] || stop checks:refused:source 2
 [ "$(field stamp)" = "$stamp" ] || stop checks:refused:stamp 2
@@ -1733,12 +1778,17 @@ case "$csz" in ''|*[!0-9]*) stop checks:refused:size 2 ;; esac
 mem_k=$(awk '$1=="MemAvailable:" { print $2; exit }' /proc/meminfo 2>/dev/null || true)
 case "$mem_k" in ''|*[!0-9]*) stop checks:refused:memory 2 ;; esac
 [ "$mem_k" -ge $(( csz / 1024 + 262144 )) ] || stop checks:refused:memory 2
-if ! s3bak get "$prefix/backup.tar.age" /restore/backup.tar.age >/dev/null; then stop checks:refused:archive 2; fi
+if ! s3bak get "$prefix/backup.tar.age" /restore/backup.tar.age > "$rs/s3.out"; then
+  s3why "$rs/s3.out"
+  rm -f "$rs/s3.out"
+  stop checks:refused:archive 2
+fi
+rm -f "$rs/s3.out"
 RST2END
 printf '%s\n' writer-ok
 ```
 
-Writer 3 of 6, 3670 code points. `argv` is `/bin/sh`, `-c`, this script, `sh`, and the install name.
+Writer 3 of 6, 3751 code points. `argv` is `/bin/sh`, `-c`, this script, `sh`, and the install name.
 ```sh
 set -eu
 export LC_ALL=C
@@ -1754,7 +1804,12 @@ tgt=$(awk -F= '$1=="STORAGE_S3_NAME" { print substr($0, index($0, "=") + 1); exi
 [ -n "$srcb" ] && [ -n "$tgt" ] || stop checks:refused:files-bucket 2
 [ "$tgt" != "$srcb" ] || stop checks:refused:bucket 2
 [ "$tgt" != "$bucket" ] || stop checks:refused:bucket 2
-if ! out=$(s3files "" list-files); then stop checks:refused:list 2; fi
+if ! out=$(s3files "" list-files); then
+  printf '%s\n' "$out" > "$rs/s3.out"
+  s3why "$rs/s3.out"
+  rm -f "$rs/s3.out"
+  stop checks:refused:list 2
+fi
 printf '%s\n' "$out" > "$rs/list.out"
 lcount=$(awk -F "$tab" '$1=="count" { print $2; exit }' "$rs/list.out")
 lbytes=$(awk -F "$tab" '$1=="bytes" { print $2; exit }' "$rs/list.out")
@@ -1857,7 +1912,7 @@ RST3END
 printf '%s\n' writer-ok
 ```
 
-Writer 4 of 6, 3706 code points. `argv` is `/bin/sh`, `-c`, this script, `sh`, and the install name.
+Writer 4 of 6, 3792 code points. `argv` is `/bin/sh`, `-c`, this script, `sh`, and the install name.
 ```sh
 set -eu
 export LC_ALL=C
@@ -1933,6 +1988,9 @@ while IFS=$(printf '\t') read -r key fsz fsum || [ -n "$key" ]; do
   [ "$(printf '%s' "$key" | cut -c1)" != / ] || { note files:fail; exit 4; }
   printf '%s\n' "key $key" >> "$rs/attempted.list"
   if ! out=$(s3files "${install}_default" put "/restore/work/files/$key" "$key"); then
+    printf '%s\n' "$out" > "$rs/s3.out"
+    s3why "$rs/s3.out"
+    rm -f "$rs/s3.out"
     note files:fail
     exit 4
   fi
@@ -1949,7 +2007,7 @@ RST4END
 printf '%s\n' writer-ok
 ```
 
-Writer 5 of 6, 3710 code points. `argv` is `/bin/sh`, `-c`, this script, `sh`, and the install name.
+Writer 5 of 6, 3743 code points. `argv` is `/bin/sh`, `-c`, this script, `sh`, and the install name.
 ```sh
 set -eu
 export LC_ALL=C
@@ -1967,14 +2025,19 @@ while :; do
   set +e
   log=$(timeout 60 docker logs --since "$since" "$cid" 2>&1)
   set -e
-  if printf '%s\n' "$log" | grep -F -q 'Upgrade completed with errors' || printf '%s\n' "$log" | grep -F -q 'Failed to register background jobs'; then
-    note server:fail:log
-    exit 5
-  fi
-  if printf '%s\n' "$log" | grep -F -q 'Successfully migrated DB!' && printf '%s\n' "$log" | grep -F -q 'Successfully registered all background sync jobs!'; then
-    oklog=1
-    break
-  fi
+  case "$log" in
+    *'Upgrade completed with errors'*|*'Failed to register background jobs'*)
+      note server:fail:log
+      exit 5
+      ;;
+  esac
+  case "$log" in
+    *'Successfully migrated DB!'*)
+      case "$log" in
+        *'Successfully registered all background sync jobs!'*) oklog=1; break ;;
+      esac
+      ;;
+  esac
   sleep 5
 done
 [ "$oklog" -eq 1 ] || { note server:fail:log; exit 5; }
@@ -2044,7 +2107,13 @@ set -e
 unset pw
 rm -f "$runfifo/password"
 [ "$rc" -eq 0 ] || { note witness:fail:login; exit 5; }
-if ! out=$(s3files "${install}_default" get "$file_key" /restore/work/fetched); then note witness:fail:file; exit 5; fi
+if ! out=$(s3files "${install}_default" get "$file_key" /restore/work/fetched); then
+  printf '%s\n' "$out" > "$rs/s3.out"
+  s3why "$rs/s3.out"
+  rm -f "$rs/s3.out"
+  note witness:fail:file
+  exit 5
+fi
 got=$(printf '%s\n' "$out" | awk -F "$tab" '$1=="get" { print $4; exit }')
 want=$(awk -F "$tab" -v k="$file_key" '$1==k { print $3; exit }' "$work/files.list")
 RST5END

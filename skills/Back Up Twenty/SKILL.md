@@ -3,7 +3,7 @@ name: Back Up Twenty
 type: skill
 category: operations
 description: Set up scheduled, age-encrypted backups of an install Deploy Twenty made to a Cloudflare R2 bucket, back one up now, check the key's recovery copy, recover after an interrupted backup, stop scheduled backups, or restore a backup onto an install made for a restore, and report what was done.
-version: 0.1.7
+version: 0.1.8
 gaps:
   - authenticating a set's origin, and object lock
   - alerting on an overdue backup
@@ -1418,9 +1418,9 @@ The restore reads the backup bucket with the target's own `backup.env`, and runs
 
 Which set, and is it whole?
 
-One `vm.command.run`, operands the target, the set, the bucket, the endpoint and the region. It downloads the set's `COMPLETE` into `/opt/<target>/restore/` and reads it, heads the archive, and lists the target's files bucket. `complete:absent` and `archive:absent` mean the set has no such object. `complete:fail` and `archive:fail` mean the read failed and say nothing about the set, and each follows one `s3-detail:` line built as the backup's is: the helper's last output line, tabs turned to colons and every character but letters, digits and `:._/-` removed, at most 160 characters. A failed list prints that detail line and then `list:fail`. It writes nothing else and prints no credential.
+One `vm.command.run`, operands the target, the set, the bucket, the endpoint and the region. It downloads the set's `COMPLETE` into `/opt/<target>/restore/` and reads it, heads the archive, and lists the target's files bucket. `complete:absent` and `archive:absent` mean the set has no such object. `complete:fail` and `archive:fail` mean the read failed and say nothing about the set, and each follows one `s3-detail:` line built as the backup's is: the helper's last output line, tabs turned to colons and every character but letters, digits and `:._/-` removed, at most 160 characters. A failed list prints that detail line and then `list:fail`. It removes its diagnostic file `s3.out` and the `files.env` it writes for the list when it exits, and a TERM, HUP or INT exits 143 through the same cleanup; a KILL leaves them, and the next set read replaces both. It writes nothing else and prints no credential.
 
-This script is 4037 code points. `argv` is `/bin/sh`, `-c`, this script, `sh`, and the operands the question names.
+This script is 3972 code points. `argv` is `/bin/sh`, `-c`, this script, `sh`, and the operands the question names.
 
 ```sh
 set -eu
@@ -1449,6 +1449,8 @@ tgt=$(awk -F= '$1=="STORAGE_S3_NAME" { print substr($0, index($0, "=") + 1); exi
 [ -n "$tgt" ] || { printf '%s\n' files-bucket:absent; exit 2; }
 mkdir -p "$rs"
 chmod 700 "$rs"
+trap 'rm -f "$rs/s3.out" "$bk/files.env"' EXIT
+trap 'exit 143' TERM HUP INT
 if [ -f "$rs/state" ]; then printf '%s\n' set:refused:again; exit 2; fi
 s3b() {
   timeout 1800 docker run --rm --user 0:0 --label "backup-twenty=${install}" --entrypoint node --env-file "$bk/backup.env" -e "S3_BUCKET=$bucket" -e "S3_ENDPOINT=$endpoint" -e "S3_REGION=$region" -v "$bk:/backup:ro" -v "$rs:/restore" "$image" /backup/s3.js "$@"
@@ -1463,13 +1465,11 @@ rc=$?
 set -e
 if [ "$rc" -ne 0 ]; then
   rm -f "$rs/COMPLETE"
-  if [ "$rc" -eq 2 ]; then rm -f "$rs/s3.out"; printf '%s\n' complete:absent; exit 2; fi
+  if [ "$rc" -eq 2 ]; then printf '%s\n' complete:absent; exit 2; fi
   s3why "$rs/s3.out"
-  rm -f "$rs/s3.out"
   printf '%s\n' complete:fail
   exit 2
 fi
-rm -f "$rs/s3.out"
 chmod 600 "$rs/COMPLETE"
 field() { awk -F= -v k="$1" '$1==k { print substr($0, index($0, "=") + 1); exit }' "$rs/COMPLETE"; }
 for k in source-id stamp size sha256 format recipient server-url files-bucket; do
@@ -1483,14 +1483,12 @@ s3b head "$prefix/backup.tar.age" > "$rs/s3.out"
 rc=$?
 set -e
 if [ "$rc" -ne 0 ]; then
-  if [ "$rc" -eq 2 ]; then rm -f "$rs/s3.out"; printf '%s\n' archive:absent; exit 2; fi
+  if [ "$rc" -eq 2 ]; then printf '%s\n' archive:absent; exit 2; fi
   s3why "$rs/s3.out"
-  rm -f "$rs/s3.out"
   printf '%s\n' archive:fail
   exit 2
 fi
 h=$(cat "$rs/s3.out")
-rm -f "$rs/s3.out"
 hsz=$(printf '%s\n' "$h" | awk -F "$tab" '$1=="head" { print $3; exit }')
 [ "$hsz" = "$(field size)" ] || { printf '%s\n' size:mismatch; exit 2; }
 awk -F= '$1 ~ /^STORAGE_S3_(ACCESS_KEY_ID|SECRET_ACCESS_KEY|NAME|ENDPOINT|REGION)$/' "$base/.env" > "$bk/files.env"
@@ -1503,7 +1501,6 @@ rm -f "$bk/files.env"
 if [ "$rc" -ne 0 ]; then
   printf '%s\n' "$out" > "$rs/s3.out"
   s3why "$rs/s3.out"
-  rm -f "$rs/s3.out"
   printf '%s\n' list:fail
   exit 2
 fi
@@ -1596,7 +1593,7 @@ Then the restore's files, each by its writers, in this order: `run`, `restore-re
 - **The witness.** The restored state rows equal the set's `state.txt`, and every workspace's activation status is unchanged. Then the program makes `/run/twenty-restore-<target>/password` a FIFO and prints `witness-ready`. The person runs `witness-helper` then, and types the witness user's password. Like `identity-helper`, it writes only into the FIFO that exists and waits at most 30 seconds, otherwise printing `witness:refused:closed`. `witness.js`, in a one-shot container on the target's proxy network, signs in at the server's private address, with the host, `X-Forwarded-Host`, `X-Forwarded-Proto` and `Origin` set to `<witness_host>`, as Deploy Twenty's first contact does. It prints `witness:login:ok`, then `witness:kid:match` when the fresh token's key id is the signing key the set's `state.txt` marked current, then `witness:record:ok` and `witness:attachment:<n>` for the record and its attachments, then `witness:attachment:match` when one of those attachments holds the file whose id is `<witness_file_key>`'s last segment without its extension. Last, the file at `<witness_file_key>` is fetched from the target's bucket and its sha256 compared with the set's `files.list`: `file:match`.
 - **The end.** The decrypted archive and the work directory are removed, `admin.password` is removed, which no first contact will, and the state ends `end`.
 
-`restore-recover` is the restore's stop-post. When the state has `server` and no `end` after it, it stops `server` and `worker`, counting a service stopped only when Docker's read succeeded and showed it absent or `exited`, `created` or `dead`, and retrying a failed read until the deadline, so a restore that did not count never leaves a half-restored app serving. Its deadline is 840 seconds and every Docker call is bounded by `timeout 30`, so it ends inside `--stop-post-timeout 1200`. It always removes the FIFOs, the decrypted archive, `files.env`, the work directory and this install's labelled helper containers.
+`restore-recover` is the restore's stop-post. When the state has `server` and no `end` after it, it stops `server` and `worker`, counting a service stopped only when Docker's read succeeded and showed it absent or `exited`, `created` or `dead`, and retrying a failed read until the deadline, so a restore that did not count never leaves a half-restored app serving. Its deadline is 840 seconds and every Docker call is bounded by `timeout 30`, so it ends inside `--stop-post-timeout 1200`. It always removes the FIFOs, the decrypted archive, `files.env`, the S3 diagnostic file `s3.out`, the work directory and this install's labelled helper containers.
 
 `run`, the restore program.
 
@@ -2144,8 +2141,8 @@ printf '%s\n' 'restore-run:written'
 
 `restore-recover`.
 
-The assembled file is 1755 code points.
-Writer 1 of 1, 2059 code points. `argv` is `/bin/sh`, `-c`, this script, `sh`, and the install name.
+The assembled file is 1768 code points.
+Writer 1 of 1, 2072 code points. `argv` is `/bin/sh`, `-c`, this script, `sh`, and the install name.
 ```sh
 set -eu
 export LC_ALL=C
@@ -2174,7 +2171,7 @@ cleanup() {
   fi
   rm -f "$runfifo/identity" "$runfifo/password" || true
   rmdir "$runfifo" 2>/dev/null || true
-  rm -f "$rs/archive.tar" "$base/backup/files.env" || true
+  rm -f "$rs/archive.tar" "$base/backup/files.env" "$rs/s3.out" || true
   rm -rf "$rs/work" || true
   exit "$status"
 }

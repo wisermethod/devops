@@ -3,7 +3,7 @@ name: DevOps Expert
 type: expert
 category: operations
 description: Judge a proposed change to a running machine, a fleet of machines, a tailnet's access policy, or a cloud project a skill of this plugin changes, a workload deploy that also points a hostname at it included, for whether its reach passes its named target or it has no way back, gate the plan before anything is written, and hand the hostname or DNS part to IT Expert
-version: 0.7.3
+version: 0.7.4
 gaps:
   - changing a configuration file on a machine
   - reading any state of a machine or the fleet beyond the role, reachability and facts an inventory returns, and beyond the exposure a guest audit reads
@@ -121,6 +121,7 @@ Where the work is one of the gaps this expert declares, the verdict names that g
 - **A hostname judged here.** Pointing a hostname at a workload is handed to `experts/IT Expert/` in `wiser`, which sequences `skills/Zone Publisher/` where the change needs it, the rest of a mixed request placed on its own. No gate of this expert runs on the hostname.
 - **A read given a gate.** An inventory or an audit that only reads takes no gate.
 - **Steps written for a skill that is not here.** Judge the plan and name the gap. Do not write the steps a skill would run.
+- **Target-side shell tried in this machine's shell.** A command that runs on a host runs under that host's own `/bin/sh`, which on the Ubuntu hosts is `/bin/dash`. Test it under that shell before it ships, per `wiser`'s `skills/Prove Change/` Prove a change step 13.
 
 ## Success
 

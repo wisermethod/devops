@@ -2,8 +2,8 @@
 name: Deploy Twenty
 type: skill
 category: operations
-description: Install Twenty CRM v2.45.6 on one machine a person's router maps, behind the Caddy that machine already runs, or add or remove one hostname route for an install this skill made, or remove that install, or take that install offline or bring it back online, and report the URL, what answered, and what is not configured.
-version: 0.1.20
+description: Install Twenty CRM v2.45.6 on one machine a person's router maps, behind the Caddy that machine already runs, including that install's mail relay when one is named, or add or remove one hostname route for an install this skill made, or remove that install, or take that install offline or bring it back online, or add, rotate or remove one relay login, replace one relay upstream token, add or remove one relay upstream, or write the relay to send or hold, and report the URL, what answered, the relay, and what is not configured.
+version: 0.1.21
 gaps:
   - installing a Twenty release other than v2.45.6, or upgrading an install to another release
   - a machine with no Docker, or with no Caddy running in the shape `skills/Deploy Workload/` runs it
@@ -11,17 +11,19 @@ gaps:
   - Cloudflare for SaaS's custom-hostname setting and fallback origin on a zone, which the person turns on in Cloudflare's dashboard
   - creating the bucket, the API tokens and the sending accounts the install uses, which the person does with each vendor
   - the inbound domain's MX record and the sending service's receiving and webhook settings, which the person sets with the vendor
+  - changing an existing install's emailing-domain driver
+  - sending through the relay from an organisation whose Cloudflare account is not on Workers Paid
 ---
 
 # Deploy Twenty
 
 ## Context
 
-Use when one Twenty install should be created on one existing machine, or one hostname should be routed to an install this skill made, or that hostname's route should be removed, or an install this skill made should be removed, or that install should be taken offline or brought back online, and the machine is one a person's router maps. One run is one machine and one install. The release is Twenty v2.45.6 and no other. The server publishes no port. The first-contact call reaches it on the install's Docker network before any route exists. Visitors reach it only through routes in the Caddy that machine already runs.
+Use when one Twenty install should be created on one existing machine, or one hostname should be routed to an install this skill made, or that hostname's route should be removed, or an install this skill made should be removed, or that install should be taken offline or brought back online, or one relay login should be added, rotated or removed, or one relay upstream token replaced, or one relay upstream added or removed, or the relay written to send or hold, and the machine is one a person's router maps. One run is one machine and one install. The release is Twenty v2.45.6 and no other. The server publishes no port. The first-contact call reaches it on the install's Docker network before any route exists. Visitors reach it only through routes in the Caddy that machine already runs.
 
-Not for a release other than v2.45.6, and not for upgrading an install to another release. That is missing: installing a Twenty release other than v2.45.6, or upgrading an install to another release. Not for a machine with no Docker, and not for a Caddy that is not already running in the shape `skills/Deploy Workload/` runs it. This skill does not install Docker, does not start Caddy, and does not write Caddy's first config. Not for backing up an install or restoring one, which is `skills/Back Up Twenty/`. Not for connecting Google or Microsoft mailboxes, which needs an OAuth client and the provider's approval. That is missing. Not for Cloudflare for SaaS's custom-hostname setting and fallback origin on a zone, which the person turns on in Cloudflare's dashboard. That is missing. Not for creating the bucket, the API tokens and the sending accounts the install uses, which the person does with each vendor. That is missing. Not for a hostname, a DNS record, or a zone. Hand that part to `experts/IT Expert/` in `wiser`, which sequences `skills/Zone Publisher/`. Not for enrolling a machine or taking one out, which is `skills/Prepare VM/`. Not for a package or a unit, which is `skills/VM Configure/`. Not for setting up an organisation's workspace beyond the first workspace's creation, its members, data model, domains and import. That is `skills/Set Up Twenty Workspace/`, owned by `experts/CRM Expert/`, which adopts the first workspace when it is the organisation's. Saving or removing a custom domain in Twenty, which creates or deletes a hostname at Cloudflare, is that workspace setup, not this skill. Not for a security review. Load `experts/IT Expert/` Rule 5 in `wiser` and apply it. Not for a secret passed through the conversation or through a router call.
+Not for a release other than v2.45.6, and not for upgrading an install to another release. That is missing: installing a Twenty release other than v2.45.6, or upgrading an install to another release. Not for a machine with no Docker, and not for a Caddy that is not already running in the shape `skills/Deploy Workload/` runs it. This skill does not install Docker, does not start Caddy, and does not write Caddy's first config. Not for backing up an install or restoring one, which is `skills/Back Up Twenty/`. Not for connecting Google or Microsoft mailboxes, which needs an OAuth client and the provider's approval. That is missing. Not for Cloudflare for SaaS's custom-hostname setting and fallback origin on a zone, which the person turns on in Cloudflare's dashboard. That is missing. Not for creating the bucket, the API tokens and the sending accounts the install uses, which the person does with each vendor. That is missing. Not for a hostname, a DNS record, or a zone. Hand that part to `experts/IT Expert/` in `wiser`, which sequences `skills/Zone Publisher/`. Not for enrolling a machine or taking one out, which is `skills/Prepare VM/`. Not for a package or a unit, which is `skills/VM Configure/`. Not for setting up an organisation's workspace beyond the first workspace's creation, its members, data model, domains and import. That is `skills/Set Up Twenty Workspace/`, owned by `experts/CRM Expert/`, which adopts the first workspace when it is the organisation's. Saving or removing a custom domain in Twenty, which creates or deletes a hostname at Cloudflare, is that workspace setup, not this skill. Not for a security review. Load `experts/IT Expert/` Rule 5 in `wiser` and apply it. Not for changing an existing install's emailing-domain driver. That is missing: changing an existing install's emailing-domain driver. Not for sending through the relay from an organisation whose Cloudflare account is not on Workers Paid. That is missing: sending through the relay from an organisation whose Cloudflare account is not on Workers Paid. Not for a secret passed through the conversation or through a router call.
 
-Twenty sends three kinds of email, and this install must not be read as if one address did all three. Email to a contact goes out from the sender's own mailbox, so the contact sees that person's own address, and nothing in that path uses the install's SMTP settings. This install leaves IMAP, SMTP and CalDAV mailboxes enabled and does not configure one. Google and Microsoft mail and sign-in stay off, which is the mailbox gap above. Branded or campaign email goes out from an organisation's own verified emailing domain, through the one driver the install is given. On a self-hosted install without an Enterprise licence the driver is Resend, or LOG when none is wanted. LOG sends nothing. AWS SES is not offered here. Team email is the third kind: invitations, password resets, verification, and the admin panel's test send, from the install's one address, to an organisation's own members, never to its contacts. The From line of an invitation shows the inviter's name as the display name and that one address, for example `Alpha Tester <crm@effectivemail.com>`. This skill configures team email. It does not configure a contact mailbox, and it does not verify an emailing domain. When the driver is Resend, this skill sets the inbound email domain (`INBOUND_EMAIL_DOMAIN`). The inbound domain's MX record and the sending service's receiving and webhook settings, which the person sets with the vendor, are not set here. That is missing.
+Twenty sends three kinds of email, and this install must not be read as if one address did all three. A connected mailbox sends as itself: a member's own mailbox, so the contact sees that person's own address, or an organisation's shared mailbox through the relay, signed by the organisation's own domain at Cloudflare. Nothing in a member's own mailbox path uses the install's SMTP settings. This install leaves IMAP, SMTP and CalDAV mailboxes enabled and does not configure one. Google and Microsoft mail and sign-in stay off, which is the mailbox gap above. That shared mailbox's path is the relay. Twenty's emailing-domain route is separate. This skill sets that route up only when the driver is `RESEND`. Campaigns need it, and they need the feature flag `IS_MESSAGE_CAMPAIGN_ENABLED`, which this skill does not set. Changing an existing install's emailing-domain driver is missing here. Sending through the relay from an organisation whose Cloudflare account is not on Workers Paid is missing here. Branded or campaign email goes out from an organisation's own verified emailing domain, through the one driver the install is given. On a self-hosted install without an Enterprise licence the driver is Resend, or LOG when none is wanted. LOG sends nothing. AWS SES is not offered here. Team email is the third kind: invitations, password resets, verification, and the admin panel's test send, from the install's one address, to an organisation's own members, never to its contacts. The From line of an invitation shows the inviter's name as the display name and that one address, for example `Alpha Tester <crm@effectivemail.com>`. This skill configures team email. It does not configure a contact mailbox, and it does not verify an emailing domain. When the driver is Resend, this skill sets the inbound email domain (`INBOUND_EMAIL_DOMAIN`). The inbound domain's MX record and the sending service's receiving and webhook settings, which the person sets with the vendor, are not set here. That is missing.
 
 The install's own hostname is its server address. When that name sits inside the Cloudflare for SaaS zone and its DNS record is a DNS-only CNAME to the fallback origin, Cloudflare flattens the name to the machine's address. Caddy serves it with Caddy's own certificate, and Cloudflare carries none of its traffic. Do not read that name as behind Cloudflare. A workspace custom domain that arrives through Cloudflare for SaaS reaches the origin with its own Host header, so it needs its own route, and the origin's certificate for it comes from Caddy by HTTP-01 through Cloudflare.
 
@@ -29,7 +31,7 @@ No real contact goes onto the install until a backup has been restored with the 
 
 This plugin does not ship a router, and no primitive in this root provides one. Every call goes through a router the person already runs. The calls are `vm.inventory.list_hosts`, `vm.inventory.health`, and `vm.command.run`, and no other action. This skill never calls `vm.files.write_file` or `vm.files.read_file`.
 
-A pull, the install write, the start, and a removal run as tracked background jobs. The contract is `tools/vm-job/`. A job's start, poll, read-back, journal read and release are each built with that tool's command and sent as one `vm.command.run` whose `argv` is the `argv` the tool prints, unchanged. Each answer is saved and classified with that tool's `classify`. The session never writes a starter or a release script itself. A short read, an alias reattach, a route write, and the first-contact call are `vm.command.run`. They are not jobs. They do not take the lock and they do not renew the token.
+A pull, the install write, the start, a removal, and a relay hold run as tracked background jobs. The contract is `tools/vm-job/`. A job's start, poll, read-back, journal read and release are each built with that tool's command and sent as one `vm.command.run` whose `argv` is the `argv` the tool prints, unchanged. Each answer is saved and classified with that tool's `classify`. The session never writes a starter or a release script itself. A short read, an alias reattach, a route write, and the first-contact call are `vm.command.run`. They are not jobs. They do not take the lock and they do not renew the token.
 
 The job script, written verbatim from this skill, each direct script, written verbatim from this skill, and each saved answer, go in a temporary directory outside the plugin and outside any repository. The path passed to the tool is absolute. The tool writes nothing.
 
@@ -39,13 +41,13 @@ Reaching the gateway is `skills/Set Up Connectors/` and `gateway/SETUP.md` in `w
 
 No secret value is asked for in the conversation, printed, placed in an operand, or written into a file in a repository. A value the person types goes only into the helper on the machine. The report prints lengths, booleans, counts and statuses. Output the report shows is copied verbatim, except a line the report question withholds.
 
-When `<relay>` is named, Job 1 also installs that install's mail relay. The relay is a container on the install's own Docker network, with the network alias `smtp-relay`, and it is the only process that holds the upstream sending credentials. Its program comes from `tools/twenty-relay/`. When `<relay>` is absent, Job 1 is the install this skill already describes, and no relay job is sent. When `<relay>` is present and `<for_restore>` is absent, the person's helper also prompts for one token per upstream and writes it under `/opt/<install>/relay/secrets/`, and after the start job the run reads the relay container, checks SMTP from the server and the worker, and checks the outbound allowlist before first contact. `conf/state` stays `hold` through Job 1. Releasing that hold is Job 5, which this skill does not send.
+When `<relay>` is named, Job 1 also installs that install's mail relay. The relay is a container on the install's own Docker network, with the network alias `smtp-relay`, and it is the only process that holds the upstream sending credentials. Its program comes from `tools/twenty-relay/`. When `<relay>` is absent, Job 1 is the install this skill already describes, and no relay job is sent. When `<relay>` is present and `<for_restore>` is absent, the person's helper also prompts for one token per upstream and writes it under `/opt/<install>/relay/secrets/`, and after the start job the run reads the relay container, checks SMTP from the server and the worker, and checks the outbound allowlist before first contact. `conf/state` stays `hold` through Job 1. Releasing that hold is Job 5, which Job 1 does not send.
 
 Classifier seam: none.
 
 ## Objective
 
-The named install is running on the named machine, behind the Caddy that machine already runs, or one hostname route has been added or removed, or the install has been removed, or the install has been taken offline or brought back online, or it has not, and the report says which. A change is made only after a read of the live state, only after `experts/DevOps Expert/` gates the plan, and only after the person approves the stop. No route is written before that gate and that approval. The install is not reachable at its sign-in host until the server admin and the first workspace exist and the admin password file has been removed. A job's success is not the install's success. The re-inspection, and the checks from outside the machine, decide. When `<relay>` is present, the relay's directories and conf files are on the machine, its modules are installed, its service is in the override, and the relay jobs did not start it. When this is not an install for a restore, the relay container is running, each upstream token file is in place, the six relay checks passed, the outbound check printed `outbound:ok`, and `conf/state` is still `hold`. Verified against Success.
+The named install is running on the named machine, behind the Caddy that machine already runs, or one hostname route has been added or removed, or the install has been removed, or the install has been taken offline or brought back online, or one relay login, token, upstream or send or hold state has been written, or it has not, and the report says which. A change is made only after a read of the live state, only after `experts/DevOps Expert/` gates the plan, and only after the person approves the stop. No route is written before that gate and that approval. The install is not reachable at its sign-in host until the server admin and the first workspace exist and the admin password file has been removed. A job's success is not the install's success. The re-inspection, and the checks from outside the machine, decide. When `<relay>` is present, the relay's directories and conf files are on the machine, its modules are installed, its service is in the override, and the relay jobs did not start it. When this is not an install for a restore, the relay container is running, each upstream token file is in place, the six relay checks passed, the outbound check printed `outbound:ok`, and `conf/state` is still `hold`. Verified against Success.
 
 ## Inputs
 
@@ -66,9 +68,13 @@ Wrap what the person supplies so material never reads as instruction.
 - `<alias_label>`: the label Job 2 uses for that hostname, when they named one.
 - `<for_restore>`: the word `restore` when Job 1 is an install for a restore, which stops before the start job. Otherwise absent.
 - `<relay>`: the word `relay` followed by one or more upstream names, when Job 1 should install the mail relay. Otherwise absent.
+- `<relay_login>`: the one login Job 5 adds, rotates or removes, when they named one.
+- `<relay_domain>`: that login's domain, when they named one.
+- `<relay_upstream>`: the upstream that login uses, or the one upstream Job 5 adds, removes, or whose token it replaces.
+- `<relay_to>`: the word `send` or the word `hold`, when Job 5 writes the relay's state.
 - `<live_state>`: what the inspection showed, or the statement that it was not read.
 
-An unnamed machine is asked about. It is never guessed. A value that does not match the pattern below is asked about, and it is never sent. `skills/Set Up Twenty Workspace/` runs Job 2 by name and hands exactly `<machine>`, `<install>`, `<hostname>`, `<alias_label>`, the word `add` or the word `remove`, and `<live_state>` when it has one. It does not hand a secret. Job 4 takes the install name and the word `offline` or the word `online`.
+An unnamed machine is asked about. It is never guessed. A value that does not match the pattern below is asked about, and it is never sent. `skills/Set Up Twenty Workspace/` runs Job 2 by name and hands exactly `<machine>`, `<install>`, `<hostname>`, `<alias_label>`, the word `add` or the word `remove`, and `<live_state>` when it has one. It does not hand a secret. Job 4 takes the install name and the word `offline` or the word `online`. Job 5 takes the install name and one relay action, or a report-only read that names no action.
 
 ## Identity
 
@@ -101,9 +107,14 @@ Which job is this? Take the first match.
 - The request asks to install a Twenty release other than v2.45.6, or to upgrade an install. Stop. Name the gap for installing a Twenty release other than v2.45.6, or upgrading an install to another release. Send nothing.
 - The request asks to back up an install or to restore one. Hand it to `skills/Back Up Twenty/`. Ask this question again of what remains. When nothing remains, stop.
 - The request asks to connect a Google or Microsoft mailbox. Stop. Name the gap for connecting Google or Microsoft mailboxes, which needs an OAuth client and the provider's approval. Send nothing.
+- The request asks to change an existing install's emailing-domain driver. Stop. Name the gap for changing an existing install's emailing-domain driver. Send nothing.
+- The request asks to send through the relay from an organisation whose Cloudflare account is not on Workers Paid. Stop. Name the gap for sending through the relay from an organisation whose Cloudflare account is not on Workers Paid. Send nothing.
+- The request asks for a relay login, a relay upstream token, a relay upstream, or the relay's send or hold, and it also asks to install Twenty, to remove an install, to take an install offline or bring one online, or to add or remove a route. Ask which this run is for. One run is one action. Do not guess. Do not call.
 - The request asks to remove one named install and names no deploy and no single route change. Job 3. The confirmation question still applies before any removal call.
 - The request asks to take one named install offline, or to bring one named install back online, and names no deploy and no removal. Job 4. The confirmation question still applies before any offline or online call.
 - The request asks to add one hostname's route to an install this skill made, or to remove that one route, and names no new install. Job 2.
+- The request asks only what the relay's state, logins, upstreams, or ambiguous count are, and names no install to create, no route, no removal, and no offline or online change. Job 5. It writes nothing and takes no gate.
+- The request asks to add, rotate or remove one relay login, or to replace one relay upstream token, or to add or remove one relay upstream, or to write the relay to send or hold, and names no new install, no removal, no offline or online change, and no route change. Job 5. The confirmation question still applies before any change call.
 - The request asks to install Twenty and also to remove an install, or to take an install offline or bring one online, or asks for more than one install. Ask which this run is for. One run is one install. Do not guess. Do not call.
 - The request asks to install Twenty on one machine. Job 1.
 - The job cannot be read. Ask. Do not guess. Do not call.
@@ -121,7 +132,7 @@ The identifier has to match `^[A-Za-z0-9][A-Za-z0-9._-]{0,62}$`, the `machine` p
 
 Refuse a value by name before `vm.inventory.list_hosts`. Do not send the other form. Ask for one that matches.
 
-The install name matches `^[a-z][a-z0-9]{1,12}$`, with no hyphen, and it is not `caddy`. Every alias is the install name, a hyphen, and a label, so the install part of an alias is the text before its first hyphen, and two installs never generate the same alias. A name with a hyphen is refused by name. An unnamed install is `twenty`. Job 1, Job 2, Job 3, and Job 4 all require it.
+The install name matches `^[a-z][a-z0-9]{1,12}$`, with no hyphen, and it is not `caddy`. Every alias is the install name, a hyphen, and a label, so the install part of an alias is the text before its first hyphen, and two installs never generate the same alias. A name with a hyphen is refused by name. An unnamed install is `twenty`. Job 1, Job 2, Job 3, Job 4, and Job 5 all require it.
 
 An alias label matches `^[a-z0-9][a-z0-9-]{0,15}$`. The alias is the install name, a hyphen, and the label. That alias has to match `^[a-z][a-z0-9-]{1,31}$`, and it is not `caddy`. A label that would make an alias outside that pattern is refused by name.
 
@@ -145,7 +156,7 @@ The emailing-domain driver is the word `RESEND` or the word `LOG`. The word `AWS
 
 `<cloudflare_saas>` is the word `none`, or both a zone id and a DCV delegation id. One without the other is refused by name.
 
-`<relay>` is absent, or it is the word `relay` followed by one or more upstream names separated by spaces. Each name matches `^[a-z][a-z0-9-]{0,15}$`. A name that does not match is refused by name. The same name twice is refused by name. The word `relay` with no name is refused by name. More than 55 names is refused by name: the relay-files job's first operand is the install name, and a job admits at most 56 operands. When `<relay>` is absent, no relay job is planned and no relay script is sent. `<relay>` with `<for_restore>` makes a restore target for a set that carries a relay: the relay's calls through the relay-service job run as they do on any install, and the token-helper edit is not one of them, so the target holds the relay's directories, program, `node_modules`, the `relay` service in its override and `state` `hold`, with `logins.json` `[]`, no token file and no container; `skills/Back Up Twenty/`'s restore writes the set's logins, upstreams and tokens into it and starts it. The upstream names are the source install's. A request to add a relay to an install that is already past the install job, with no new install, is asked about. These relay jobs run only inside Job 1, after the install job has counted.
+`<relay>` is absent, or it is the word `relay` followed by one or more upstream names separated by spaces. Each name matches `^[a-z][a-z0-9-]{0,15}$`. A name that does not match is refused by name. The same name twice is refused by name. The word `relay` with no name is refused by name. More than 55 names is refused by name: the relay-files job's first operand is the install name, and a job admits at most 56 operands. When `<relay>` is absent, no relay job is planned and no relay script is sent. `<relay>` with `<for_restore>` makes a restore target for a set that carries a relay: the relay's calls through the relay-service job run as they do on any install, and the token-helper edit is not one of them, so the target holds the relay's directories, program, `node_modules`, the `relay` service in its override and `state` `hold`, with `logins.json` `[]`, no token file and no container; `skills/Back Up Twenty/`'s restore writes the set's logins, upstreams and tokens into it and starts it. The upstream names are the source install's. A request to add a relay to an install that is already past the install job, with no new install, is asked about. These relay jobs, the files, the writers, the install and the service, run only inside Job 1, after the install job has counted. Job 5 changes a relay Job 1 already installed. It does not install one.
 
 Job 1 requires `<base>`, `<admin_email>`, a display name and a subdomain, a bucket, an endpoint, a region, a from address, a from name, and a driver. When the driver is `RESEND`, Job 1 also requires `<inbound_domain>`. The subdomain matches an alias label, and it is not `app` and not `base`. The labels `base` and `app` are reserved for the install's own hostnames. Host, port and user may be unnamed, and then they are `smtp.mx.cloudflare.net`, `465`, and `api_token`. When the host is named, the port and the user are named too. The user matches `^[A-Za-z0-9._-]{1,64}$`. The host matches the hostname rule. When the host is `smtp.mx.cloudflare.net`, the port is `465`. A different port with that host is refused by name. `<relay>` is not required. When it is present, the upstream names are operands of the relay-files job, and, when this is not an install for a restore, of the token-helper edit and of the token length read, and of no other script.
 
@@ -154,6 +165,8 @@ Job 2 requires the install, one hostname, one alias label, and the word `add` or
 Job 3 requires the install name. It does not take a new hostname, a new image, or a secret. A Job 3 request that includes one: ask whether the request is the removal. Do not send the extra value.
 
 Job 4 requires the install name and the word `offline` or the word `online`. It does not take a new hostname, a new image, or a secret. A Job 4 request that includes one: ask whether the request is the offline change or the online change. Do not send the extra value.
+
+Job 5 requires the install name and exactly one action, or a report-only read. The action is `add`, `rotate` or `remove` of one login, or `send` or `hold`, or the replacement of one upstream token, or `add` or `remove` of one upstream. A login matches `^[a-z0-9-]{1,32}$`. A login's domain matches the hostname rule and is stored lowercase. An upstream name matches `^[a-z][a-z0-9-]{0,15}$`, the pattern Job 1 writes into `upstreams.json`. A second login for a domain already bound is refused by name before any helper is given. A rotate or a remove whose domain differs from the stored domain is refused by name before any helper is given. Removing an upstream a login names is refused by name. A Job 5 request that includes a new hostname, a new image, or a secret value: ask whether the request is the one relay change. Do not send the extra value. Do not guess. One run is one action.
 
 ### What did `vm.inventory.list_hosts` answer?
 
@@ -344,6 +357,8 @@ Take the first match.
 
 ### Is there room to pull?
 
+Ask on Job 1, Job 2, Job 3, and Job 4. Job 5 skips this question. It pulls nothing.
+
 The memory line is the `free -m` line whose first field is `Mem:`. The seventh field is available mebibytes. It has to be a whole number of at least 3927, which is 1.5 times the measured peak of a two-workspace stack, 2618 MiB. Do not require swap.
 
 The disk line is the `df -B1 -P` data line for Docker's root, the line that is not the header. The fourth field is available bytes. It has to be a whole number of at least 8589934592, which is 8192 MiB. The three images are about 2.7 GB on disk. 8192 MiB leaves room for the pull and for the database to grow.
@@ -353,6 +368,8 @@ The disk line is the `df -B1 -P` data line for Docker's root, the line that is n
 - Both numbers meet the bar. Continue.
 
 ### What is Caddy on this machine?
+
+Ask on Job 1, Job 2, Job 3, and Job 4. Job 5 skips this question. It writes no route and it does not start Caddy.
 
 The caddy line's first field is the status. The second field is the label, unless it is empty or `<no value>` or starts with `{`, in which case there is no label. The JSON is the remainder, from the first `{`. The socket section says `socket-present` or `socket-absent`. The published ports this skill accepts are exactly two keys, `80/tcp` and `443/tcp`, each with one binding, the same `HostIp` on both, `HostPort` `80` and `443`. That `HostIp` is the source address. An empty `HostIp`, or `0.0.0.0`, is not accepted.
 
@@ -364,6 +381,8 @@ The caddy line's first field is the status. The second field is the label, unles
 - The label is `caddy`, the status is `running`, the ports match, and the socket is present. Record the source address for the first-contact operand. Do not print it as a field of the report. Continue.
 
 ### What did the config and the routes show?
+
+Ask on Job 1, Job 2, Job 3, and Job 4. Job 5 skips this question. It writes no route.
 
 An admin-API read is a successful read only when curl's exit is 0, the headers from `-D -` contain an HTTP status line of `200`, an `Etag` header is present, and the body parses as the expected JSON. The status line is the first header line. The routes body is a JSON array. The config body is JSON, and `null` is JSON. The id GET's body, when the status is `200`, is one JSON route object. Anything else on a read the skill decides on is not read: stop, change nothing. Two answers are absence, not a failed read: a config body that is null, and an id GET whose status line is `404` or whose body says the object id is unknown.
 
@@ -409,6 +428,11 @@ Job 4. Take the first match.
 - The marker section's lines include `skill=deploy-twenty`, `release=v2.45.6`, `compose-sha256=bacd817fcef85abbcb6a603a6c093375313460037fae67d73d45c16f6d85bc7d`, and `project=` followed by this install name, each as a whole line, and `stat:` was read, and the aliases line was read. A whole line `stage=created` or `stage=files-written` may be present. It does not replace a required line and it does not fail this check. This is a complete install this skill made. Continue.
 - The directory is absent, or the marker is absent, or a required line does not match, or the aliases line was not read. Stop. This skill does not change an install it did not mark. Change nothing.
 
+Job 5. Take the first match.
+
+- The marker section's lines include `skill=deploy-twenty`, `release=v2.45.6`, `compose-sha256=bacd817fcef85abbcb6a603a6c093375313460037fae67d73d45c16f6d85bc7d`, and `project=` followed by this install name, each as a whole line, and `stat:` was read. The directory is present. A whole line `stage=created` or `stage=files-written` may be present. It does not replace a required line and it does not fail this check. This is a complete install this skill made. Continue.
+- The directory is absent, or the marker is absent, or a required line does not match. Stop. This skill does not change an install it did not mark. Change nothing.
+
 ### Who answers to this install's aliases?
 
 Ask on Job 1 once the name is free, and on Job 2 before an alias is added. Caddy reaches this install's server by its aliases, and another container, running or stopped, can already answer to one of those names, by its name, hostname, short ID or an alias another skill gave it, in any case. Send the read `skills/Deploy Workload/` sends for its question who answers to the workload name: the same script, `argv` `/bin/sh`, `-c`, that script, `sh`, and then each name asked about, a read, read by that question's rules for a successful read and for Caddy's links and extra hosts. Caddy is never absent here, since the Caddy question already found it running.
@@ -437,7 +461,7 @@ Job 1:
 1. The pull job. Purpose `twenty-pull`, limit 1800, the references below as operands, in this order. `twentycrm/twenty@sha256:dca6d82985901468b391c0335aa8f0519a52b9809709e66f2de1dbff04351e53`, then `postgres@sha256:65b16a8b326e0cfbdf33fa7e783f2a0cb352a61448616ccccfd616ef42aa0f65`, then `redis@sha256:c94085d298b738be22c9ccdc0ac3761fa6649df7dd82ad1d42367f3cb9714935`. When `<relay>` is present, a fourth operand follows, `node:24-alpine@sha256:ebfe2f90462722a7a4de65e91990e97fe0d401c70e0e762c5b53302f905ec1c1`. When `<relay>` is absent, the operands are the three. The pull script is the same text either way.
 2. The install job. Purpose `twenty-install`, limit 300, sixteen operands when the driver is `LOG` and seventeen when the driver is `RESEND`. It writes the marker before any download or secret, then the rest of the directory, and starts nothing. When the driver is `RESEND`, the plan names `<inbound_domain>`. It says the person adds that name's MX record at Resend's direction, through `experts/IT Expert/` and `skills/Zone Publisher/` in `wiser`, and that the record is the MX record with the lowest priority number for that name. Resend's dashboard shows the host and the priority. Resend recommends a subdomain so the parent domain's own mail records stay as they are.
 
-When `<relay>` is present, the relay's calls are inserted after call 2 has counted and before call 3. They are not a renumbering of calls 3 to 9. In order: the relay-files job, purpose `twenty-relay-files`, limit 60, operands the install name and then each upstream name; then one direct call per relay writer; then the relay-install job, purpose `twenty-relay-install`, limit 420, one operand, the install name; then the relay-service job, purpose `twenty-relay-service`, limit 120, one operand, the install name. The image those calls name is `node:24-alpine@sha256:ebfe2f90462722a7a4de65e91990e97fe0d401c70e0e762c5b53302f905ec1c1`. `experts/DevOps Expert/` gates each of the three jobs with this same plan, before any of them is sent. The gate covers each job's purpose, unit name, limit, token, script and operands. The writer calls are in that plan. They are not jobs, and they are not a separate gate. A re-inspection that changes a later call is a new plan, gated again. When `<relay>` is absent, those calls are not in the plan. `conf/state` stays the four bytes `hold` through Job 1. No call in this plan writes `send`. Releasing the hold is Job 5, which a later part adds, and this run does not send it.
+When `<relay>` is present, the relay's calls are inserted after call 2 has counted and before call 3. They are not a renumbering of calls 3 to 9. In order: the relay-files job, purpose `twenty-relay-files`, limit 60, operands the install name and then each upstream name; then one direct call per relay writer; then the relay-install job, purpose `twenty-relay-install`, limit 420, one operand, the install name; then the relay-service job, purpose `twenty-relay-service`, limit 120, one operand, the install name. The image those calls name is `node:24-alpine@sha256:ebfe2f90462722a7a4de65e91990e97fe0d401c70e0e762c5b53302f905ec1c1`. `experts/DevOps Expert/` gates each of the three jobs with this same plan, before any of them is sent. The gate covers each job's purpose, unit name, limit, token, script and operands. The writer calls are in that plan. They are not jobs, and they are not a separate gate. A re-inspection that changes a later call is a new plan, gated again. When `<relay>` is absent, those calls are not in the plan. `conf/state` stays the four bytes `hold` through Job 1. No call in this plan writes `send`. Releasing the hold is Job 5, and this run does not send it.
 
 When `<relay>` is present and `<for_restore>` is absent, one more direct call follows the relay-service job and still precedes call 3. It edits `/opt/<install>/set-secrets` so the helper prompts for each upstream token. It is not a job. It does not take the lock. Its `argv` is `/bin/sh`, `-c`, the script, `sh`, the install name, and each upstream name. It stays inside the endpoint's 20 seconds. The same plan gates it with the relay jobs. It is not a separate gate. When `<relay>` is absent, or when `<for_restore>` is present, that call is not in the plan, and the helper stays the text the install job wrote.
 
@@ -449,9 +473,11 @@ When `<relay>` is present and `<for_restore>` is absent, one more direct call fo
 8. The base route, one POST, only after first-contact has created the workspace.
 9. The checks from outside the machine, then the memory read, then a closing re-inspection.
 
-An install for a restore is calls 1 to 4 and no other, then a closing re-inspection. It starts no container, creates no volume or network, posts no route, and creates no admin or workspace, since a restore brings its own. It stops at the resting state below. When `<relay>` is present, the relay's calls through the relay-service job are inserted after call 2 here too. The token-helper edit, the token length read, the start read, the relay checks and the outbound check are not in that plan. The helper does not ask for the relay's upstream tokens, which the restore brings. `conf/state` stays `hold`. Releasing the hold is Job 5, which a later part adds, and this run does not send it.
+An install for a restore is calls 1 to 4 and no other, then a closing re-inspection. It starts no container, creates no volume or network, posts no route, and creates no admin or workspace, since a restore brings its own. It stops at the resting state below. When `<relay>` is present, the relay's calls through the relay-service job are inserted after call 2 here too. The token-helper edit, the token length read, the start read, the relay checks and the outbound check are not in that plan. The helper does not ask for the relay's upstream tokens, which the restore brings. `conf/state` stays `hold`. Releasing the hold is Job 5, and this run does not send it.
 
-Job 2's plan is the route question. Job 3's plan is the removal question. Job 4's plan is the offline question, or the online question. None of them sends a pull.
+Job 2's plan is the route question. Job 3's plan is the removal question. Job 4's plan is the offline question, or the online question. Job 5's plan names the install, the one action, the calls in that job, and the way back. It sends no pull. A login action names the helper and the read, never a password. A token action names the helper and the read, never a token. `hold` names purpose `twenty-relay-hold`, limit 200, and no operands. `send` names one direct call. A report-only read is not a change plan.
+
+None of Job 2, Job 3, Job 4, or Job 5 sends a pull.
 
 The way back for Job 1 is Job 3, named and not sent in this run. A stop after the install job and before the start job is undone by Job 3's partial branch. The way back for one route is Job 2 with the word `remove`, named and not sent in this run. The way back for Job 4 offline is bringing that install back online, named and not sent in this run. Before Job 3's removal job is sent, the way back for its route deletes is the same: bringing the install back online from Job 3's before-state, named and not sent in this run. Images are not removed by these.
 
@@ -459,7 +485,7 @@ A re-inspection between two planned jobs reads the token the next start uses. Th
 
 ### Is the plan gated?
 
-A run whose inspection shows nothing to change writes nothing and takes no gate. Job 1 always has a change when it reaches this question. Job 2, Job 3, and Job 4 take this question only when a change call remains.
+A run whose inspection shows nothing to change writes nothing and takes no gate. Job 1 always has a change when it reaches this question. Job 2, Job 3, Job 4, and Job 5 take this question only when a change call remains. A Job 5 run that only reads the report writes nothing and takes no gate.
 
 When there is a change, hand the plan to `experts/DevOps Expert/` with `<live_state>`, in a second context, before any change. `<live_state>` is the inspection output copied verbatim. The plan names every call in order and the way back. A job names its purpose, its unit name, its limit, the token, the script, and the operands. A route POST is one object appended through the admin API, with `If-Match` set to the `Etag` from the same `GET /config/` whose body passed the shape check, not the routes path's `Etag`. It is not a whole-config replacement. A `412` on that POST means the config changed anywhere.
 
@@ -2187,7 +2213,7 @@ A failed route POST after a successful add leaves the alias without a route. A f
 
 ### Has the person confirmed the removal?
 
-Ask on Job 3, before the gate and before any removal call, the partial branch included. The full removal destroys every organisation's data on the install: the database volume, the local volume, and the directory. The partial branch removes the directory alone. There is no container, no volume, no project network, and no route.
+Ask on Job 3, before the gate and before any removal call, the partial branch included. The full removal destroys every organisation's data on the install: the database volume, the local volume, and the directory. It removes the relay with the install. The relay container `<install>-relay`, service `relay`, goes with the project containers, and `/opt/<install>/relay` goes with the directory. The partial branch removes the directory alone, and the relay's files with it. There is no container, no volume, no project network, and no route.
 
 - The person's words name the install and say to remove it. Record that confirmation in the plan. Continue to the gate.
 - The words do not name the install, or they do not say to remove it. Ask once, naming the install. No answer, or an answer that does not name it: stop. Send nothing.
@@ -2227,7 +2253,7 @@ test ! -e "$d"
 echo directory-removed
 ```
 
-The partial removal counts only when the job's class is `succeeded` and the text after `]: ` includes `identities-match` and `directory-removed`, in that order, and a closing re-inspection shows the directory absent. `changed` requires both. A job that exits after `identities-match` and before `directory-removed` is not run again. Re-read. A new plan is gated before any further delete.
+The partial removal counts only when the job's class is `succeeded` and the text after `]: ` includes `identities-match` and `directory-removed`, in that order, and a closing re-inspection shows the directory absent. The partial branch has no container. `dir-absent` means the relay's files went with the directory. The closing re-inspection shows no service `relay`. `changed` requires both. A job that exits after `identities-match` and before `directory-removed` is not run again. Re-read. A new plan is gated before any further delete.
 
 The full removal applies when the marker question named the full branch. Read identities before the gate, with one read. `argv` is `/bin/sh`, `-c`, the script, `sh`, and the install name. The person is told it is a read. `<script>` is this text and no other:
 
@@ -2393,7 +2419,7 @@ test ! -e "$d"
 echo directory-removed
 ```
 
-The full removal counts only when the job's class is `succeeded` and the text after `]: ` includes `identities-match`, `containers-removed`, `volumes-removed`, `network-removed`, and `directory-removed`, in that order, and a closing re-inspection shows the directory absent, the project containers absent, the project volumes absent, the project networks absent, and the live config and the saved config still equal to the post-route before-state. The project networks are absent when the project-networks section is empty and the `${install}-proxy` inspect contains `not found`, compared without regard to case. `changed` requires all of that. A job that exits after `identities-match` and before `directory-removed` is not run again. Ask where a stopped removal stopped, after the job question. The job is not re-sent.
+The full removal counts only when the job's class is `succeeded` and the text after `]: ` includes `identities-match`, `containers-removed`, `volumes-removed`, `network-removed`, and `directory-removed`, in that order, and a closing re-inspection shows the directory absent, the project containers absent, the project volumes absent, the project networks absent, and the live config and the saved config still equal to the post-route before-state. The relay is among what that removal deletes. The closing re-inspection shows no service `relay` in the project section and `dir-absent`, so the relay container and `/opt/<install>/relay` are both gone. The project networks are absent when the project-networks section is empty and the `${install}-proxy` inspect contains `not found`, compared without regard to case. `changed` requires all of that. A job that exits after `identities-match` and before `directory-removed` is not run again. Ask where a stopped removal stopped, after the job question. The job is not re-sent.
 
 ### Has the person confirmed taking the install offline, or bringing it back online?
 
@@ -2405,7 +2431,7 @@ Ask on Job 4, before the gate and before any route call.
 
 ### Job 4. Take an install offline
 
-Keeping the data. The marker question has said this is a complete install this skill made. The confirmation is recorded. The gate runs before any change call. This job changes no alias, no container, no network, no volume, and no file. It stops there by design.
+Keeping the data. The marker question has said this is a complete install this skill made. The confirmation is recorded. The gate runs before any change call. This job changes no alias, no container, no network, no volume, and no file. It stops there by design. The relay keeps running. Neither offline nor online writes `conf/state`, so bringing an install online never releases a hold.
 
 The aliases are the names inside the brackets on the aliases line, split on commas. Every step below uses that order, left to right.
 
@@ -2428,7 +2454,7 @@ When the GET was already `404`, do that same saved-config read and continue only
 
 After the last alias, read the config script once more. The live config and the saved config have to parse to the same object, and that object is the before-state with only this install's route objects removed. Every other route stays. A difference stops the run. Report the difference. Do not delete a container, a network, a volume, an alias, or a file.
 
-Then re-inspect with the inspection script. The outside checks are one curl each, the curl in the outside-checks question, for `<base>` and for `app.<base>`, with no retry and no `-k`. A Twenty answer is exit 0 and the code `200`. The requested state is that neither host gives a Twenty answer, this install's routes are absent from the live config and from the saved config, and the aliases line, the project containers, the project volumes, the project networks, and the directory are unchanged from the inspection.
+Then re-inspect with the inspection script. The outside checks are one curl each, the curl in the outside-checks question, for `<base>` and for `app.<base>`, with no retry and no `-k`. A Twenty answer is exit 0 and the code `200`. The requested state is that neither host gives a Twenty answer, this install's routes are absent from the live config and from the saved config, and the aliases line, the project containers, the project volumes, the project networks, and the directory are unchanged from the inspection. The relay container is still running. `conf/state` is the bytes it had. Offline does not write it.
 
 The way back is bringing the install back online, named in the plan and not sent in this run.
 
@@ -2442,8 +2468,454 @@ For each recorded object, in the stated order, a fresh config read, the config s
 
 This posts every such label, `base` and `app` included. It does not touch an alias. A run stopped partway is taken again from a fresh plan with the same recorded objects: an object already present is skipped, and only the missing ones are posted.
 
-After the last POST, re-inspect. The requested state is each recorded route present and exactly the recorded object, and the aliases, containers, networks, volumes, and directory unchanged. The outside checks are the outside-checks question for `<base>` and for `app.<base>`.
+After the last POST, re-inspect. The requested state is each recorded route present and exactly the recorded object, and the aliases, containers, networks, volumes, and directory unchanged. The relay container and `conf/state` are unchanged. Online does not write `send`. The outside checks are the outside-checks question for `<base>` and for `app.<base>`.
 
+### Has the person confirmed the relay change?
+
+Ask on Job 5, before the gate and before any change call. A report-only read asks nothing here, writes nothing, and takes no gate.
+
+- The action adds, rotates, or removes one login. The person's words name the install, the login, the domain, and the action. An add or a rotate also names the upstream. Record that confirmation in the plan. Continue to the gate.
+- The action writes `send` or `hold`. The person's words name the install and that word. Record that confirmation in the plan. Continue to the gate. A restore target's relay stays held until this job writes `send`.
+- The action replaces one upstream token. The person's words name the install and the upstream. Record that confirmation in the plan. Continue to the gate. The token is not named.
+- The action adds or removes one upstream. The person's words name the install, the upstream, and the action. Record that confirmation in the plan. Continue to the gate.
+- The words do not name the install and the action. Ask once, naming the install and the action. No answer, or an answer that does not name them: stop. Send nothing.
+
+### Job 5. Relay logins and state
+
+One action in a run. The marker question has said this is a complete install this skill made. When the action changes anything, the confirmation is recorded and `experts/DevOps Expert/` has gated the plan before any change call. A report-only read writes nothing and takes no gate.
+
+The relay directory is `/opt/<install>/relay`. When it is absent, a change stops. Job 1 installs the relay. This job does not. A report-only read still sends the report script below, which prints `relay-report:state:absent`.
+
+An organisation's login is bound to its domain once. A second login for a domain is refused by name. Removing a login is what taking an organisation's shared mailbox off the relay means. `rotate` replaces the password and may name another upstream. It never changes the domain.
+
+The tool is `tools/twenty-relay/`. Its commands used here are `login-helper` and `state`. The token helper, the upstream write, and the report read are the scripts in this job. The tool does not print those three.
+
+#### One login
+
+The login read is one direct call, before the helper is given and again after the person has run it. `argv` is `/bin/sh`, `-c`, the script, `sh`, the install name, and the login. The person is told it is a read. It prints each login's name, domain and upstream, an eight-character hash prefix for the named login when the stored hash has one, whether that login is present, each upstream name in `upstreams.json`, and the relay container's latest `config hash=` log line. It prints no salt, no password, and no full hash.
+
+`<script>` is this text and no other:
+
+```
+set -eu
+export LC_ALL=C
+install=$1
+login=$2
+fail() { printf '%s\n' "relay-login:fail:$1"; exit 1; }
+case "$install" in *[!a-z0-9]*|""|caddy) fail install;; esac
+n=${#install}
+[ "$n" -ge 2 ] && [ "$n" -le 13 ] || fail install
+case $(printf '%.1s' "$install") in [a-z]);; *) fail install;; esac
+case "$login" in ""|*[!a-z0-9-]*) fail login;; esac
+ln=${#login}
+[ "$ln" -ge 1 ] && [ "$ln" -le 32 ] || fail login
+conf=/opt/$install/relay/conf/logins.json
+[ -f "$conf" ] || fail no-logins
+python3 - "$conf" "$login" <<'PY'
+import json, os, sys
+path, login = sys.argv[1:3]
+rows = json.load(open(path, encoding='utf-8'))
+if not isinstance(rows, list):
+    sys.stderr.write('not-list\n')
+    sys.exit(1)
+seen = False
+for row in rows:
+    if not isinstance(row, dict):
+        sys.stderr.write('row\n')
+        sys.exit(1)
+    name = row.get('login')
+    domain = row.get('domain')
+    upstream = row.get('upstream')
+    for value in (name, domain, upstream):
+        if not isinstance(value, str) or value == '' or any(ch in value for ch in ':\n\r'):
+            sys.stderr.write('row\n')
+            sys.exit(1)
+    sys.stdout.write('relay-login:%s:%s:%s\n' % (name, domain, upstream))
+    if name == login:
+        seen = True
+        digest = row.get('sha256')
+        prefix = ''
+        if isinstance(digest, str) and len(digest) >= 8:
+            head = digest[:8]
+            if all(ch in '0123456789abcdef' for ch in head):
+                prefix = head
+        sys.stdout.write('relay-login-hash:%s:%s\n' % (name, prefix))
+if seen:
+    sys.stdout.write('relay-login:present:%s\n' % login)
+else:
+    sys.stdout.write('relay-login:absent:%s\n' % login)
+up_path = os.path.join(os.path.dirname(path), 'upstreams.json')
+try:
+    ups = json.load(open(up_path, encoding='utf-8'))
+except (OSError, ValueError):
+    ups = []
+if isinstance(ups, list):
+    for row in ups:
+        if not isinstance(row, dict):
+            continue
+        uname = row.get('name')
+        if isinstance(uname, str) and uname and all(ch not in uname for ch in ':\n\r'):
+            sys.stdout.write('relay-upstream-known:%s\n' % uname)
+PY
+logs=$(docker logs --tail 400 -- "${install}-relay" 2>&1 || true)
+line=$(printf '%s\n' "$logs" | awk '/config hash=/ { kept = $0 } END { if (kept != "") print kept }')
+if [ -n "$line" ]; then
+  printf '%s\n' "relay-reload:$line"
+else
+  printf '%s\n' "relay-reload:absent"
+fi
+printf '%s\n' "relay-login:read:ok"
+```
+
+Before the helper, take the first match.
+
+- The read did not print `relay-login:read:ok`. Stop. The helper is not given. Send nothing.
+- The action is `add`, and the output has `relay-login:present:<login>`, or a `relay-login:` line whose domain is this domain. Refuse by name. A second login for a bound domain is refused. Write nothing. The helper is not given.
+- The action is `rotate` or `remove`, and the output has `relay-login:absent:<login>`, or the line for that login carries another domain. Refuse by name. Write nothing. The helper is not given.
+- The action is `add` or `rotate`, and no `relay-upstream-known:` line is the named upstream. Refuse by name. `upstreams.json` lacks that upstream. Write nothing. The helper is not given.
+- Otherwise record the eight-character prefix when one was printed. Continue.
+
+Build the helper where the plugin is: `node scripts/twenty-relay.js login-helper --install-name <install> --login <login> --domain <domain> --upstream <upstream> --action add|rotate|remove`. The domain is the hostname lowercased. The command prints one JSON object. Its `helper` field is the text. That text is longer than 4096 code points, so it is never an argument of `vm.command.run`, and it needs a terminal. Give the text to the person. They run it as root on the machine, from their own Oracle Cloud Shell session, the route `skills/Prepare VM/providers/oracle.md` names. The password is printed only in that terminal. This skill does not ask for it, does not repeat it, and does not place it in an operand.
+
+The helper refuses, writing nothing, a second login for a bound domain, a rotate or a remove whose domain differs, and an upstream `upstreams.json` lacks. It writes the new `logins.json` by rename, mode `0640`, owner `0:1000`, and signals `<install>-relay`. Its standard output is `login=`, `domain=`, and `hash=`, the first eight hex characters of the stored hash. Exit 3 means `logins.json` is in place and the relay reads it at its next start or `SIGHUP`. The password was not in that output.
+
+After the person has run it, send the login read again. The action counts only when the call came back and all of these hold. For `add` and `rotate`: a line `relay-login:<login>:<domain>:<upstream>`, a line `relay-login-hash:<login>:` whose prefix equals the helper's `hash=`, and the last `relay-reload:` line contains `status=loaded`. For `remove`: `relay-login:absent:<login>`, no `relay-login:<login>:` line remains, the helper's `hash=` equals the prefix recorded before the helper, and the last `relay-reload:` line contains `status=loaded`. Exit 3 does not count until a later read shows `status=loaded`. Do not give the helper again in this run. The lines shown are the login, the domain, the upstream, the eight-character prefix, and the reload line.
+
+The way back for an add is a remove of that login, named and not sent in this run. A rotate or a remove cannot put the old password back. The person copies the new password from that terminal into Twenty.
+
+#### Send or hold
+
+Build the argv where the plugin is: `node scripts/twenty-relay.js state --install-name <install> --to send` or `--to hold`. The printed `argv` is `/bin/sh`, `-c`, a script, `sh`. The script writes the four bytes `send` or `hold`, with no newline, to `/opt/<install>/relay/conf/state`, mode `0640`, owner `0:1000`, by rename, then reads `/opt/<install>/relay/journal/status`. The relay writes that file as `state=<send|hold> inflight=<n> seq=<n> time=<ISO-8601 UTC>`. For `hold` the script waits up to 130 seconds for a status no older than 15 seconds whose `state` is `hold`, then for `inflight=0` in such a status. It prints `state=`, `inflight=`, and `status-age=`. `inflight` is `unknown` when no fresh status showed the word just written. The relay reads tokens only at start and on `SIGHUP`. This write does not signal it. The state word is read from the file.
+
+`hold` is longer than one direct call may last. It runs as a tracked job. Write the script the tool printed, verbatim, to the temporary directory. Its first line is exactly `set -eu`. Run `start` with `--purpose twenty-relay-hold`, `--limit 200`, `--token` the token the latest inspection read, `--script` that file, and no operands. The install and the word are already in the script. Send the `argv` that start prints, unchanged. Then the job question.
+
+`send` returns at once. It may be one direct call. Send the state command's `argv` unchanged as one `vm.command.run`. It is not a job.
+
+The hold counts only when the job's class is `succeeded` and the text after `]: ` includes `state=hold` and `inflight=0`. `inflight=unknown`, or any other count, is not settled. Do not send the job again. The file may already say `hold`. A hold is often still running after six polls, because the wait is up to 130 seconds and each poll waits at most 10 seconds. Report the state the last poll that was read showed, with the unit name, the invocation ID and the limit. Do not call it settled. Do not start another job. The second-run questions adopt it once it has finished.
+
+The send counts when the call came back and the output includes `state=send`. `inflight` may be `unknown`. Send does not wait for zero.
+
+A restore target's relay stays held until this job writes `send`. Job 1 does not write `send`. Job 4 does not write `conf/state`.
+
+The way back for `send` is `hold`, named and not sent in this run. The way back for `hold` is `send`, named and not sent in this run.
+
+#### One upstream token
+
+The relay reads each token at start and on `SIGHUP`, and a transaction keeps the snapshot it began with. Replacing a token writes the file and then signals the container.
+
+Before the helper, the login read has printed `relay-upstream-known:<name>`. When it has not, refuse by name. `upstreams.json` lacks that upstream. Write nothing. The helper is not given.
+
+The helper is this text and no other. Give it to the person. They run it as root with `bash` on the machine, from their own Oracle Cloud Shell session, the same route as the login helper. It is not sent through the router. It needs a terminal, and the token must not be an operand. It prompts for that one `RELAY_TOKEN_<NAME>` from `/dev/tty`, refuses an empty value or one with whitespace, writes the bytes with no trailing newline, mode `0640`, owner `0:1000`, by rename, then runs `docker kill --signal=HUP -- <install>-relay`, and prints `saved:<key>:length:<n>`. `<NAME>` is the upstream name with every letter turned to upper case and every `-` turned to `_`. The token appears only in that terminal.
+
+```
+set -eu
+export LC_ALL=C
+install=$1
+name=$2
+die() { printf '%s\n' "$1" >&2; exit 1; }
+case "$install" in *[!a-z0-9]*|""|caddy) die "invalid install";; esac
+n=${#install}
+[ "$n" -ge 2 ] && [ "$n" -le 13 ] || die "invalid install"
+case $(printf '%.1s' "$install") in [a-z]);; *) die "invalid install";; esac
+case "$name" in ""|*[!a-z0-9-]*) die "invalid upstream";; esac
+wn=${#name}
+[ "$wn" -ge 1 ] && [ "$wn" -le 16 ] || die "invalid upstream"
+case $(printf '%.1s' "$name") in [a-z]);; *) die "invalid upstream";; esac
+sec=/opt/$install/relay/secrets
+[ -d "$sec" ] || die "no secrets directory"
+[ -c /dev/tty ] || die "no terminal"
+key=$(printf '%s' "$name" | tr 'a-z-' 'A-Z_')
+key=RELAY_TOKEN_$key
+read -rsp "Type ${key}, then Enter (hidden): " v </dev/tty || true
+printf '\n' >/dev/tty
+case "$v" in ''|*[[:space:]]*) printf '%s\n' "refused:$key:empty-or-whitespace"; exit 1 ;; esac
+n=${#v}
+lockwait=${TWENTY_RELAY_LOCK_WAIT:-30}
+lock=/opt/$install/relay/.helper.lock
+exec 9>"$lock"
+flock -w "$lockwait" 9 || die "another helper is running"
+t=$(mktemp "$sec/.token.XXXXXX")
+trap 'rm -f -- "$t"' EXIT
+printf '%s' "$v" > "$t"
+chmod 640 "$t"
+chown 0:1000 "$t"
+mv -T -- "$t" "$sec/$name.token"
+trap - EXIT
+unset v
+if ! docker kill --signal=HUP -- "${install}-relay"; then
+  printf '%s\n' "saved:$key:length:$n"
+  printf '%s\n' "the token file is in place; the relay reads it at its next start or SIGHUP" >&2
+  exit 3
+fi
+printf '%s\n' "saved:$key:length:$n"
+```
+
+Exit 3 means the token file is in place and the relay reads it at its next start or `SIGHUP`. Do not claim `status=loaded` on that exit.
+
+The read-back is one direct call after the person has run the helper. `argv` is `/bin/sh`, `-c`, the script, `sh`, the install name, and the upstream name. The person is told it is a read. It prints the token file's mode, owner and byte count, and the relay's latest `config hash=` line. It prints no token.
+
+`<script>` is this text and no other:
+
+```
+set -eu
+export LC_ALL=C
+install=$1
+name=$2
+fail() { printf '%s\n' "relay-token:fail:$1"; exit 1; }
+case "$install" in *[!a-z0-9]*|""|caddy) fail install;; esac
+n=${#install}
+[ "$n" -ge 2 ] && [ "$n" -le 13 ] || fail install
+case $(printf '%.1s' "$install") in [a-z]);; *) fail install;; esac
+case "$name" in ""|*[!a-z0-9-]*) fail name;; esac
+wn=${#name}
+[ "$wn" -ge 1 ] && [ "$wn" -le 16 ] || fail name
+case $(printf '%.1s' "$name") in [a-z]);; *) fail name;; esac
+f=/opt/$install/relay/secrets/$name.token
+if [ ! -f "$f" ]; then
+  printf '%s\n' "relay-token:absent:$name"
+  printf '%s\n' "relay-reload:absent"
+  exit 1
+fi
+st=$(stat -c '%a %u:%g %s' -- "$f")
+printf '%s\n' "relay-token:$name:$st"
+logs=$(docker logs --tail 400 -- "${install}-relay" 2>&1 || true)
+line=$(printf '%s\n' "$logs" | awk '/config hash=/ { kept = $0 } END { if (kept != "") print kept }')
+if [ -n "$line" ]; then
+  printf '%s\n' "relay-reload:$line"
+else
+  printf '%s\n' "relay-reload:absent"
+fi
+printf '%s\n' "relay-token:reload:ok"
+```
+
+It counts when the call came back, a line `relay-token:<name>:640 0:1000 <bytes>` has a byte count of at least 1 equal to the helper's `length:`, and the last `relay-reload:` line contains `status=loaded`. The way back needs a token the vendor reissues. This run does not put the old bytes back.
+
+#### One upstream
+
+One direct call appends or removes one row of `upstreams.json`, by rename, the same object the relay-files job writes: `name`, host `smtp.mx.cloudflare.net`, port `465`, user `api_token`, and `token_file` `/secrets/<name>.token`. The file is mode `0640`, owner `0:1000`, with no trailing newline. The call does not signal the relay. On an add, the token helper follows, and that helper's signal reloads upstreams and tokens. Then the token read-back.
+
+`argv` is `/bin/sh`, `-c`, the script, `sh`, the install name, `add` or `remove`, and the upstream name.
+
+`<script>` is this text and no other:
+
+```
+set -eu
+export LC_ALL=C
+install=$1
+action=$2
+name=$3
+fail() { printf '%s\n' "relay-upstream:fail:$1"; exit 1; }
+case "$install" in *[!a-z0-9]*|""|caddy) fail install;; esac
+n=${#install}
+[ "$n" -ge 2 ] && [ "$n" -le 13 ] || fail install
+case $(printf '%.1s' "$install") in [a-z]);; *) fail install;; esac
+case "$action" in add|remove) ;; *) fail action;; esac
+case "$name" in ""|*[!a-z0-9-]*) fail name;; esac
+wn=${#name}
+[ "$wn" -ge 1 ] && [ "$wn" -le 16 ] || fail name
+case $(printf '%.1s' "$name") in [a-z]);; *) fail name;; esac
+base=/opt/$install/relay
+conf=$base/conf
+dest=$conf/upstreams.json
+logins=$conf/logins.json
+[ -f "$dest" ] || fail no-upstreams
+[ -d "$base/secrets" ] || fail no-secrets
+tmp=$(mktemp "$conf/.upstreams.XXXXXX")
+rc=0
+python3 - "$dest" "$logins" "$tmp" "$action" "$name" <<'PY' || rc=$?
+import json, sys
+dest, logins, tmp, action, name = sys.argv[1:6]
+def load(path):
+    try:
+        with open(path, encoding='utf-8') as handle:
+            return json.load(handle)
+    except FileNotFoundError:
+        return []
+    except ValueError:
+        sys.stderr.write('json\n')
+        sys.exit(2)
+rows = load(dest)
+if not isinstance(rows, list):
+    sys.stderr.write('not-list\n')
+    sys.exit(2)
+if action == 'remove':
+    bound = load(logins)
+    if not isinstance(bound, list):
+        bound = []
+    if any(isinstance(row, dict) and row.get('upstream') == name for row in bound):
+        sys.stderr.write('named\n')
+        sys.exit(4)
+    kept = [row for row in rows if not (isinstance(row, dict) and row.get('name') == name)]
+    if len(kept) == len(rows):
+        sys.stderr.write('absent\n')
+        sys.exit(5)
+    rows = kept
+else:
+    if any(isinstance(row, dict) and row.get('name') == name for row in rows):
+        sys.stderr.write('present\n')
+        sys.exit(3)
+    rows.append({
+        'name': name,
+        'host': 'smtp.mx.cloudflare.net',
+        'port': 465,
+        'user': 'api_token',
+        'token_file': '/secrets/' + name + '.token'
+    })
+text = json.dumps(rows, separators=(',', ':'))
+with open(tmp, 'w', encoding='utf-8') as handle:
+    handle.write(text)
+PY
+if [ "$rc" -ne 0 ]; then
+  rm -f -- "$tmp"
+  if [ "$rc" -eq 3 ]; then fail present; fi
+  if [ "$rc" -eq 4 ]; then fail named; fi
+  if [ "$rc" -eq 5 ]; then fail absent; fi
+  fail write
+fi
+chmod 640 "$tmp"
+chown 0:1000 "$tmp"
+mv -T -- "$tmp" "$dest"
+if [ "$action" = add ]; then
+  printf '%s\n' "relay-upstream:$name:smtp.mx.cloudflare.net:465:api_token:/secrets/$name.token"
+fi
+printf '%s\n' "relay-upstream:$action:ok"
+```
+
+Before an add, refuse by name when `relay-upstream-known:<name>` was printed. Write nothing. The add counts when the call came back and the output includes `relay-upstream:<name>:smtp.mx.cloudflare.net:465:api_token:/secrets/<name>.token` and `relay-upstream:add:ok`. The upstream is configured only when the token read-back then counts.
+
+Removing an upstream is refused while a login names it. Before the call, refuse by name when a `relay-login:` line carries that upstream. Send nothing. The script also refuses: it prints `relay-upstream:fail:named` and writes nothing, and the token file stays. The remove counts when the call came back, the output includes `relay-upstream:remove:ok`, and a login read after it has no login on that upstream and no `relay-upstream-known:` line for that name. The token file is left in place.
+
+The way back for an add is a remove, only when no login names the upstream, named and not sent in this run. The way back for a remove is an add of the same name, named and not sent in this run, then a token.
+
+#### The relay in the report
+
+One direct call of the report script on every run whose relay directory is present, on every Job 1 run where `<relay>` was named, on every Job 5 run, and after Job 3's removal. `argv` is `/bin/sh`, `-c`, the script, `sh`, the install name, and the offset. The offset is the `relay-journal:end:` number the last report of this install recorded, or `0` when none was recorded. The person is told it is a read. The call writes nothing, including `conf/state`. On Job 1 it follows `outbound:ok`, or the resting state on a restore.
+
+`<script>` is this text and no other:
+
+```
+set -eu
+export LC_ALL=C
+install=$1
+from=$2
+fail() { printf '%s\n' "relay-report:fail:$1"; exit 1; }
+case "$install" in *[!a-z0-9]*|""|caddy) fail install;; esac
+n=${#install}
+[ "$n" -ge 2 ] && [ "$n" -le 13 ] || fail install
+case $(printf '%.1s' "$install") in [a-z]);; *) fail install;; esac
+case "$from" in ""|*[!0-9]*) fail offset;; esac
+base=/opt/$install/relay
+if [ ! -d "$base" ]; then
+  printf '%s\n' "relay-report:state:absent"
+  printf '%s\n' "relay-report:logins:none"
+  printf '%s\n' "relay-report:upstreams:none"
+  printf '%s\n' "relay-ambiguous:0"
+  printf '%s\n' "relay-journal:end:0"
+  printf '%s\n' "relay-report:ok"
+  exit 0
+fi
+rep=$(mktemp)
+trap 'rm -f -- "$rep"' EXIT
+python3 - "$base" "$from" > "$rep" <<'PY'
+import json, os, sys
+base, from_text = sys.argv[1], sys.argv[2]
+start = int(from_text)
+conf = os.path.join(base, 'conf')
+state_path = os.path.join(conf, 'state')
+try:
+    word = open(state_path, 'rb').read()
+except OSError:
+    word = b''
+if word == b'send':
+    state = 'send'
+else:
+    state = 'hold'
+sys.stdout.write('relay-report:state:%s\n' % state)
+try:
+    rows = json.load(open(os.path.join(conf, 'logins.json'), encoding='utf-8'))
+except (OSError, ValueError):
+    rows = []
+wrote = False
+if isinstance(rows, list):
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        login = row.get('login')
+        domain = row.get('domain')
+        upstream = row.get('upstream')
+        if not all(isinstance(value, str) and value and all(ch not in value for ch in ':\n\r') for value in (login, domain, upstream)):
+            sys.stderr.write('row\n')
+            sys.exit(1)
+        sys.stdout.write('relay-report:login:%s:%s:%s\n' % (login, domain, upstream))
+        wrote = True
+if not wrote:
+    sys.stdout.write('relay-report:logins:none\n')
+try:
+    ups = json.load(open(os.path.join(conf, 'upstreams.json'), encoding='utf-8'))
+except (OSError, ValueError):
+    ups = []
+named = False
+if isinstance(ups, list):
+    for row in ups:
+        if isinstance(row, dict) and isinstance(row.get('name'), str):
+            sys.stdout.write('relay-upstream-name:%s\n' % row['name'])
+            named = True
+if not named:
+    sys.stdout.write('relay-report:upstreams:none\n')
+def count_from(path, lo):
+    try:
+        data = open(path, 'rb').read()
+    except OSError:
+        return None, 0
+    if lo > len(data):
+        return None, len(data)
+    text = data[lo:].decode('utf-8', 'replace')
+    n = sum(1 for line in text.splitlines() if 'outcome=ambiguous' in line)
+    return n, len(data)
+journal = os.path.join(base, 'journal', 'journal')
+previous = os.path.join(base, 'journal', 'journal.1')
+found, size = count_from(journal, start)
+if found is None:
+    old, _old_size = count_from(previous, start)
+    if old is None:
+        old, _old_size = count_from(previous, 0)
+        sys.stdout.write('relay-journal:offset-reset\n')
+    fresh, size = count_from(journal, 0)
+    found = (old or 0) + (fresh or 0)
+sys.stdout.write('relay-ambiguous:%d\n' % found)
+sys.stdout.write('relay-journal:end:%d\n' % size)
+PY
+while IFS= read -r line || [ -n "$line" ]; do
+  case "$line" in
+    relay-upstream-name:*)
+      name=${line#relay-upstream-name:}
+      case "$name" in ""|*[!a-z0-9-]*) printf '%s\n' "relay-report:upstream:$name:not-configured"; continue;; esac
+      f=$base/secrets/$name.token
+      if [ ! -f "$f" ]; then
+        printf '%s\n' "relay-report:upstream:$name:not-configured"
+      else
+        st=$(stat -c '%a %u:%g %s' -- "$f")
+        set -- $st
+        if [ "$1" = 640 ] && [ "$2" = 0:1000 ] && [ "$3" -ge 1 ]; then
+          printf '%s\n' "relay-report:upstream:$name:configured"
+        else
+          printf '%s\n' "relay-report:upstream:$name:not-configured"
+        fi
+      fi
+      ;;
+    *)
+      printf '%s\n' "$line"
+      ;;
+  esac
+done < "$rep"
+rm -f -- "$rep"
+trap - EXIT
+printf '%s\n' "relay-report:ok"
+```
+
+Copy `relay-report:state:`, each `relay-report:login:`, each `relay-report:upstream:`, `relay-ambiguous:`, and `relay-journal:end:`. `relay-report:state:` is `send`, `hold`, or `absent`. `absent` means the relay is not installed. A login line is that login's name, domain and upstream, with no secret. An upstream line is `configured` or `not-configured`. Configured means the token file is a regular file, mode `640`, owner `0:1000`, and at least one byte. `relay-ambiguous:` is the count of `ambiguous` outcomes in the relay's journal since the offset. `relay-journal:end:` is the offset the next report uses. `relay-journal:offset-reset` means the saved offset did not fall inside the current journal, so the count includes what `journal.1` still holds plus the current file. That count can repeat a line. It does not hide one. The report prints no token, no salt, and no hash from this call.
+
+On Job 3, `relay-report:state:absent`, no service `relay` in the project section, and `dir-absent` together say the relay is gone.
 ### What did the job do?
 
 Ask for each planned job. Do not send the start until the gate has continued and the person approves that start. Do not repeat a start without a new inspection and a new approval, except after the class `lock-busy`, which started nothing and whose retry the token protects. Do not send the way back because a job failed. Save each job answer in the temporary directory and pass that absolute path to `classify`. `needs_confirmation` is the approval question, taken before classify. On a poll, a read-back, a journal read, or a release, a gateway status other than `needs_confirmation` and other than `vendor_error` is handled as the direct-call gateway bullets, with the module `command`, and it is not classified as a statement about the job. On a start, classify that status: the class `gateway-status` has those same bullets. `vendor_error` is classified on every step. A re-inspection is not a job answer: a gateway status other than `needs_confirmation` on a re-inspection is those same bullets.
@@ -2508,13 +2980,13 @@ This question is for a `vm.command.run` that is not a job start, poll, read-back
 
 ### What did the re-inspection show?
 
-After a job, re-inspect when the job question says to. After the base route, after Job 2's last change, after either of Job 3's removal jobs, or after Job 4's last route change, inspect again with the same inspection script. The approval question applies, and the person is told it is a read. A job that exited 0 is not yet `changed`.
+After a job, re-inspect when the job question says to. After the base route, after Job 2's last change, after either of Job 3's removal jobs, after Job 4's last route change, or after Job 5's last change call, inspect again with the same inspection script. The approval question applies, and the person is told it is a read. A job that exited 0 is not yet `changed`.
 
 Job 1's requested state: the four containers match the start checks, the app route and the base route are present and are exactly the generated object, `workspace:ok` was printed or the password file is absent after a call whose outcome was unknown, and both outside checks returned `200` over verified TLS. A `-k` answer is served and not verified, and it is not this state.
 
 Job 2 add's requested state: the new route is present and is exactly the generated object, and the aliases line contains the new alias. Job 2 remove's requested state: that route is absent from the live config and from the saved config, and the aliases line does not contain that alias.
 
-Job 3's full removal requested state is the one its question states. Job 3's partial branch requested state is the directory absent. Job 4 offline's requested state is the one its question states. Job 4 online's requested state is the one its question states.
+Job 3's full removal requested state is the one its question states, including no service `relay` and `dir-absent`. Job 3's partial branch requested state is the directory absent, which takes the relay's files with it, and no service `relay`. Job 4 offline's requested state is the one its question states. Job 4 online's requested state is the one its question states. Job 5's requested state is the counting rule in that job. A hold whose `inflight` is `unknown`, or any count other than `0`, does not hold.
 
 - The re-inspection is incomplete, `truncated`, absent, or not a state. Do not claim `changed` or `unchanged`. Report failed, with the change call's outcome and the re-inspection's outcome. Do not repeat the change.
 - The requested state holds, and it did not hold in the before-state. `changed`.
@@ -2525,9 +2997,9 @@ Job 3's full removal requested state is the one its question states. Job 3's par
 
 One report. For each part: what was inspected, what was planned, the gate's verdict or that no gate was taken, each call's action and its `outcome`, any `exit_code`, the output copied verbatim where the report shows it, the re-inspection, and `changed`, `unchanged`, or failed. A line that contains `PG_DATABASE_PASSWORD=`, `ENCRYPTION_KEY=`, `CLOUDFLARE_API_KEY=`, `EMAIL_SMTP_PASSWORD=`, `RESEND_API_KEY=`, `RESEND_WEBHOOK_SIGNING_SECRET=`, `STORAGE_S3_SECRET_ACCESS_KEY=`, `STORAGE_S3_ACCESS_KEY_ID=`, or `ADMIN_PASSWORD=` is withheld, and the report says the line was withheld. A secret value is not a report line. Lengths, booleans, counts and statuses are.
 
-The URL is `https://<base>/` and `https://app.<base>/`. The report says whether each `/healthz` answered and whether the certificate verified. It names the image digests. It does not name the source address as a field. When `<relay>` is present, it names each upstream by name, the relay state `hold`, and that the relay service is in the override. It does not name a token. On an install that is not a restore, it names each token file's byte count, mode and owner from the token length read, the `relay-container:` line, the six relay-check markers, and `outbound:ok`. It says Job 1 left `conf/state` at `hold` and did not release it. Releasing the hold is Job 5, which this run does not send. On an install for a restore, it says this run wrote no token file, because the restore brings the tokens, and that the helper did not prompt for them.
+The URL is `https://<base>/` and `https://app.<base>/`. The report says whether each `/healthz` answered and whether the certificate verified. It names the image digests. It does not name the source address as a field. When `<relay>` is present, it names each upstream by name, the relay state `hold`, and that the relay service is in the override. It does not name a token. On an install that is not a restore, it names each token file's byte count, mode and owner from the token length read, the `relay-container:` line, the six relay-check markers, and `outbound:ok`. It says Job 1 left `conf/state` at `hold` and did not release it. Releasing the hold is Job 5. A Job 1 run does not send it. On an install for a restore, it says this run wrote no token file, because the restore brings the tokens, and that the helper did not prompt for them.
 
-The report says what is configured and what is not. Team email is the install's one address over SMTP, to members, not to contacts. Email to contacts is each person's own mailbox, left enabled for IMAP, SMTP and CalDAV, and not configured. Branded or campaign email is the driver that was set, Resend or LOG. When the driver is `RESEND`, the inbound email domain is set to `<inbound_domain>`. When the driver is `LOG`, no inbound email domain is set. Job 4 offline reports that the routes were removed and the data was kept, and copies this install's route objects from the before-state verbatim, since bringing it back online posts exactly those. Job 3 copies this install's route objects from its before-state once a route delete was sent. Job 4 online reports that the recorded routes were posted again, and which were already present. Google and Microsoft stay off. Email verification stays off. When the driver is `LOG`, the webhook signing secret stays unset, so signatures on `/webhooks/messaging/resend` are not verified. When the driver is `RESEND`, the signing secret is set through the helper and first contact has probed the route. `RESEND_DOMAIN_REGION` stays unset either way, so Resend provisions a new emailing domain in its default region. When `<cloudflare_saas>` is `none`, no workspace can take its own domain. When it is set, the report says the Custom Hostnames setting and the fallback origin are the person's, and that a DNS-only CNAME inside that zone to the fallback origin is served directly by Caddy, with Caddy's certificate, and Cloudflare carries none of that name's traffic.
+The report says what is configured and what is not. Team email is the install's one address over SMTP, to members, not to contacts. Email to contacts is each person's own mailbox, left enabled for IMAP, SMTP and CalDAV, and not configured. A connected mailbox sends as itself: a member's own mailbox, or an organisation's shared mailbox through the relay, signed by the organisation's own domain at Cloudflare. Twenty's emailing-domain route is separate. This skill sets that route up only when the driver is `RESEND`. Campaigns need it, and they need the feature flag `IS_MESSAGE_CAMPAIGN_ENABLED`, which this skill does not set. Branded or campaign email is the driver that was set, Resend or LOG. When the driver is `RESEND`, the inbound email domain is set to `<inbound_domain>`. When the driver is `LOG`, no inbound email domain is set. Job 4 offline reports that the routes were removed and the data was kept, and copies this install's route objects from the before-state verbatim, since bringing it back online posts exactly those. Job 3 copies this install's route objects from its before-state once a route delete was sent. Job 4 online reports that the recorded routes were posted again, and which were already present. Google and Microsoft stay off. Email verification stays off. When the driver is `LOG`, the webhook signing secret stays unset, so signatures on `/webhooks/messaging/resend` are not verified. When the driver is `RESEND`, the signing secret is set through the helper and first contact has probed the route. `RESEND_DOMAIN_REGION` stays unset either way, so Resend provisions a new emailing domain in its default region. When `<cloudflare_saas>` is `none`, no workspace can take its own domain. When it is set, the report says the Custom Hostnames setting and the fallback origin are the person's, and that a DNS-only CNAME inside that zone to the fallback origin is served directly by Caddy, with Caddy's certificate, and Cloudflare carries none of that name's traffic.
 
 When the driver is `RESEND`, the report names, in plain words, the person's steps with Resend. Receiving is enabled on `<inbound_domain>`. Its MX record is a DNS item through `experts/IT Expert/` and `skills/Zone Publisher/` in `wiser`, and it is the MX record with the lowest priority number for that name. A webhook points at `https://<base>/webhooks/messaging/resend` with the events `email.received`, `email.delivered`, `email.failed`, `email.bounced`, and `email.complained`. That webhook's signing secret is typed through `set-secrets`. The report names IT Expert Rule 5's question and does not answer it. The question covers:
 
@@ -2538,7 +3010,7 @@ When the driver is `RESEND`, the report names, in plain words, the person's step
 
 It names the cost: Resend's receiving price is not stated on its documentation pages, so the operator confirms it at Resend before enabling receiving.
 
-The report says no real contact goes onto the install until a backup has been restored with the same encryption key, which `skills/Back Up Twenty/` does. It says that a setting saved in Twenty's admin panel is stored in the install's database and overrides `.env` for every variable Twenty does not mark env-only, storage and email included, so this install's settings are changed in `.env`, not in the admin panel. For an install for a restore, it reports the resting state and its two continuations. It names every gap that applies: a release other than v2.45.6, a machine without Docker or without Caddy in the shape `skills/Deploy Workload/` runs it, Google and Microsoft mailboxes, the Cloudflare for SaaS setting when it was not confirmed, creating the bucket, the tokens and the sending accounts, and the inbound domain's MX record and the sending service's receiving and webhook settings, which the person sets with the vendor. It names the hand-off for DNS, for a package, for workspace setup beyond the first workspace, and for a security review.
+The report says no real contact goes onto the install until a backup has been restored with the same encryption key, which `skills/Back Up Twenty/` does. It says that a setting saved in Twenty's admin panel is stored in the install's database and overrides `.env` for every variable Twenty does not mark env-only, storage and email included, so this install's settings are changed in `.env`, not in the admin panel. For an install for a restore, it reports the resting state and its two continuations. It names every gap that applies: a release other than v2.45.6, a machine without Docker or without Caddy in the shape `skills/Deploy Workload/` runs it, Google and Microsoft mailboxes, the Cloudflare for SaaS setting when it was not confirmed, creating the bucket, the tokens and the sending accounts, the inbound domain's MX record and the sending service's receiving and webhook settings, which the person sets with the vendor, changing an existing install's emailing-domain driver, and sending through the relay from an organisation whose Cloudflare account is not on Workers Paid. It names the hand-off for DNS, for a package, for workspace setup beyond the first workspace, and for a security review.
 
 For each job, also: its unit name, its invocation ID and its limit, the last poll's state, the read-back lines the report may show and the line count shown, and the release outcome. A job not read as finished after six polls is reported in the state the last poll that was read showed, or as unknown when none was read.
 
@@ -2577,7 +3049,11 @@ For each job, also: its unit name, its invocation ID and its limit, the last pol
 - **An upstream token written into `.env`, or printed.** The added prompts write `/opt/<install>/relay/secrets/<name>.token` only. The report prints the length, the mode and the owner.
 - **The start script changed so that it reads the relay.** The start script stays the text this skill already sends. `docker compose up -d --wait` starts `relay`. The relay start read is the next call, and only when `<relay>` is present.
 - **First contact sent before the relay checks and `outbound:ok`.** When `<relay>` is present those two calls follow the ports read and precede the first-contact writers. A line other than the passing markers stops the run. No route is added.
-- **`conf/state` written `send` in Job 1.** The relay-files job writes `hold`. No later call in Job 1 writes `state`. Job 5 releases the hold, and this skill does not send Job 5.
+- **`conf/state` written `send` in Job 1.** The relay-files job writes `hold`. No later call in Job 1 writes `state`. Job 5 releases the hold. Job 1 does not send Job 5.
+- **A second login for a domain already bound.** Refused by name before the helper is given. The helper writes nothing either.
+- **A relay password or an upstream token through the router or the report.** The person types it on the machine. The read-back prints a domain, an upstream, an eight-character prefix, a length, a mode, or an owner.
+- **`hold` sent as one direct call.** It waits up to 130 seconds. It is the tracked job `twenty-relay-hold`. `inflight=unknown` is not settled. The job is not sent again.
+- **Job 4 releasing a hold.** The relay keeps running. Neither offline nor online writes `conf/state`. Bringing an install online never releases a hold.
 - **The fleet called down.** A router-host failure, or a `list_hosts` `vendor_error`, means connector access to the whole fleet depends on the router host. A `list_hosts` `uncertain` does not establish whether the call ran, and it does not say that. Installs keep serving.
 
 ## Success
@@ -2597,6 +3073,7 @@ For each job, also: its unit name, its invocation ID and its limit, the last pol
 - When the driver is `RESEND`, the install job wrote `INBOUND_EMAIL_DOMAIN` and mapped `RESEND_WEBHOOK_SIGNING_SECRET`, and the report named the person's Resend steps, IT Expert Rule 5's question without answering it, and the receiving price. When the driver is `LOG`, the install job wrote no inbound domain and mapped no signing secret.
 - Job 2 added an alias by reattaching the full list and then posting the route, or removed the route, confirmed the saved config, and then removed the alias. A half-finished pair was reported and not repaired in the same run.
 - Job 3's full removal ran only after the person confirmed by naming the install, and the report says the removal destroys every organisation's data on the install. It deleted only objects whose identity was read back, routes first, and it read Caddy's live and saved config back to the before-state with those routes removed, before it deleted data. The removal order was containers, volumes, project networks, and the directory. A container count, a volume count, or a network count of 0 was accepted when that set was empty. `<install>_default` was removed with `<install>-proxy`, and only when no container but this install's and Caddy was attached. Images stayed. Job 3's partial branch ran only after the person confirmed by naming the install. It removed the directory alone when the marker held `skill=deploy-twenty`, `release=v2.45.6`, and the project line, with or without `compose-sha256`, and the inspection showed the directory and its marker alone, with no container, no volume, and no project network. The job required the path `/opt/<install>`, a directory, the inspection's device and inode, and no mount on or under the directory. The re-inspection showed the directory absent. A project container, volume, or network with no `compose-sha256` line, or an absent marker, was named and left unchanged. A stopped removal was not re-sent. Its continuation was a new plan from a fresh identity read.
+- Job 5 ran one action on a complete install this skill made, after the person confirmed by naming the install and the action and after `experts/DevOps Expert/` gated the plan, except a report-only read, which wrote nothing and took no gate. A login change was the helper the person ran on the machine, then one login read. A token change was the helper the person ran on the machine, then one token read. An upstream add was one direct call, then that token helper and that read. `hold` was the tracked job `twenty-relay-hold`, limit 200. `send` was one direct call. `inflight=unknown` on a hold was not counted as settled. No password and no token was an operand, a router argument, or a report line. A restore target stayed `hold` until this job wrote `send`.
 - Job 4 offline ran only after the person confirmed by naming the install and saying to take it offline. It removed only this install's routes and left every alias, container, network, volume, and file in place. The outside checks did not get a Twenty answer. Job 4 online ran only after the person confirmed by naming the install and saying to bring it online. It posted the route objects from the recorded before-state and no others.
 - The report names each check's answer, both URLs, what is configured and what is not, the three kinds of email, the base name's direct path when the zone applies, the no-real-contact rule, and every gap that applies.
 - Per job the report names the unit name, the invocation ID, the limit, the last poll's state, the read-back lines it may show, and the release outcome. A job was polled at most six times, each wait at most 10 seconds. A stuck job was not released.

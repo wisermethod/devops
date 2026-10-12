@@ -4,7 +4,7 @@ What this plugin does not do, declared by the primitive that names it.
 
 A gap is a capability this root does not provide that a primitive's own body names as missing (`wiser/standards/primitives.md`). This file collects every declared `gaps` entry, by hand, and is corrected whenever a primitive's gaps change. It carries capability gaps only, and names what is missing, never where it went.
 
-Counted 2026-10-10: 46 gaps across 10 primitives. Bullet count: `grep -E '^- ' system/GAPS.md | wc -l` returns 46, and the same count derived from the primitives' own `gaps:` frontmatter returns 46.
+Counted 2026-10-12: 48 gaps across 10 primitives. Bullet count: `grep -E '^- ' system/GAPS.md | wc -l` returns 48, and the same count derived from the primitives' own `gaps:` frontmatter returns 48.
 
 ## Experts
 
@@ -64,6 +64,8 @@ Counted 2026-10-10: 46 gaps across 10 primitives. Bullet count: `grep -E '^- ' s
 - Cloudflare for SaaS's custom-hostname setting and fallback origin on a zone, which the person turns on in Cloudflare's dashboard
 - creating the bucket, the API tokens and the sending accounts the install uses, which the person does with each vendor
 - the inbound domain's MX record and the sending service's receiving and webhook settings, which the person sets with the vendor
+- changing an existing install's emailing-domain driver
+- sending through the relay from an organisation whose Cloudflare account is not on Workers Paid
 
 ### Back Up Twenty
 

@@ -1,0 +1,13 @@
+{
+  "name": "twenty-relay",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Mail relay that runs in the install container",
+  "dependencies": {
+    "smtp-server": "3.19.17"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}

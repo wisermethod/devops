@@ -8,6 +8,7 @@ Deterministic operations that skills and experts call; `wiser/standards/primitiv
 
 | Tool | Description |
 |------|-------------|
+| `twenty-relay/TOOL.md` | Build the writers that install the mail relay, the login helper a person runs, and the argv that sets the relay to send or hold, as one JSON object |
 | `vm-job/TOOL.md` | Build the argument vectors that start, poll, read back and release a tracked background job on one machine a router maps, build the texts for a scheduled job, and classify each answer, as one JSON object |
 
 <!-- /generated:index -->

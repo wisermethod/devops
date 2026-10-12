@@ -1,0 +1,13 @@
+{
+  "name": "twenty-relay",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Build the writers that install the mail relay, the login helper a person runs, and the argv that sets the relay to send or hold, as one JSON object",
+  "scripts": {
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

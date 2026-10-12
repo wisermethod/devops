@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync, symlinkSync, rmSync, statSync, unlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -14,6 +14,10 @@ const payload = path.join(toolRoot, 'payload');
 const ttyRun = path.join(here, 'tty-run.py');
 // The machine's /bin/sh is dash; run the scripts under it where it is installed.
 const SH = existsSync('/bin/dash') ? '/bin/dash' : '/bin/sh';
+const HOST_FLOCK = (() => {
+  const found = spawnSync('/bin/sh', ['-c', 'command -v flock'], { encoding: 'utf8' });
+  return found.status === 0 && found.stdout.trim() !== '';
+})();
 
 function runCli(args) {
   return spawnSync(process.execPath, [cli, ...args], { encoding: 'utf8' });
@@ -54,6 +58,9 @@ exit 0
 `);
   writeFileSync(path.join(dir, 'docker'), `#!/bin/sh
 printf '%s\\n' "$*" >> "$DOCKER_LOG"
+if [ "$1" = "kill" ] && [ -n "\${DOCKER_KILL_FAIL:-}" ]; then
+  exit 1
+fi
 if [ "$1" = "logs" ]; then
   if [ "$DOCKER_MODE" = "hold" ]; then
     n=0
@@ -72,11 +79,41 @@ if [ "$1" = "logs" ]; then
 fi
 exit 0
 `);
-  for (const name of ['mv', 'chown', 'docker']) chmodSync(path.join(dir, name), 0o755);
+  // This Mac has no flock binary. The stand-in locks the inherited descriptor
+  // with Python's fcntl and exits; the shell still holds the descriptor, so
+  // the lock remains until the helper exits. A host that has flock uses that.
+  if (!HOST_FLOCK) {
+    writeFileSync(path.join(dir, 'flock'), `#!/bin/sh
+wait=0
+fd=
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -w) wait=$2; shift 2 ;;
+    *) fd=$1; shift ;;
+  esac
+done
+exec python3 - "$wait" "$fd" << 'PY'
+import fcntl, sys, time
+wait = float(sys.argv[1])
+fd = int(sys.argv[2])
+deadline = time.time() + wait
+while True:
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        raise SystemExit(0)
+    except BlockingIOError:
+        if time.time() >= deadline:
+            raise SystemExit(1)
+        time.sleep(0.05)
+PY
+`);
+  }
+  const names = HOST_FLOCK ? ['mv', 'chown', 'docker'] : ['mv', 'chown', 'docker', 'flock'];
+  for (const name of names) chmodSync(path.join(dir, name), 0o755);
   return dir;
 }
 
-function runHelper(helper, args, root) {
+function runHelper(helper, args, root, extraEnv = {}) {
   const script = helper.replace('conf=/opt/$install/relay/conf', `conf=${root}/opt/$install/relay/conf`);
   assert.notEqual(script, helper);
   const dir = binDir(root);
@@ -94,7 +131,8 @@ function runHelper(helper, args, root) {
       CHOWN_LOG: chownLog,
       DOCKER_LOG: dockerLog,
       DOCKER_MODE: 'send',
-      DOCKER_COUNT: path.join(root, 'docker.count')
+      DOCKER_COUNT: path.join(root, 'docker.count'),
+      ...extraEnv
     },
     timeout: 20000
   });
@@ -348,29 +386,43 @@ describe('twenty-relay cli', { concurrency: 1 }, () => {
     assert.match(body.argv[2], /mv -T --/);
     assert.match(body.argv[2], /chmod 0640/);
     assert.match(body.argv[2], /chown 0:1000/);
-    assert.match(body.argv[2], /inflight count=/);
-    assert.match(body.argv[2], /\+ 130\)/);
+    assert.match(body.argv[2], /journal\/status/);
+    assert.match(body.argv[2], /TWENTY_RELAY_HOLD_WAIT:-130/);
+    assert.match(body.argv[2], /status-age=/);
+    assert.equal(body.argv[2].includes('docker logs'), false);
+    assert.equal(body.argv[2].includes('inflight count='), false);
     const root = mkdtempSync(path.join(tmpdir(), 'twenty-relay-state-'));
     const dir = binDir(root);
     const conf = path.join(root, 'opt', 'ab', 'relay', 'conf');
+    const journal = path.join(root, 'opt', 'ab', 'relay', 'journal');
     mkdirSync(conf, { recursive: true });
+    mkdirSync(journal, { recursive: true });
+    const status = path.join(journal, 'status');
     const script = body.argv[2].replace('conf=/opt/$install/relay/conf', `conf=${root}/opt/$install/relay/conf`);
     const env = {
       ...process.env,
       PATH: `${dir}:${process.env.PATH}`,
       CHOWN_LOG: path.join(root, 'chown.log'),
-      DOCKER_LOG: path.join(root, 'docker.log'),
-      DOCKER_MODE: 'hold',
-      DOCKER_COUNT: path.join(root, 'docker.count')
+      DOCKER_LOG: path.join(root, 'docker.log')
     };
     writeFileSync(env.CHOWN_LOG, '');
     writeFileSync(env.DOCKER_LOG, '');
+    writeFileSync(status, `state=hold inflight=1 seq=1 time=${new Date().toISOString()}`);
+    const updater = spawn('python3', ['-c', `
+import pathlib, sys, time
+from datetime import datetime, timezone
+time.sleep(1.5)
+stamp = datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3] + 'Z'
+pathlib.Path(sys.argv[1]).write_text('state=hold inflight=0 seq=2 time=%s' % stamp)
+`, status], { stdio: 'ignore' });
     const started = Date.now();
     const held = spawnSync(SH, ['-c', script], { encoding: 'utf8', env, timeout: 8000 });
     const elapsed = Date.now() - started;
+    updater.kill('SIGKILL');
     assert.equal(held.status, 0, held.stderr);
     assert.match(held.stdout, /state=hold/);
     assert.match(held.stdout, /inflight=0/);
+    assert.match(held.stdout, /status-age=\d+/);
     assert.ok(elapsed >= 800, String(elapsed));
     assert.ok(elapsed < 8000, String(elapsed));
     assert.equal(readFileSync(path.join(conf, 'state'), 'utf8'), 'hold');
@@ -378,20 +430,99 @@ describe('twenty-relay cli', { concurrency: 1 }, () => {
 
     const sendBody = jsonOf(runCli(['state', '--install-name', 'ab', '--to', 'send']));
     const sendScript = sendBody.argv[2].replace('conf=/opt/$install/relay/conf', `conf=${root}/opt/$install/relay/conf`);
-    const sendEnv = { ...env, DOCKER_MODE: 'send', DOCKER_COUNT_VALUE: '2' };
+    writeFileSync(status, `state=send inflight=2 seq=3 time=${new Date().toISOString()}`);
     const sendStarted = Date.now();
-    const sent = spawnSync(SH, ['-c', sendScript], { encoding: 'utf8', env: sendEnv, timeout: 3000 });
+    const sent = spawnSync(SH, ['-c', sendScript], { encoding: 'utf8', env, timeout: 3000 });
     assert.equal(sent.status, 0, sent.stderr);
     assert.match(sent.stdout, /state=send/);
     assert.match(sent.stdout, /inflight=2/);
+    assert.match(sent.stdout, /status-age=\d+/);
     assert.ok(Date.now() - sendStarted < 1000);
     assert.equal(readFileSync(path.join(conf, 'state'), 'utf8'), 'send');
     assert.equal(readFileSync(path.join(conf, 'state')).equals(Buffer.from('send')), true);
-    const silent = spawnSync(SH, ['-c', sendScript], {
-      encoding: 'utf8', env: { ...sendEnv, DOCKER_MODE: 'quiet' }, timeout: 3000
+
+    unlinkSync(status);
+    const missing = spawnSync(SH, ['-c', sendScript], { encoding: 'utf8', env, timeout: 3000 });
+    assert.equal(missing.status, 0, missing.stderr);
+    assert.match(missing.stdout, /inflight=unknown/);
+    assert.match(missing.stdout, /status-age=-/);
+
+    const staleAt = new Date(Date.now() - 60000).toISOString();
+    writeFileSync(status, `state=hold inflight=0 seq=4 time=${staleAt}`);
+    const staleEnv = { ...env, TWENTY_RELAY_HOLD_WAIT: '1' };
+    const staleStarted = Date.now();
+    const stale = spawnSync(SH, ['-c', script], { encoding: 'utf8', env: staleEnv, timeout: 5000 });
+    assert.equal(stale.status, 0, stale.stderr);
+    assert.match(stale.stdout, /inflight=unknown/);
+    assert.equal(/inflight=0/.test(stale.stdout), false);
+    assert.ok(Date.now() - staleStarted >= 800, String(Date.now() - staleStarted));
+
+    // A fresh status that never shows hold gives no count: the relay has not seen the word.
+    writeFileSync(status, `state=send inflight=0 seq=5 time=${new Date().toISOString()}`);
+    const unseen = spawnSync(SH, ['-c', script], { encoding: 'utf8', env: staleEnv, timeout: 5000 });
+    assert.equal(unseen.status, 0, unseen.stderr);
+    assert.match(unseen.stdout, /inflight=unknown/);
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  test('a second helper times out while the lock is held', () => {
+    const body = jsonOf(runCli([
+      'login-helper', '--install-name', 'ab', '--login', 'ada', '--domain', 'example.com',
+      '--upstream', 'main', '--action', 'remove'
+    ]));
+    const root = mkdtempSync(path.join(tmpdir(), 'twenty-relay-lock-'));
+    const confDir = path.join(root, 'opt', 'ab', 'relay', 'conf');
+    mkdirSync(confDir, { recursive: true });
+    const dir = binDir(root);
+    const lock = path.join(root, 'opt', 'ab', 'relay', '.helper.lock');
+    const holder = spawn(SH, ['-c', 'exec 9>"$1"; flock -w 2 9; sleep 5', 'hold', lock], {
+      env: { ...process.env, PATH: `${dir}:${process.env.PATH}` }
     });
-    assert.equal(silent.status, 0, silent.stderr);
-    assert.match(silent.stdout, /inflight=unknown/);
+    const probeEnv = { ...process.env, PATH: `${dir}:${process.env.PATH}` };
+    let held = false;
+    const probeStart = Date.now();
+    while (Date.now() - probeStart < 2000) {
+      const probe = spawnSync(SH, ['-c', 'exec 9>"$1"; flock -w 0 9', 'try', lock], { env: probeEnv });
+      if (probe.status === 1) {
+        held = true;
+        break;
+      }
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 40);
+    }
+    const script = body.helper.replace('conf=/opt/$install/relay/conf', `conf=${root}/opt/$install/relay/conf`);
+    const ran = spawnSync(SH, ['-c', script, 'sh', 'ab', 'ada', 'example.com', 'main', 'remove'], {
+      encoding: 'utf8',
+      env: { ...probeEnv, TWENTY_RELAY_LOCK_WAIT: '1' },
+      timeout: 8000
+    });
+    holder.kill('SIGKILL');
+    assert.equal(held, true);
+    assert.equal(ran.status, 1, ran.stderr);
+    assert.match(ran.stderr, /another helper is running/);
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  test('a failed relay signal leaves logins.json in place and exits 3', () => {
+    const body = jsonOf(runCli([
+      'login-helper', '--install-name', 'ab', '--login', 'ada', '--domain', 'example.com',
+      '--upstream', 'main', '--action', 'add'
+    ]));
+    const root = mkdtempSync(path.join(tmpdir(), 'twenty-relay-signal-'));
+    const confDir = path.join(root, 'opt', 'ab', 'relay', 'conf');
+    mkdirSync(confDir, { recursive: true });
+    writeFileSync(path.join(confDir, 'upstreams.json'), `${JSON.stringify([{
+      name: 'main', host: 'smtp.example.net', port: 465, user: 'api_token', token_file: '/secrets/main.token'
+    }])}\n`);
+    const ran = runHelper(body.helper, ['ab', 'ada', 'example.com', 'main', 'add'], root, { DOCKER_KILL_FAIL: '1' });
+    assert.equal(ran.code, 3, ran.stderr);
+    assert.match(ran.stderr, /logins.json is in place/);
+    assert.match(ran.stderr, /next start or SIGHUP/);
+    assert.match(ran.stdout, /login=ada/);
+    assert.match(ran.stdout, /domain=example.com/);
+    assert.match(ran.stdout, /hash=[0-9a-f]{8}/);
+    const rows = JSON.parse(readFileSync(path.join(confDir, 'logins.json'), 'utf8'));
+    assert.equal(rows.length, 1);
+    assert.equal(ran.stdout.includes(ran.tty.trim()), false);
     rmSync(root, { recursive: true, force: true });
   });
 

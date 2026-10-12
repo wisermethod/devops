@@ -256,6 +256,7 @@ export function inspectHeaders(message, expectedDomain) {
       continue;
     }
     if (b === 0x0a) return { ok: false, reason: 'bare-lf' };
+    if (b !== 0x09 && (b < 0x20 || b > 0x7e)) return { ok: false, reason: 'header-byte' };
   }
   if (end < 0) return { ok: false, reason: 'no-separator' };
 
@@ -288,7 +289,7 @@ export function inspectHeaders(message, expectedDomain) {
       senderCount += 1;
       senderValue = value;
     } else if (lower === 'message-id' && messageId === '') {
-      messageId = value.replace(/[\r\n\t ]+/g, '');
+      messageId = value;
     }
   }
 

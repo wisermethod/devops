@@ -342,6 +342,12 @@ container=\${install}-relay
 hexbytes() {
   od -An -N "$1" -tx1 /dev/urandom | tr -d ' \\n' | tr 'A-F' 'a-f'
 }
+# The lock is taken before any password exists, so a helper that cannot run
+# never prints one; it is held through the rename and the signal.
+lockwait=\${TWENTY_RELAY_LOCK_WAIT:-30}
+lock=$(dirname "\$conf")/.helper.lock
+exec 9>"\$lock"
+flock -w "\$lockwait" 9 || die "another helper is running"
 password=
 salt=
 if [ "$action" != remove ]; then
@@ -463,7 +469,11 @@ salt=
 chmod 0640 "$tmp" || die "chmod failed"
 chown 0:1000 "$tmp" || die "chown failed"
 mv -T -- "$tmp" "$dest" || die "rename failed"
-docker kill --signal=HUP -- "$container" || die "could not signal the relay"
+if ! docker kill --signal=HUP -- "$container"; then
+  printf 'login=%s\\ndomain=%s\\nhash=%s\\n' "$login" "$domain" "$prefix"
+  printf '%s\\n' "logins.json is in place; the relay reads it at its next start or SIGHUP" >&2
+  exit 3
+fi
 printf 'login=%s\\ndomain=%s\\nhash=%s\\n' "$login" "$domain" "$prefix"
 `;
 }
@@ -502,28 +512,73 @@ n=\${#install}
 case "$to" in send|hold) ;; *) die "invalid state";; esac
 conf=/opt/$install/relay/conf
 dest=$conf/state
-container=\${install}-relay
+status=$(dirname "\$conf")/journal/status
+wait=\${TWENTY_RELAY_HOLD_WAIT:-130}
 tmp=$(mktemp "$conf/state.XXXXXX")
 printf '%s' "$to" > "$tmp"
 chmod 0640 "$tmp" || die "chmod failed"
 chown 0:1000 "$tmp" || die "chown failed"
 mv -T -- "$tmp" "$dest" || die "rename failed"
-count() {
-  logs=$(docker logs --tail 400 "$container" 2>&1) || die "could not read the relay log"
-  printf '%s\\n' "$logs" | awk '/^inflight count=/ { v=$2 } END { sub(/^count=/, "", v); if (v == "") print "unknown"; else print v }'
+read_status() {
+  python3 - "\$status" <<'PY'
+import sys
+from datetime import datetime, timezone
+path = sys.argv[1]
+try:
+    text = open(path, encoding="utf-8").read()
+except OSError:
+    sys.stdout.write("missing - - -\\n")
+    raise SystemExit(0)
+fields = {}
+for part in text.split():
+    if "=" in part:
+        key, value = part.split("=", 1)
+        fields[key] = value
+stamp = fields.get("time", "")
+try:
+    when = datetime.fromisoformat(stamp.replace("Z", "+00:00"))
+    age = int((datetime.now(timezone.utc) - when).total_seconds())
+except ValueError:
+    sys.stdout.write("bad - - -\\n")
+    raise SystemExit(0)
+if age < 0:
+    age = 0
+mark = "fresh" if age <= 15 else "stale"
+state = fields.get("state") or "-"
+inflight = fields.get("inflight") or "-"
+sys.stdout.write("%s %s %s %s\\n" % (mark, state, inflight, age))
+PY
 }
-c=$(count)
-if [ "$to" = hold ]; then
+take() {
+  set -- $(read_status)
+  mark=\$1
+  st=\$2
+  inf=\$3
+  age=\$4
+}
+take
+if [ "\$to" = hold ]; then
   now=$(date +%s) || die "clock"
-  end=$((now + 130))
-  while [ "$c" != 0 ]; do
+  end=\$((now + wait))
+  while [ "\$mark" != fresh ] || [ "\$st" != hold ]; do
     now=$(date +%s) || die "clock"
-    [ "$now" -ge "$end" ] && break
+    [ "\$now" -ge "\$end" ] && break
     sleep 1
-    c=$(count)
+    take
+  done
+  while [ "\$mark" != fresh ] || [ "\$st" != hold ] || [ "\$inf" != 0 ]; do
+    now=$(date +%s) || die "clock"
+    [ "\$now" -ge "\$end" ] && break
+    sleep 1
+    take
   done
 fi
-printf 'state=%s\\ninflight=%s\\n' "$to" "$c"
+# A count is reported only from a fresh status that has seen the word written.
+if [ "\$mark" = fresh ] && [ "\$st" = "\$to" ]; then
+  printf 'state=%s\\ninflight=%s\\nstatus-age=%s\\n' "\$to" "\$inf" "\$age"
+else
+  printf 'state=%s\\ninflight=unknown\\nstatus-age=%s\\n' "\$to" "\$age"
+fi
 `;
 }
 

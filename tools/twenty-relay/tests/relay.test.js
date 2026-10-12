@@ -1,11 +1,11 @@
 import assert from 'node:assert/strict';
 import { once } from 'node:events';
-import { mkdtempSync, readFileSync, renameSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, renameSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { describe, test } from 'node:test';
 
-import { hashPassword, startRelay } from '../payload/relay.js';
+import { dotStuff, hashPassword, startRelay } from '../payload/relay.js';
 import {
   authed,
   connectSmtp,
@@ -60,7 +60,10 @@ async function setup(options = {}) {
       password: options.password,
       extraLogins: options.extraLogins
     });
-    relay = await startRelay(relayEnv(world, certs, options.env || {}));
+    relay = await startRelay(relayEnv(world, certs, options.env || {}), {
+      retainLogs: options.retainLogs !== false,
+      beforeClientReply: options.beforeClientReply
+    });
     return {
       root,
       mock,
@@ -253,6 +256,13 @@ describe('1 listening and the happy path', { concurrency: 1 }, () => {
         const tx = ctx.relay.logs.filter((line) => line.startsWith('tx '));
         assert.equal(tx.length, 1);
         assert.match(tx[0], new RegExp(`^tx login=user domain=example.com recipients=1 bytes=${Buffer.byteLength(message)} outcome=sent upstream=[0-9a-f]+$`));
+        await waitFor(() => {
+          try {
+            return readFileSync(ctx.relay.journalPath, 'utf8').includes('outcome=sent');
+          } catch {
+            return false;
+          }
+        }, 2000, 'sent journal');
         const journal = readFileSync(ctx.relay.journalPath, 'utf8');
         const intents = journal.split('\n').filter((line) => line.startsWith('intent '));
         const dones = journal.split('\n').filter((line) => line.startsWith('done '));
@@ -489,6 +499,7 @@ describe('2 AUTH', { concurrency: 1 }, () => {
       slow.client.destroy();
       assert.equal(slow.code, 454, String(slow.ms));
       assert.ok(slow.ms >= 1000, String(slow.ms));
+      assert.equal(ctx.relay.failureKeys().logins, 1);
     });
   });
 });
@@ -881,6 +892,7 @@ describe('6 upstream verification', { concurrency: 1 }, () => {
   test('6. a missing upstream token is 451 at MAIL FROM', limit, async () => {
     await withSetup({}, async (ctx) => {
       unlinkSync(path.join(ctx.world.secrets, 'main.token'));
+      assert.equal(ctx.relay.reload().ok, true);
       const reply = await expectMail(ctx, `MAIL FROM:<${sender(ctx)}>`, 451, /upstream not configured/);
       assert.equal(reply.code, 451);
     });
@@ -889,6 +901,7 @@ describe('6 upstream verification', { concurrency: 1 }, () => {
   test('6. an empty upstream token is 451 at MAIL FROM', limit, async () => {
     await withSetup({}, async (ctx) => {
       writeFileSync(path.join(ctx.world.secrets, 'main.token'), '');
+      assert.equal(ctx.relay.reload().ok, true);
       const reply = await expectMail(ctx, `MAIL FROM:<${sender(ctx)}>`, 451, /upstream not configured/);
       assert.equal(reply.code, 451);
     });
@@ -1071,6 +1084,13 @@ describe('8 ambiguity and the journal', { concurrency: 1 }, () => {
         await sleep(50);
         opened.client.destroy();
         await waitFor(() => ctx.relay.logs.some((line) => line.includes('outcome=ambiguous')), 2000, 'ambiguous log');
+        await waitFor(() => {
+          try {
+            return readFileSync(ctx.relay.journalPath, 'utf8').includes('outcome=ambiguous');
+          } catch {
+            return false;
+          }
+        }, 2000, 'ambiguous journal');
         const tx = ctx.relay.logs.find((line) => line.includes('outcome=ambiguous'));
         assert.match(tx, /message_id=<ambig@example.com>/);
         const journal = readFileSync(ctx.relay.journalPath, 'utf8');
@@ -1322,6 +1342,461 @@ describe('9 hold, reload and rotation', { concurrency: 1 }, () => {
       assert.equal(result.ok, false);
       assert.ok(ctx.relay.logs.slice(before).some((line) => line.includes('status=refused')));
       assert.equal(await authCode(ctx.relay.port, ctx.world.login, ctx.world.password), 235);
+    });
+  });
+});
+
+describe('round 1 upstream slot', { concurrency: 1 }, () => {
+  test('MAIL RSET MAIL against a silent RSET never opens more than two sessions', { timeout: 20000 }, async () => {
+    await withSetup({ behavior: 'hang-rset' }, async (ctx) => {
+      const opened = await authed(ctx.relay.port, ctx.world.login, ctx.world.password);
+      try {
+        const deadline = Date.now() + 2500;
+        let mails = 0;
+        while (Date.now() < deadline && mails < 6) {
+          const mail = await opened.client.cmd(`MAIL FROM:<${sender(ctx)}>`, 5000);
+          assert.equal(mail.code, 250, mail.raw);
+          mails += 1;
+          assert.ok(ctx.mock.liveSessions() <= 2, `live ${ctx.mock.liveSessions()}`);
+          const reset = await opened.client.cmd('RSET', 4000);
+          assert.equal(reset.code, 250, reset.raw);
+          assert.ok(ctx.mock.peakSessions() <= 2, `peak ${ctx.mock.peakSessions()}`);
+        }
+        assert.ok(mails >= 3, `only ${mails} MAIL commands`);
+        assert.ok(ctx.mock.peakSessions() <= 2, `peak ${ctx.mock.peakSessions()}`);
+      } finally {
+        opened.client.destroy();
+      }
+    });
+  });
+});
+
+describe('round 1 upstream reply bounds', { concurrency: 1 }, () => {
+  for (const behavior of ['long-line', 'many-lines', 'huge-buf']) {
+    test(`an upstream ${behavior} reply fails the command and destroys the session`, limit, async () => {
+      await withSetup({ behavior }, async (ctx) => {
+        const opened = await authed(ctx.relay.port, ctx.world.login, ctx.world.password);
+        try {
+          const start = Date.now();
+          const reply = await opened.client.cmd(`MAIL FROM:<${sender(ctx)}>`, 3000);
+          const ms = Date.now() - start;
+          assert.equal(reply.code, 451, reply.raw);
+          assert.ok(ms < 600, String(ms));
+          await waitFor(() => ctx.mock.sessions[0] && ctx.mock.sessions[0].closed, 2000, 'upstream closed');
+          assert.equal(ctx.relay.logs.some((line) => line.includes('outcome=refused:451')), true);
+        } finally {
+          opened.client.destroy();
+        }
+      });
+    });
+  }
+});
+
+describe('round 1 dot stuffing', { concurrency: 1 }, () => {
+  test('dot stuffing matches the previous bytes and bounds a 5 MiB stuffing', () => {
+    const samples = [
+      Buffer.alloc(0),
+      Buffer.from('.'),
+      Buffer.from('.\r\n'),
+      Buffer.from('\r\n.'),
+      Buffer.from('\r\n.\r\n.\r\n.'),
+      Buffer.from('hello'),
+      Buffer.from('hello\n.there'),
+      Buffer.from('a\r\n.b\r\n.c'),
+      Buffer.from('.a\r\n.b'),
+      Buffer.from('\n.\n.\n.')
+    ];
+    for (const sample of samples) {
+      assert.equal(dotStuff(sample).equals(stuff(sample)), true, sample.toString('latin1'));
+    }
+    const body = Buffer.alloc(5 * 1024 * 1024);
+    for (let i = 0; i + 2 < body.length; i += 3) {
+      body[i] = 0x2e;
+      body[i + 1] = 0x0d;
+      body[i + 2] = 0x0a;
+    }
+    const before = process.memoryUsage().heapUsed;
+    const out = dotStuff(body);
+    const growth = process.memoryUsage().heapUsed - before;
+    assert.ok(growth < 64 * 1024 * 1024, String(growth));
+    assert.equal(out.subarray(0, 5).toString('latin1'), '..\r\n.');
+    assert.equal(out.subarray(out.length - 3).toString('latin1'), '.\r\n');
+    const probe = body.subarray(0, 64 * 1024);
+    assert.equal(dotStuff(probe).equals(stuff(probe)), true);
+  });
+});
+
+describe('round 1 log retention', { concurrency: 1 }, () => {
+  test('retained logs keep the last 2000 lines and production retains none', limit, async () => {
+    await withSetup({}, async (ctx) => {
+      const seen = [];
+      const original = process.stdout.write.bind(process.stdout);
+      process.stdout.write = (chunk, encoding, callback) => {
+        seen.push(String(chunk));
+        return original(chunk, encoding, callback);
+      };
+      try {
+        for (let i = 0; i < 2100; i += 1) ctx.relay.reload();
+        assert.equal(ctx.relay.logs.length, 2000);
+        assert.equal(ctx.relay.logs.some((line) => line.startsWith('journal ambiguous=')), false);
+        assert.equal(ctx.relay.logs[ctx.relay.logs.length - 1].includes('status=loaded'), true);
+        assert.ok(seen.filter((line) => line.includes('status=loaded')).length > 2000);
+      } finally {
+        process.stdout.write = original;
+      }
+    });
+    await withSetup({ retainLogs: false }, async (ctx) => {
+      ctx.relay.reload();
+      assert.equal(ctx.relay.logs.length, 0);
+    });
+  });
+});
+
+function writeLogins(conf, rows) {
+  const dest = path.join(conf, 'logins.json');
+  const tmp = `${dest}.${process.pid}.tmp`;
+  writeFileSync(tmp, `${JSON.stringify(rows, null, 2)}\n`);
+  renameSync(tmp, dest);
+}
+
+function authText(session) {
+  const parts = String(session.auth || '').split(' ');
+  return Buffer.from(parts[2] || '', 'base64').toString('latin1');
+}
+
+describe('round 1 transaction timer', { concurrency: 1 }, () => {
+  test('NOOP after MAIL does not extend the transaction and the slot is freed', limit, async () => {
+    await withSetup({
+      env: { RELAY_TRANSACTION_TIMEOUT_MS: '800', RELAY_IDLE_TIMEOUT_MS: '30000' }
+    }, async (ctx) => {
+      const opened = await authed(ctx.relay.port, ctx.world.login, ctx.world.password);
+      const timer = setInterval(() => {
+        try {
+          opened.client.write('NOOP');
+        } catch {
+          // The socket may already be closed.
+        }
+      }, 200);
+      try {
+        assert.equal((await opened.client.cmd(`MAIL FROM:<${sender(ctx)}>`, 3000)).code, 250);
+        const accepted = Date.now();
+        let closed = false;
+        opened.client.socket.on('close', () => {
+          closed = true;
+        });
+        await waitFor(() => closed, 2000, 'transaction close');
+        const elapsed = Date.now() - accepted;
+        assert.ok(elapsed >= 600 && elapsed < 1600, String(elapsed));
+        await waitFor(() => lastInflight(ctx.relay.logs) === 'inflight count=0', 2000, 'slot freed');
+      } finally {
+        clearInterval(timer);
+        opened.client.destroy();
+      }
+    });
+  });
+});
+
+describe('round 1 session binding', { concurrency: 1 }, () => {
+  test('an old connection is 550 after the hash or the domain changes', limit, async () => {
+    await withSetup({}, async (ctx) => {
+      const opened = await authed(ctx.relay.port, ctx.world.login, ctx.world.password);
+      const freshClients = [];
+      try {
+        const next = 'rotated-password';
+        writeLogins(ctx.world.conf, [loginRow(ctx.world.login, ctx.world.domain, next, ctx.world.salt)]);
+        assert.equal(ctx.relay.reload().ok, true);
+        const stale = await opened.client.cmd(`MAIL FROM:<${sender(ctx)}>`, 3000);
+        assert.equal(stale.code, 550, stale.raw);
+        assert.equal(ctx.relay.logs.some((line) => line.includes('outcome=refused:550')), true);
+
+        const fresh = await authed(ctx.relay.port, ctx.world.login, next);
+        freshClients.push(fresh);
+        assert.equal(fresh.auth.code, 235, fresh.auth.raw);
+        assert.equal((await fresh.client.cmd(`MAIL FROM:<${sender(ctx)}>`, 3000)).code, 250);
+        assert.equal((await fresh.client.cmd('RSET', 3000)).code, 250);
+
+        const rows = JSON.parse(readFileSync(path.join(ctx.world.conf, 'logins.json'), 'utf8'));
+        rows[0].domain = 'other.example';
+        writeLogins(ctx.world.conf, rows);
+        assert.equal(ctx.relay.reload().ok, true);
+        const moved = await fresh.client.cmd(`MAIL FROM:<${sender(ctx)}>`, 3000);
+        assert.equal(moved.code, 550, moved.raw);
+
+        const newest = await authed(ctx.relay.port, ctx.world.login, next);
+        freshClients.push(newest);
+        const accepted = await newest.client.cmd('MAIL FROM:<user@other.example>', 3000);
+        assert.equal(accepted.code, 250, accepted.raw);
+      } finally {
+        opened.client.destroy();
+        for (const client of freshClients) client.client.destroy();
+      }
+    });
+  });
+});
+
+describe('round 1 snapshot token', { concurrency: 1 }, () => {
+  test('a queued MAIL keeps the old endpoint and token', { timeout: 20000 }, async () => {
+    const replacement = await startMock({
+      cert: certs.good.cert,
+      key: certs.good.key,
+      behavior: 'accept'
+    });
+    try {
+      await withSetup({ token: 'old-token\n' }, async (ctx) => {
+        async function hold() {
+          const opened = await authed(ctx.relay.port, ctx.world.login, ctx.world.password);
+          assert.equal((await opened.client.cmd(`MAIL FROM:<${sender(ctx)}>`)).code, 250);
+          assert.equal((await opened.client.cmd('RCPT TO:<a@elsewhere.test>')).code, 250);
+          assert.equal((await opened.client.cmd('DATA')).code, 354);
+          await opened.client.writeBytes(Buffer.from(`From: ${sender(ctx)}\r\n\r\nwait\r\n`));
+          return opened;
+        }
+        const first = await hold();
+        const second = await hold();
+        const third = await authed(ctx.relay.port, ctx.world.login, ctx.world.password);
+        try {
+          const pending = third.client.cmd(`MAIL FROM:<${sender(ctx)}>`, 10000);
+          await sleep(200);
+          const upstreamFile = path.join(ctx.world.conf, 'upstreams.json');
+          const upstreams = JSON.parse(readFileSync(upstreamFile, 'utf8'));
+          upstreams[0].host = '127.0.0.1';
+          upstreams[0].port = replacement.port;
+          writeFileSync(upstreamFile, `${JSON.stringify(upstreams, null, 2)}\n`);
+          writeFileSync(path.join(ctx.world.secrets, 'main.token'), 'new-token\n');
+          assert.equal(ctx.relay.reload().ok, true);
+          assert.equal(replacement.sessions.length, 0);
+          await first.client.writeBytes(Buffer.from('.\r\n'));
+          assert.equal((await first.client.read(8000)).code, 250);
+          const queued = await pending;
+          assert.equal(queued.code, 250, queued.raw);
+          assert.equal(replacement.sessions.length, 0);
+          const carried = ctx.mock.sessions[ctx.mock.sessions.length - 1];
+          assert.equal(authText(carried), '\0api_token\0old-token');
+          assert.equal((await third.client.cmd('RSET', 3000)).code, 250);
+          assert.equal((await third.client.cmd(`MAIL FROM:<${sender(ctx)}>`, 4000)).code, 250);
+          assert.equal(replacement.sessions.length, 1);
+          assert.equal(authText(replacement.sessions[0]), '\0api_token\0new-token');
+        } finally {
+          first.client.destroy();
+          second.client.destroy();
+          third.client.destroy();
+        }
+      });
+    } finally {
+      await replacement.close();
+    }
+  });
+});
+
+describe('round 1 client answer', { concurrency: 1 }, () => {
+  test('a disconnect before a delayed final reply is ambiguous and never sent', limit, async () => {
+    await withSetup({ behavior: 'delay-final' }, async (ctx) => {
+      const opened = await authed(ctx.relay.port, ctx.world.login, ctx.world.password);
+      try {
+        const message = rfc822([`From: ${sender(ctx)}`, 'Message-ID: <delay@example.com>'], 'zzbodyzz\r\n');
+        assert.equal((await opened.client.cmd(`MAIL FROM:<${sender(ctx)}>`)).code, 250);
+        assert.equal((await opened.client.cmd('RCPT TO:<a@elsewhere.test>')).code, 250);
+        assert.equal((await opened.client.cmd('DATA')).code, 354);
+        await opened.client.writeBytes(stuff(message));
+        await waitFor(() => ctx.mock.sessions[0] && ctx.mock.sessions[0].dotSeen, 3000, 'dot');
+        opened.client.destroy();
+        await waitFor(() => {
+          try {
+            return readFileSync(ctx.relay.journalPath, 'utf8').includes('outcome=ambiguous');
+          } catch {
+            return false;
+          }
+        }, 2000, 'ambiguous journal');
+        await sleep(400);
+        const journal = readFileSync(ctx.relay.journalPath, 'utf8');
+        const logs = ctx.relay.logs.join('\n');
+        assert.match(journal, /done id=[0-9a-f]+ outcome=ambiguous/);
+        assert.equal(journal.includes('outcome=sent'), false);
+        assert.equal(logs.includes('outcome=sent'), false);
+      } finally {
+        opened.client.destroy();
+      }
+    });
+  });
+
+  test('a socket that dies before the client reply is ambiguous and never sent', limit, async () => {
+    await withSetup({
+      beforeClientReply(tx) {
+        tx.conn._socket.destroy();
+      }
+    }, async (ctx) => {
+      const opened = await authed(ctx.relay.port, ctx.world.login, ctx.world.password);
+      try {
+        const message = rfc822([`From: ${sender(ctx)}`], 'zzbodyzz\r\n');
+        assert.equal((await opened.client.cmd(`MAIL FROM:<${sender(ctx)}>`)).code, 250);
+        assert.equal((await opened.client.cmd('RCPT TO:<a@elsewhere.test>')).code, 250);
+        assert.equal((await opened.client.cmd('DATA')).code, 354);
+        await opened.client.writeBytes(stuff(message));
+        await opened.client.read(2000).catch(() => {});
+        await waitFor(() => {
+          try {
+            return readFileSync(ctx.relay.journalPath, 'utf8').includes('outcome=ambiguous');
+          } catch {
+            return false;
+          }
+        }, 2000, 'ambiguous journal');
+        const journal = readFileSync(ctx.relay.journalPath, 'utf8');
+        assert.equal(journal.includes('outcome=sent'), false);
+        assert.equal(ctx.relay.logs.some((line) => line.includes('outcome=sent')), false);
+        assert.equal(ctx.relay.logs.some((line) => line.includes('outcome=ambiguous')), true);
+      } finally {
+        opened.client.destroy();
+      }
+    });
+  });
+});
+
+function intentLine(id) {
+  return `intent id=${id} login=user domain=example.com recipients=1 bytes=1 message_id=invalid time=2026-10-12T00:00:00.000Z session=cccccccccccccccc\n`;
+}
+
+async function bootJournal(prepare) {
+  const root = mkdtempSync(path.join(tmpdir(), 'twenty-relay-journal-'));
+  let mock;
+  let relay;
+  try {
+    mock = await startMock({ cert: certs.good.cert, key: certs.good.key, behavior: 'accept' });
+    const world = writeWorld(root, { mockPort: mock.port, state: 'send' });
+    prepare(world);
+    relay = await startRelay(relayEnv(world, certs), { retainLogs: true });
+    return {
+      world,
+      relay,
+      async stop() {
+        await relay.close();
+        await mock.close();
+        rmSync(root, { recursive: true, force: true });
+      }
+    };
+  } catch (error) {
+    if (relay) await relay.close().catch(() => {});
+    if (mock) await mock.close().catch(() => {});
+    rmSync(root, { recursive: true, force: true });
+    throw error;
+  }
+}
+
+describe('round 1 journal rotation', { concurrency: 1 }, () => {
+  test('an interrupted rotation with only journal.new still counts the intent', limit, async () => {
+    const id = 'abc123abc123abcd';
+    const ctx = await bootJournal((world) => {
+      writeFileSync(`${world.journal}.new`, intentLine(id));
+    });
+    try {
+      assert.match(ctx.relay.logs.join('\n'), /journal ambiguous=1/);
+      assert.equal(existsSync(`${ctx.relay.journalPath}.new`), false);
+      const text = readFileSync(ctx.relay.journalPath, 'utf8');
+      assert.match(text, new RegExp(`intent id=${id}`));
+      assert.match(text, new RegExp(`done id=${id} outcome=ambiguous`));
+    } finally {
+      await ctx.stop();
+    }
+  });
+
+  test('an interrupted rotation with both files keeps the current journal', limit, async () => {
+    const kept = 'aaaaaaaaaaaaaaaa';
+    const dropped = 'bbbbbbbbbbbbbbbb';
+    const ctx = await bootJournal((world) => {
+      writeFileSync(world.journal, intentLine(kept));
+      writeFileSync(`${world.journal}.new`, intentLine(dropped));
+    });
+    try {
+      assert.match(ctx.relay.logs.join('\n'), /journal ambiguous=1/);
+      assert.equal(existsSync(`${ctx.relay.journalPath}.new`), false);
+      const text = readFileSync(ctx.relay.journalPath, 'utf8');
+      assert.match(text, new RegExp(`intent id=${kept}`));
+      assert.match(text, new RegExp(`done id=${kept} outcome=ambiguous`));
+      assert.equal(text.includes(dropped), false);
+    } finally {
+      await ctx.stop();
+    }
+  });
+});
+
+describe('round 1 message id', { concurrency: 1 }, () => {
+  test('a grammatical Message-ID is stored and any other value is invalid', limit, async () => {
+    await withSetup({}, async (ctx) => {
+      await expectHeader(ctx, {
+        headers: [`From: ${sender(ctx)}`, 'Message-ID: <ok.mid@example.com>']
+      }, 250);
+      await expectHeader(ctx, {
+        headers: [`From: ${sender(ctx)}`, 'Message-ID: customer@example.net']
+      }, 250);
+      await expectHeader(ctx, {
+        headers: [`From: ${sender(ctx)}`, 'Message-ID: <has space@example.com>']
+      }, 250);
+      const journal = readFileSync(ctx.relay.journalPath, 'utf8');
+      const logs = ctx.relay.logs.join('\n');
+      assert.match(journal, /message_id=<ok\.mid@example.com>/);
+      assert.match(journal, /message_id=invalid/);
+      assert.equal(`${journal}\n${logs}`.includes('customer@example.net'), false);
+      assert.equal(`${journal}\n${logs}`.includes('has space'), false);
+      assert.equal(`${journal}\n${logs}`.includes('hasspace'), false);
+    });
+  });
+});
+
+describe('round 1 status file', { concurrency: 1 }, () => {
+  test('the status file changes with inflight and on the tick', limit, async () => {
+    await withSetup({ env: { RELAY_STATUS_INTERVAL_MS: '200' } }, async (ctx) => {
+      const statusPath = path.join(ctx.root, 'status');
+      const readStatus = () => {
+        try {
+          return readFileSync(statusPath, 'utf8');
+        } catch {
+          return '';
+        }
+      };
+      await waitFor(() => /state=send/.test(readStatus()) && /inflight=0/.test(readStatus()), 2000, 'status');
+      const seq1 = Number(/seq=(\d+)/.exec(readStatus())[1]);
+      await sleep(500);
+      const seq2 = Number(/seq=(\d+)/.exec(readStatus())[1]);
+      assert.ok(seq2 > seq1, `${seq1} ${seq2}`);
+      const opened = await authed(ctx.relay.port, ctx.world.login, ctx.world.password);
+      try {
+        assert.equal((await opened.client.cmd(`MAIL FROM:<${sender(ctx)}>`)).code, 250);
+        await waitFor(() => /inflight=1/.test(readStatus()), 2000, 'inflight 1');
+        assert.equal((await opened.client.cmd('RSET')).code, 250);
+        await waitFor(() => /inflight=0/.test(readStatus()), 2000, 'inflight 0');
+      } finally {
+        opened.client.destroy();
+      }
+    });
+  });
+});
+
+describe('round 1 status on change', { concurrency: 1 }, () => {
+  test('the status file follows an in-flight change without waiting for the tick', limit, async () => {
+    await withSetup({ env: { RELAY_STATUS_INTERVAL_MS: '60000' } }, async (ctx) => {
+      const statusPath = path.join(ctx.root, 'status');
+      const readStatus = () => {
+        try {
+          return readFileSync(statusPath, 'utf8');
+        } catch {
+          return '';
+        }
+      };
+      await waitFor(() => /inflight=0/.test(readStatus()), 2000, 'status at start');
+      const opened = await authed(ctx.relay.port, ctx.world.login, ctx.world.password);
+      try {
+        assert.equal((await opened.client.cmd(`MAIL FROM:<${sender(ctx)}>`)).code, 250);
+        await waitFor(() => /inflight=1/.test(readStatus()), 1000, 'inflight 1 before any tick');
+        writeFileSync(path.join(ctx.world.conf, 'state'), 'hold');
+        const again = await authed(ctx.relay.port, ctx.world.login, ctx.world.password);
+        try {
+          assert.equal((await again.client.cmd(`MAIL FROM:<${sender(ctx)}>`)).code, 451);
+        } finally {
+          again.client.destroy();
+        }
+        await waitFor(() => /state=hold/.test(readStatus()), 1000, 'hold seen at MAIL FROM before any tick');
+      } finally {
+        opened.client.destroy();
+      }
     });
   });
 });

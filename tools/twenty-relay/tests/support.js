@@ -290,6 +290,30 @@ export function startMock({ cert, key, behavior = 'accept' }) {
       session.closed = true;
       live -= 1;
     });
+    // A silent RSET never replies. Half-close would otherwise end the socket
+    // at once and hide a slot released before the session is gone. The peer
+    // closes itself a little after EOF, inside the relay's teardown deadline,
+    // so the slot has to follow that close.
+    if (state.behavior === 'hang-rset') {
+      socket.allowHalfOpen = true;
+      socket.on('end', () => {
+        setTimeout(() => {
+          if (!socket.destroyed) socket.destroy();
+        }, 500);
+      });
+    }
+    if (state.behavior === 'long-line') {
+      socket.write(`250 ${'A'.repeat(2045)}\r\n`);
+      return;
+    }
+    if (state.behavior === 'many-lines') {
+      socket.write('250-ok\r\n'.repeat(101));
+      return;
+    }
+    if (state.behavior === 'huge-buf') {
+      socket.write('A'.repeat((64 * 1024) + 1));
+      return;
+    }
     if (state.behavior === 'silent') {
       socket.on('data', (chunk) => {
         session.raw = Buffer.concat([session.raw, chunk]);
@@ -325,6 +349,13 @@ export function startMock({ cert, key, behavior = 'accept' }) {
           pending = Buffer.concat([pending, rest]);
           return;
         }
+        if (state.behavior === 'delay-final') {
+          pending = Buffer.concat([pending, rest]);
+          setTimeout(() => {
+            if (!socket.destroyed) socket.write('250 accepted\r\n');
+          }, 300);
+          return;
+        }
         socket.write('250 accepted\r\n');
         if (rest.length) onChunk(rest);
         return;
@@ -356,6 +387,7 @@ export function startMock({ cert, key, behavior = 'accept' }) {
           }
           return;
         }
+        if ((verb === 'RSET' || verb === 'QUIT') && state.behavior === 'hang-rset') continue;
         if (verb === 'QUIT') {
           socket.write('221 bye\r\n');
           socket.end();

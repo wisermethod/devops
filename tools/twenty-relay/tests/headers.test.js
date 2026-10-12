@@ -102,6 +102,23 @@ describe('header block', () => {
     assert.equal(JSON.stringify(parsed).includes('zzsubjectzz'), false);
   });
 
+  test('rejects a header byte outside tab, printable ASCII and CRLF', () => {
+    for (const bad of [0x80, 0x00, 0x7f]) {
+      const bytes = Buffer.concat([
+        Buffer.from('From: user@example.com\r\nSubject: x', 'latin1'),
+        Buffer.from([bad]),
+        Buffer.from('\r\n\r\nhello\r\n', 'latin1')
+      ]);
+      assert.equal(inspectHeaders(bytes, DOMAIN).reason, 'header-byte');
+    }
+    const body = Buffer.concat([
+      Buffer.from('From: user@example.com\r\n\r\n', 'latin1'),
+      Buffer.from([0x80]),
+      Buffer.from('ok\r\n', 'latin1')
+    ]);
+    assert.equal(inspectHeaders(body, DOMAIN).ok, true);
+  });
+
   test('rejects a From with two addresses, a group, and a comment', () => {
     assert.equal(inspectHeaders(message(['From: <user@example.com><other@example.com>']), DOMAIN).ok, false);
     assert.equal(inspectHeaders(message(['From: undisc:user@example.com;']), DOMAIN).ok, false);

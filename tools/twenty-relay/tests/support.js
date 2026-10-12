@@ -264,13 +264,66 @@ export async function sendData(client, payload, timeout = 5000) {
   return client.read(timeout);
 }
 
-export function startMock({ cert, key, behavior = 'accept' }) {
+export function startMock({ cert, key, behavior = 'accept', closeDelay = 500 }) {
   const sessions = [];
   const sockets = [];
-  const state = { behavior };
+  const state = { behavior, closeDelay };
   let handshakes = 0;
   let live = 0;
   let peak = 0;
+  if (behavior === 'stall-handshake') {
+    const server = net.createServer((socket) => {
+      sockets.push(socket);
+      socket.on('error', () => {});
+      // Without a reader the handshake bytes sit unread and this socket never
+      // reports close after the client is destroyed.
+      socket.resume();
+      const session = {
+        commands: [],
+        auth: '',
+        raw: Buffer.alloc(0),
+        data: null,
+        dotSeen: false,
+        rcptCount: 0,
+        closed: false,
+        openedAt: Number(process.hrtime.bigint()),
+        closedAt: 0
+      };
+      sessions.push(session);
+      live += 1;
+      if (live > peak) peak = live;
+      socket.on('close', () => {
+        session.closed = true;
+        session.closedAt = Number(process.hrtime.bigint());
+        live -= 1;
+      });
+    });
+    server.on('error', () => {});
+    return new Promise((resolve) => {
+      server.listen(0, '127.0.0.1', () => {
+        resolve({
+          port: server.address().port,
+          sessions,
+          handshakes: () => handshakes,
+          peakSessions: () => peak,
+          liveSessions: () => live,
+          setBehavior(next) {
+            state.behavior = next;
+          },
+          close() {
+            for (const socket of sockets) socket.destroy();
+            return new Promise((done) => {
+              const timer = setTimeout(done, 300);
+              server.close(() => {
+                clearTimeout(timer);
+                done();
+              });
+            });
+          }
+        });
+      });
+    });
+  }
   const server = tls.createServer({ cert, key }, (socket) => {
     sockets.push(socket);
     socket.on('error', () => {});
@@ -281,13 +334,16 @@ export function startMock({ cert, key, behavior = 'accept' }) {
       data: null,
       dotSeen: false,
       rcptCount: 0,
-      closed: false
+      closed: false,
+      openedAt: Number(process.hrtime.bigint()),
+      closedAt: 0
     };
     sessions.push(session);
     live += 1;
     if (live > peak) peak = live;
     socket.on('close', () => {
       session.closed = true;
+      session.closedAt = Number(process.hrtime.bigint());
       live -= 1;
     });
     // A silent RSET never replies. Half-close would otherwise end the socket
@@ -299,7 +355,7 @@ export function startMock({ cert, key, behavior = 'accept' }) {
       socket.on('end', () => {
         setTimeout(() => {
           if (!socket.destroyed) socket.destroy();
-        }, 500);
+        }, state.closeDelay);
       });
     }
     if (state.behavior === 'long-line') {

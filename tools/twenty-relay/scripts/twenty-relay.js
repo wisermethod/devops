@@ -519,34 +519,49 @@ printf '%s' "$to" > "$tmp"
 chmod 0640 "$tmp" || die "chmod failed"
 chown 0:1000 "$tmp" || die "chown failed"
 mv -T -- "$tmp" "$dest" || die "rename failed"
+id=$(od -An -N16 -tx1 /dev/urandom | tr -d '[:space:]' | tr 'A-F' 'a-f')
+[ "\${#id}" -eq 32 ] || die "request"
+rtmp=$(mktemp "$conf/state.XXXXXX")
+printf '%s' "$id" > "$rtmp"
+chmod 0640 "$rtmp" || die "chmod failed"
+chown 0:1000 "$rtmp" || die "chown failed"
+mv -T -- "$rtmp" "$conf/state-request" || die "rename failed"
 read_status() {
   python3 - "\$status" <<'PY'
-import sys
+import re, sys
 from datetime import datetime, timezone
 path = sys.argv[1]
+def emit(mark, state, inflight, age, request):
+    sys.stdout.write("%s %s %s %s %s\\n" % (mark, state, inflight, age, request))
 try:
     text = open(path, encoding="utf-8").read()
 except OSError:
-    sys.stdout.write("missing - - -\\n")
+    emit("missing", "-", "-", "-", "-")
     raise SystemExit(0)
 fields = {}
 for part in text.split():
     if "=" in part:
         key, value = part.split("=", 1)
         fields[key] = value
-stamp = fields.get("time", "")
+req = fields.get("request", "-")
+if re.fullmatch("[0-9a-f]{32}", req) is None:
+    req = "-"
+state = fields.get("state") or "-"
+inflight = fields.get("inflight") or "-"
 try:
-    when = datetime.fromisoformat(stamp.replace("Z", "+00:00"))
-    age = int((datetime.now(timezone.utc) - when).total_seconds())
+    when = datetime.fromisoformat(fields.get("time", "").replace("Z", "+00:00"))
+    delta = (datetime.now(timezone.utc) - when).total_seconds()
 except ValueError:
-    sys.stdout.write("bad - - -\\n")
+    emit("bad", "-", "-", "-", "-")
     raise SystemExit(0)
+if delta < -2:
+    emit("stale", state, inflight, int(delta), req)
+    raise SystemExit(0)
+age = int(delta)
 if age < 0:
     age = 0
 mark = "fresh" if age <= 15 else "stale"
-state = fields.get("state") or "-"
-inflight = fields.get("inflight") or "-"
-sys.stdout.write("%s %s %s %s\\n" % (mark, state, inflight, age))
+emit(mark, state, inflight, age, req)
 PY
 }
 take() {
@@ -555,30 +570,35 @@ take() {
   st=\$2
   inf=\$3
   age=\$4
+  got=\$5
 }
 take
+left=\$wait
 if [ "\$to" = hold ]; then
-  now=$(date +%s) || die "clock"
-  end=\$((now + wait))
-  while [ "\$mark" != fresh ] || [ "\$st" != hold ]; do
-    now=$(date +%s) || die "clock"
-    [ "\$now" -ge "\$end" ] && break
+  while [ "\$mark" != fresh ] || [ "\$st" != hold ] || [ "\$got" != "\$id" ]; do
+    if [ "\$left" -le 0 ]; then break; fi
+    left=\$((left - 1))
     sleep 1
     take
   done
-  while [ "\$mark" != fresh ] || [ "\$st" != hold ] || [ "\$inf" != 0 ]; do
-    now=$(date +%s) || die "clock"
-    [ "\$now" -ge "\$end" ] && break
+  while [ "\$mark" != fresh ] || [ "\$st" != hold ] || [ "\$got" != "\$id" ] || [ "\$inf" != 0 ]; do
+    if [ "\$left" -le 0 ]; then break; fi
+    left=\$((left - 1))
     sleep 1
     take
   done
 fi
-# A count is reported only from a fresh status that has seen the word written.
-if [ "\$mark" = fresh ] && [ "\$st" = "\$to" ]; then
-  printf 'state=%s\\ninflight=%s\\nstatus-age=%s\\n' "\$to" "\$inf" "\$age"
+report=\$inf
+if [ "\$to" = hold ]; then
+  if [ "\$mark" != fresh ] || [ "\$st" != hold ] || [ "\$got" != "\$id" ] || [ "\$inf" != 0 ]; then
+    report=unknown
+  fi
 else
-  printf 'state=%s\\ninflight=unknown\\nstatus-age=%s\\n' "\$to" "\$age"
+  if [ "\$mark" != fresh ] || [ "\$st" != "\$to" ]; then
+    report=unknown
+  fi
 fi
+printf 'state=%s\\ninflight=%s\\nstatus-age=%s\\nrequest=%s\\n' "\$to" "\$report" "\$age" "\$id"
 `;
 }
 

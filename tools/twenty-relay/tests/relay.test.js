@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { once } from 'node:events';
 import { existsSync, mkdtempSync, readFileSync, renameSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
+import { rename } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { describe, test } from 'node:test';
@@ -49,7 +50,8 @@ async function setup(options = {}) {
     mock = await startMock({
       cert: certs[which].cert,
       key: certs[which].key,
-      behavior: options.behavior || 'accept'
+      behavior: options.behavior || 'accept',
+      closeDelay: options.closeDelay
     });
     const world = writeWorld(root, {
       mockPort: mock.port,
@@ -62,7 +64,11 @@ async function setup(options = {}) {
     });
     relay = await startRelay(relayEnv(world, certs, options.env || {}), {
       retainLogs: options.retainLogs !== false,
-      beforeClientReply: options.beforeClientReply
+      recordUpstreams: true,
+      beforeClientReply: options.beforeClientReply,
+      beforeDoneAppend: options.beforeDoneAppend,
+      beforeStatusWrite: options.beforeStatusWrite,
+      rename: options.rename
     });
     return {
       root,
@@ -180,6 +186,13 @@ async function expectHeader(ctx, spec, code) {
     if (code === 250) {
       assert.equal(result.upstream.commands.includes('DATA'), true);
       assert.equal(result.upstream.dotSeen, true);
+      await waitFor(() => {
+        try {
+          return readFileSync(ctx.relay.journalPath, 'utf8').includes('outcome=sent');
+        } catch {
+          return false;
+        }
+      }, 2000, 'sent journal before the client closes');
     }
     return result;
   } finally {
@@ -253,6 +266,7 @@ describe('1 listening and the happy path', { concurrency: 1 }, () => {
         assert.equal(unstuff(`${stored}\r\n`), message);
         assert.equal(upstream.dotSeen, true);
 
+        await waitFor(() => ctx.relay.logs.some((line) => line.includes('outcome=sent')), 2000, 'sent log');
         const tx = ctx.relay.logs.filter((line) => line.startsWith('tx '));
         assert.equal(tx.length, 1);
         assert.match(tx[0], new RegExp(`^tx login=user domain=example.com recipients=1 bytes=${Buffer.byteLength(message)} outcome=sent upstream=[0-9a-f]+$`));
@@ -1055,7 +1069,7 @@ describe('7 timeouts and deadlines', { concurrency: 1 }, () => {
           assert.equal(upstream.dotSeen, false);
           assert.equal(upstream.commands.includes('DATA'), false);
         }
-        assert.equal(lastInflight(ctx.relay.logs), 'inflight count=0');
+        await waitFor(() => lastInflight(ctx.relay.logs) === 'inflight count=0', 2000, 'slots freed');
         await sendSmall(ctx);
         assert.ok(ctx.mock.peakSessions() <= 2);
       } finally {
@@ -1260,6 +1274,7 @@ describe('9 hold, reload and rotation', { concurrency: 1 }, () => {
         assert.equal(final.code, 250, final.raw);
         assert.equal(ctx.mock.sessions[0].commands.includes('DATA'), true);
         assert.equal(ctx.mock.sessions[0].dotSeen, true);
+        await waitFor(() => ctx.relay.logs.some((line) => line.includes('outcome=sent')), 2000, 'sent log');
         assert.match(ctx.relay.logs.find((line) => line.startsWith('tx ')), /outcome=sent/);
       } finally {
         opened.client.destroy();
@@ -1798,5 +1813,395 @@ describe('round 1 status on change', { concurrency: 1 }, () => {
         opened.client.destroy();
       }
     });
+  });
+});
+
+function statusText(ctx) {
+  try {
+    return readFileSync(path.join(ctx.root, 'status'), 'utf8');
+  } catch {
+    return '';
+  }
+}
+
+describe('round 2 relay fixes', { concurrency: 1 }, () => {
+  test('a second message on the same connection survives the first finish', { timeout: 15000 }, async () => {
+    let release;
+    let held = false;
+    const gate = new Promise((resolve) => {
+      release = resolve;
+    });
+    await withSetup({
+      beforeDoneAppend() {
+        held = true;
+        return gate;
+      }
+    }, async (ctx) => {
+      const opened = await authed(ctx.relay.port, ctx.world.login, ctx.world.password);
+      try {
+        const message = rfc822([`From: ${sender(ctx)}`], 'zzbodyzz\r\n');
+        assert.equal((await opened.client.cmd(`MAIL FROM:<${sender(ctx)}>`)).code, 250);
+        assert.equal((await opened.client.cmd('RCPT TO:<a@elsewhere.test>')).code, 250);
+        assert.equal((await opened.client.cmd('DATA')).code, 354);
+        const pending = opened.client.read(4000);
+        await opened.client.writeBytes(stuff(message));
+        await waitFor(() => held, 3000, 'done append held');
+        const final = await pending;
+        assert.equal(final.code, 250, final.raw);
+        assert.equal(readFileSync(ctx.relay.journalPath, 'utf8').includes('outcome=sent'), false);
+        assert.equal((await opened.client.cmd(`MAIL FROM:<${sender(ctx)}>`, 3000)).code, 250);
+        await waitFor(() => lastInflight(ctx.relay.logs) === 'inflight count=2', 2000, 'both admitted');
+        release();
+        await waitFor(() => lastInflight(ctx.relay.logs) === 'inflight count=1', 3000, 'first finished');
+        assert.equal((await opened.client.cmd('RCPT TO:<b@elsewhere.test>', 3000)).code, 250);
+        assert.equal((await opened.client.cmd('DATA', 3000)).code, 354);
+      } finally {
+        release();
+        opened.client.destroy();
+      }
+    });
+  });
+
+  test('an upstream 250 during expiry is not answered and journals one done', { timeout: 15000 }, async () => {
+    let release;
+    let seen;
+    const gate = new Promise((resolve) => {
+      release = resolve;
+    });
+    await withSetup({
+      behavior: 'hold-final',
+      env: {
+        RELAY_TRANSACTION_TIMEOUT_MS: '1500',
+        RELAY_DATA_REPLY_TIMEOUT_MS: '20000',
+        RELAY_COMMAND_TIMEOUT_MS: '5000',
+        RELAY_DATA_DEADLINE_MS: '20000'
+      },
+      beforeDoneAppend(tx) {
+        seen = tx;
+        if (tx.upstream && tx.upstream.socket && !tx.upstream.socket.destroyed) {
+          tx.upstream.socket.emit('data', '250 accepted\r\n');
+        }
+        return gate;
+      }
+    }, async (ctx) => {
+      const opened = await authed(ctx.relay.port, ctx.world.login, ctx.world.password);
+      try {
+        const message = rfc822([`From: ${sender(ctx)}`], 'zzbodyzz\r\n');
+        assert.equal((await opened.client.cmd(`MAIL FROM:<${sender(ctx)}>`)).code, 250);
+        assert.equal((await opened.client.cmd('RCPT TO:<a@elsewhere.test>')).code, 250);
+        assert.equal((await opened.client.cmd('DATA')).code, 354);
+        const pending = opened.client.read(4000).catch((error) => error);
+        await opened.client.writeBytes(stuff(message));
+        await waitFor(() => ctx.relay.logs.some((line) => line.includes('outcome=ambiguous')), 4000, 'expiry');
+        await sleep(200);
+        const result = await pending;
+        assert.notEqual(result.code, 250);
+        assert.notEqual(seen && seen.answerAttempted, true);
+        release();
+        await waitFor(() => {
+          try {
+            return readFileSync(ctx.relay.journalPath, 'utf8').includes('outcome=ambiguous');
+          } catch {
+            return false;
+          }
+        }, 2000, 'done line');
+        const journal = readFileSync(ctx.relay.journalPath, 'utf8');
+        const dones = journal.split('\n').filter((line) => line.startsWith('done '));
+        assert.equal(dones.length, 1);
+        assert.match(dones[0], /outcome=ambiguous$/);
+        assert.equal(journal.includes('outcome=sent'), false);
+        assert.equal(ctx.relay.logs.some((line) => line.includes('outcome=sent')), false);
+      } finally {
+        release();
+        opened.client.destroy();
+      }
+    });
+  });
+
+  test('expiry closes both sockets while the done append never finishes', { timeout: 15000 }, async () => {
+    await withSetup({
+      behavior: 'hold-final',
+      env: {
+        RELAY_TRANSACTION_TIMEOUT_MS: '700',
+        RELAY_DATA_REPLY_TIMEOUT_MS: '20000',
+        RELAY_COMMAND_TIMEOUT_MS: '5000',
+        RELAY_DATA_DEADLINE_MS: '20000'
+      },
+      beforeDoneAppend() {
+        return new Promise(() => {});
+      }
+    }, async (ctx) => {
+      const opened = await authed(ctx.relay.port, ctx.world.login, ctx.world.password);
+      try {
+        const message = rfc822([`From: ${sender(ctx)}`], 'zzbodyzz\r\n');
+        assert.equal((await opened.client.cmd(`MAIL FROM:<${sender(ctx)}>`)).code, 250);
+        assert.equal((await opened.client.cmd('RCPT TO:<a@elsewhere.test>')).code, 250);
+        assert.equal((await opened.client.cmd('DATA')).code, 354);
+        const started = Date.now();
+        await opened.client.writeBytes(stuff(message));
+        await waitFor(() => ctx.mock.sessions[0] && ctx.mock.sessions[0].dotSeen, 2000, 'dot');
+        await waitFor(() => {
+          return ctx.mock.sessions[0].closed
+            && opened.client.socket.destroyed
+            && lastInflight(ctx.relay.logs) === 'inflight count=0';
+        }, 2500, 'sockets and slot');
+        assert.ok(Date.now() - started < 2500, String(Date.now() - started));
+        const journal = readFileSync(ctx.relay.journalPath, 'utf8');
+        assert.match(journal, /^intent /m);
+        assert.equal(journal.includes('outcome='), false);
+      } finally {
+        opened.client.destroy();
+      }
+      await ctx.relay.close();
+      const again = await startRelay(relayEnv(ctx.world, certs), { retainLogs: true });
+      try {
+        assert.match(again.logs.join('\n'), /journal ambiguous=1/);
+      } finally {
+        await again.close();
+      }
+    });
+  });
+
+  test('setup expiry does not open the next upstream before the previous socket closes', { timeout: 20000 }, async () => {
+    const stall = await startMock({
+      cert: certs.good.cert,
+      key: certs.good.key,
+      behavior: 'stall-handshake'
+    });
+    try {
+      await withSetup({
+        behavior: 'hang-rset',
+        closeDelay: 5000,
+        env: {
+          RELAY_TRANSACTION_TIMEOUT_MS: '800',
+          RELAY_CONNECT_TIMEOUT_MS: '30000',
+          RELAY_GREETING_TIMEOUT_MS: '30000',
+          RELAY_COMMAND_TIMEOUT_MS: '30000',
+          RELAY_DATA_REPLY_TIMEOUT_MS: '30000',
+          RELAY_DATA_DEADLINE_MS: '30000',
+          RELAY_STATUS_INTERVAL_MS: '60000'
+        }
+      }, async (ctx) => {
+        const holder = await authed(ctx.relay.port, ctx.world.login, ctx.world.password);
+        const setupClient = await authed(ctx.relay.port, ctx.world.login, ctx.world.password);
+        const waiter = await authed(ctx.relay.port, ctx.world.login, ctx.world.password);
+        const pending = [];
+        try {
+          assert.equal((await holder.client.cmd(`MAIL FROM:<${sender(ctx)}>`, 3000)).code, 250);
+          const upstreamFile = path.join(ctx.world.conf, 'upstreams.json');
+          const upstreams = JSON.parse(readFileSync(upstreamFile, 'utf8'));
+          upstreams[0].port = stall.port;
+          writeFileSync(upstreamFile, `${JSON.stringify(upstreams, null, 2)}\n`);
+          assert.equal(ctx.relay.reload().ok, true);
+          pending.push(setupClient.client.cmd(`MAIL FROM:<${sender(ctx)}>`, 10000).catch(() => {}));
+          await waitFor(() => stall.sessions.length >= 1 && ctx.relay.upstreamAt.length >= 2, 2000, 'setup connected');
+          pending.push(waiter.client.cmd(`MAIL FROM:<${sender(ctx)}>`, 10000).catch(() => {}));
+          await sleep(40);
+          assert.equal((await holder.client.cmd('RSET', 3000)).code, 250);
+          await waitFor(() => ctx.relay.upstreamAt.length >= 3 && ctx.relay.upstreamClosedAt[1] > 0, 5000, 'waiter opened');
+          await waitFor(() => stall.sessions[0] && stall.sessions[0].closedAt > 0, 2000, 'setup mock closed');
+          assert.ok(stall.sessions[0].openedAt > 0);
+          assert.ok(
+            ctx.relay.upstreamAt[2] >= ctx.relay.upstreamClosedAt[1],
+            `open ${ctx.relay.upstreamAt[2]} close ${ctx.relay.upstreamClosedAt[1]}`
+          );
+        } finally {
+          holder.client.destroy();
+          setupClient.client.destroy();
+          waiter.client.destroy();
+          await Promise.all(pending);
+        }
+      });
+    } finally {
+      await stall.close();
+    }
+  });
+
+  test('a failed reply write is ambiguous and never sent', limit, async () => {
+    await withSetup({
+      beforeClientReply(tx) {
+        const socket = tx.conn._socket;
+        const real = socket.write.bind(socket);
+        let count = 0;
+        socket.write = function write(chunk, encoding, callback) {
+          if (typeof encoding === 'function') {
+            callback = encoding;
+            encoding = undefined;
+          }
+          count += 1;
+          if (count === 1) {
+            return encoding === undefined ? real(chunk, callback) : real(chunk, encoding, callback);
+          }
+          if (typeof callback === 'function') process.nextTick(() => callback(new Error('write failed')));
+          return true;
+        };
+      }
+    }, async (ctx) => {
+      const opened = await authed(ctx.relay.port, ctx.world.login, ctx.world.password);
+      try {
+        const message = rfc822([`From: ${sender(ctx)}`], 'zzbodyzz\r\n');
+        assert.equal((await opened.client.cmd(`MAIL FROM:<${sender(ctx)}>`)).code, 250);
+        assert.equal((await opened.client.cmd('RCPT TO:<a@elsewhere.test>')).code, 250);
+        assert.equal((await opened.client.cmd('DATA')).code, 354);
+        await opened.client.writeBytes(stuff(message));
+        await opened.client.read(3000).catch(() => {});
+        await waitFor(() => {
+          try {
+            return readFileSync(ctx.relay.journalPath, 'utf8').includes('outcome=ambiguous');
+          } catch {
+            return false;
+          }
+        }, 2000, 'ambiguous journal');
+        const journal = readFileSync(ctx.relay.journalPath, 'utf8');
+        assert.equal(journal.includes('outcome=sent'), false);
+        assert.equal(ctx.relay.logs.some((line) => line.includes('outcome=sent')), false);
+        assert.equal(ctx.relay.logs.some((line) => line.includes('outcome=ambiguous')), true);
+      } finally {
+        opened.client.destroy();
+      }
+    });
+  });
+
+  test('a failed rotation rename is recovered before the next append', { timeout: 20000 }, async () => {
+    let failed = false;
+    const ctx = await setup({
+      rename(from, to) {
+        if (!failed && String(from).endsWith('.new')) {
+          failed = true;
+          return Promise.reject(new Error('second rename failed'));
+        }
+        return rename(from, to);
+      }
+    });
+    let relay2;
+    try {
+      const oldId = '0123456789abcdef';
+      const intent = `intent id=${oldId} login=user domain=example.com recipients=1 bytes=1 message_id=- time=2026-10-12T00:00:00.000Z session=bbbbbbbbbbbbbbbb\n`;
+      writeFileSync(ctx.relay.journalPath, Buffer.concat([
+        Buffer.from(intent),
+        Buffer.alloc(1024 * 1024, 0x78)
+      ]));
+      const opened = await authed(ctx.relay.port, ctx.world.login, ctx.world.password);
+      try {
+        assert.equal((await opened.client.cmd(`MAIL FROM:<${sender(ctx)}>`)).code, 250);
+        assert.equal((await opened.client.cmd('RCPT TO:<a@elsewhere.test>')).code, 250);
+        assert.equal((await opened.client.cmd('DATA')).code, 354);
+        await opened.client.writeBytes(stuff(rfc822([`From: ${sender(ctx)}`], 'zzbodyzz\r\n')));
+        const refused = await opened.client.read(4000);
+        assert.equal(refused.code, 451, refused.raw);
+      } finally {
+        opened.client.destroy();
+      }
+      assert.equal(failed, true);
+      await expectHeader(ctx, { headers: [`From: ${sender(ctx)}`] }, 250);
+      await ctx.relay.close();
+      await ctx.mock.close();
+      relay2 = await startRelay(relayEnv(ctx.world, certs), { retainLogs: true });
+      assert.match(relay2.logs.join('\n'), /journal ambiguous=1/);
+      const text = readFileSync(ctx.relay.journalPath, 'utf8');
+      assert.match(text, new RegExp(`done id=${oldId} outcome=ambiguous`));
+    } finally {
+      if (relay2) await relay2.close();
+      await ctx.stop().catch(() => {});
+    }
+  });
+
+  test('a blocked status writer keeps one pending line', { timeout: 15000 }, async () => {
+    let release;
+    const gate = new Promise((resolve) => {
+      release = resolve;
+    });
+    let block = false;
+    let calls = 0;
+    await withSetup({
+      env: { RELAY_STATUS_INTERVAL_MS: '60000' },
+      async beforeStatusWrite() {
+        calls += 1;
+        if (block) await gate;
+      }
+    }, async (ctx) => {
+      await waitFor(() => /inflight=0/.test(statusText(ctx)) && /request=-/.test(statusText(ctx)), 2000, 'status');
+      await waitFor(() => ctx.relay.statusQueue().writing === 0, 2000, 'idle writer');
+      block = true;
+      const seqs = [];
+      for (let i = 0; i < 1000; i += 1) seqs.push(ctx.relay.forceStatus());
+      assert.deepEqual(ctx.relay.statusQueue(), { writing: 1, pending: 1 });
+      assert.equal(calls, 2);
+      release();
+      await waitFor(() => ctx.relay.statusQueue().writing === 0 && ctx.relay.statusQueue().pending === 0, 2000, 'drained');
+      assert.equal(calls, 3);
+      assert.match(statusText(ctx), new RegExp(`seq=${seqs[seqs.length - 1]}\\b`));
+      assert.match(statusText(ctx), /request=-/);
+    });
+  });
+
+  test('the client is answered while the done append is held', limit, async () => {
+    let release;
+    let held = false;
+    const gate = new Promise((resolve) => {
+      release = resolve;
+    });
+    await withSetup({
+      beforeDoneAppend() {
+        held = true;
+        return gate;
+      }
+    }, async (ctx) => {
+      const opened = await authed(ctx.relay.port, ctx.world.login, ctx.world.password);
+      try {
+        const message = rfc822([`From: ${sender(ctx)}`], 'zzbodyzz\r\n');
+        assert.equal((await opened.client.cmd(`MAIL FROM:<${sender(ctx)}>`)).code, 250);
+        assert.equal((await opened.client.cmd('RCPT TO:<a@elsewhere.test>')).code, 250);
+        assert.equal((await opened.client.cmd('DATA')).code, 354);
+        const pending = opened.client.read(3000);
+        await opened.client.writeBytes(stuff(message));
+        await waitFor(() => held, 3000, 'done append held');
+        const final = await pending;
+        assert.equal(final.code, 250, final.raw);
+        assert.equal(readFileSync(ctx.relay.journalPath, 'utf8').includes('outcome=sent'), false);
+        release();
+        await waitFor(() => readFileSync(ctx.relay.journalPath, 'utf8').includes('outcome=sent'), 2000, 'sent after release');
+      } finally {
+        release();
+        opened.client.destroy();
+      }
+    });
+  });
+
+  test('SIGKILL during the done append delay is ambiguous on restart', { timeout: 20000 }, async () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'twenty-relay-delay-'));
+    let mock;
+    const children = [];
+    try {
+      mock = await startMock({ cert: certs.good.cert, key: certs.good.key, behavior: 'accept' });
+      const world = writeWorld(root, { mockPort: mock.port, state: 'send' });
+      const env = relayEnv(world, certs, { RELAY_DONE_APPEND_DELAY_MS: '4000' });
+      const first = startRelayChild(env);
+      children.push(first.child);
+      const port = await first.ready();
+      const opened = await authed(port, world.login, world.password);
+      const message = rfc822([`From: user@${world.domain}`], 'zzbodyzz\r\n');
+      assert.equal((await opened.client.cmd(`MAIL FROM:<user@${world.domain}>`)).code, 250);
+      assert.equal((await opened.client.cmd('RCPT TO:<a@elsewhere.test>')).code, 250);
+      assert.equal((await opened.client.cmd('DATA')).code, 354);
+      await opened.client.writeBytes(stuff(message));
+      const final = await opened.client.read(1500);
+      assert.equal(final.code, 250, final.raw);
+      const exited = once(first.child, 'exit');
+      first.child.kill('SIGKILL');
+      await exited;
+      opened.client.destroy();
+      const mid = readFileSync(world.journal, 'utf8');
+      assert.match(mid, /^intent /m);
+      assert.equal(mid.includes('done '), false);
+      const second = startRelayChild(env);
+      children.push(second.child);
+      await second.ready();
+      assert.match(second.output(), /journal ambiguous=1/);
+    } finally {
+      for (const child of children) await stopped(child);
+      if (mock) await mock.close();
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 });

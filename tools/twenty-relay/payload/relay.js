@@ -3,7 +3,7 @@
  * transaction to one upstream over TLS. Paths and timeouts come from the
  * environment so a test can run the same program on another machine.
  *
- * RELAY_CONF       directory of logins.json, upstreams.json and state (default /conf)
+ * RELAY_CONF       directory of logins.json, upstreams.json, state and state-request (default /conf)
  * RELAY_SECRETS    directory of <upstream>.token files (default /secrets)
  * RELAY_JOURNAL    journal file, or a directory that holds the file journal (default /journal)
  * RELAY_PORT       default 2525
@@ -15,6 +15,8 @@
  *                  so verification stays Node's default. Tests set it because
  *                  NODE_EXTRA_CA_CERTS is read only at process start.
  * RELAY_AUTH_SLOT_DELAY_MS  test-only pause inside an AUTH check. Default 0.
+ * RELAY_DONE_APPEND_DELAY_MS  test-only pause before a done line is appended.
+ *                  Default 0. Unset on the machine.
  */
 
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
@@ -264,6 +266,18 @@ function readStateWord(file) {
   }
 }
 
+// A missing file is "-", so a state write from before any request still loads.
+const REQUEST_ID = /^[0-9a-f]{32}$/;
+
+function readRequestId(file) {
+  try {
+    const text = readFileSync(file, 'utf8').trim();
+    return REQUEST_ID.test(text) ? text : '-';
+  } catch {
+    return '-';
+  }
+}
+
 function logToken(value) {
   const clean = String(value ?? '').replace(/[^A-Za-z0-9_.:@=+/-]/g, '').slice(0, 120);
   return clean || '-';
@@ -481,7 +495,7 @@ async function syncDirectory(dir) {
   }
 }
 
-function connectUpstream(upstream, timeouts, extraCa, opening) {
+function connectUpstream(upstream, timeouts, extraCa, opening, onOpen) {
   return new Promise((resolve, reject) => {
     let settled = false;
     const options = {
@@ -493,8 +507,13 @@ function connectUpstream(upstream, timeouts, extraCa, opening) {
     if (!ipv4Ok(upstream.host)) options.servername = upstream.host;
     if (extraCa) options.ca = [...rootCertificates, extraCa];
     const socket = tlsConnect(options);
+    if (onOpen) onOpen(socket);
+    const closed = new Promise((resolveClosed) => {
+      socket.once('close', () => resolveClosed());
+    });
     if (opening) {
       opening.socket = socket;
+      opening.closed = closed;
       if (opening.aborted) {
         fail(new Error('transaction timeout'));
         return;
@@ -540,11 +559,24 @@ function unresolvedIntents(text) {
   return intents;
 }
 
-function createJournal(file) {
+function createJournal(file, renameFile = rename) {
   let chain = Promise.resolve();
+  const freshPath = `${file}.new`;
+  async function exists(target) {
+    try {
+      await stat(target);
+      return true;
+    } catch {
+      return false;
+    }
+  }
   async function writeLine(line) {
     if (/[\r\n]/.test(line)) throw new Error('journal line');
     await mkdir(path.dirname(file), { recursive: true });
+    // A rotation whose second rename failed leaves journal.new and no current
+    // file. Recover that before creating a current file, or the next append
+    // would orphan the unresolved intents in journal.new.
+    if (await exists(freshPath)) await recoverRotation();
     await rotateIfNeeded();
     const handle = await open(file, 'a');
     try {
@@ -564,38 +596,24 @@ function createJournal(file) {
     if (info.size < JOURNAL_LIMIT) return;
     const text = await readFile(file, 'utf8');
     const kept = unresolvedIntents(text);
-    const fresh = `${file}.new`;
-    const handle = await open(fresh, 'w');
+    const handle = await open(freshPath, 'w');
     try {
       if (kept.length > 0) await handle.write(`${kept.join('\n')}\n`);
       await handle.sync();
     } finally {
       await handle.close();
     }
-    await rename(file, `${file}.1`);
-    await rename(fresh, file);
+    await renameFile(file, `${file}.1`);
+    await renameFile(freshPath, file);
     await syncDirectory(path.dirname(file));
   }
   async function recoverRotation() {
-    const fresh = `${file}.new`;
-    let hasNew = false;
-    let hasCurrent = false;
-    try {
-      await stat(fresh);
-      hasNew = true;
-    } catch {
-      hasNew = false;
-    }
-    try {
-      await stat(file);
-      hasCurrent = true;
-    } catch {
-      hasCurrent = false;
-    }
-    if (hasNew && !hasCurrent) await rename(fresh, file);
+    const hasNew = await exists(freshPath);
+    const hasCurrent = await exists(file);
+    if (hasNew && !hasCurrent) await renameFile(freshPath, file);
     else if (hasNew && hasCurrent) {
       try {
-        await unlink(fresh);
+        await unlink(freshPath);
       } catch {
         // Already gone.
       }
@@ -654,9 +672,11 @@ export async function startRelay(env = process.env, options = {}) {
   const statusInterval = envInt(env, 'RELAY_STATUS_INTERVAL_MS', 5000);
   const extraCa = env.RELAY_EXTRA_CA || '';
   const authSlotDelay = env.RELAY_AUTH_SLOT_DELAY_MS ? Number(env.RELAY_AUTH_SLOT_DELAY_MS) : 0;
+  const doneDelay = envInt(env, 'RELAY_DONE_APPEND_DELAY_MS', 0);
   const stateFile = path.join(confDir, 'state');
+  const requestFile = path.join(confDir, 'state-request');
   const logs = [];
-  const journal = createJournal(journalFile);
+  const journal = createJournal(journalFile, typeof options.rename === 'function' ? options.rename : rename);
   let snapshot = loadSnapshot(confDir, secretsDir);
   let inflight = 0;
   const waiters = [];
@@ -667,10 +687,14 @@ export async function startRelay(env = process.env, options = {}) {
   const sourceFailures = new Map();
   const connFailures = new WeakMap();
   const live = new Set();
+  const upstreamAt = [];
+  const upstreamClosedAt = [];
   let statusWord = readStateWord(stateFile);
+  let statusRequest = readRequestId(requestFile);
   let statusSeq = 0;
   let statusNoted = null;
-  let statusChain = Promise.resolve();
+  let statusWriting = false;
+  let statusPending = null;
   let statusTimer = null;
 
   function writeLog(line) {
@@ -712,19 +736,64 @@ export async function startRelay(env = process.env, options = {}) {
     }
   }
 
+  // One write in progress and one replaceable pending line. A newer publish
+  // replaces the pending line instead of queueing another snapshot.
   function publishStatus(force) {
-    if (!force && statusNoted && statusNoted.word === statusWord && statusNoted.inflight === inflight) return;
-    statusNoted = { word: statusWord, inflight };
+    const same = statusNoted
+      && statusNoted.word === statusWord
+      && statusNoted.inflight === inflight
+      && statusNoted.request === statusRequest;
+    if (!force && same) return;
+    statusNoted = { word: statusWord, inflight, request: statusRequest };
     statusSeq += 1;
-    const line = `state=${statusWord} inflight=${inflight} seq=${statusSeq} time=${new Date().toISOString()}`;
-    statusChain = statusChain.then(() => writeStatusLine(line), () => writeStatusLine(line));
+    const line = `state=${statusWord} inflight=${inflight} seq=${statusSeq} time=${new Date().toISOString()} request=${statusRequest}`;
+    if (statusWriting) {
+      statusPending = line;
+      return;
+    }
+    statusWriting = true;
+    drainStatus(line);
+  }
+
+  function drainStatus(line) {
+    const run = (async () => {
+      if (typeof options.beforeStatusWrite === 'function') {
+        await options.beforeStatusWrite(line);
+      }
+      await writeStatusLine(line);
+    })();
+    run.finally(() => {
+      if (statusPending !== null) {
+        const next = statusPending;
+        statusPending = null;
+        drainStatus(next);
+        return;
+      }
+      statusWriting = false;
+    }).catch(() => {
+      // A status write after the directory is gone must not surface.
+    });
+  }
+
+  function observeControl() {
+    statusWord = readStateWord(stateFile);
+    statusRequest = readRequestId(requestFile);
   }
 
   function observeState() {
-    const word = readStateWord(stateFile);
-    if (word !== statusWord) statusWord = word;
+    observeControl();
     publishStatus(false);
     return statusWord;
+  }
+
+  async function appendJournal(line, tx) {
+    if (line.startsWith('done ')) {
+      if (typeof options.beforeDoneAppend === 'function') {
+        await options.beforeDoneAppend(tx, line);
+      }
+      if (doneDelay > 0) await new Promise((resolve) => setTimeout(resolve, doneDelay));
+    }
+    return journal.append(line);
   }
 
   function logConfig(status, hash) {
@@ -869,13 +938,17 @@ export async function startRelay(env = process.env, options = {}) {
     tx.upstreamClosed.then(release, release);
   }
 
+  function detachTx(tx) {
+    if (tx && tx.session && txBySession.get(tx.session) === tx) txBySession.delete(tx.session);
+  }
+
   function finish(tx) {
     if (!tx || tx.finished) return false;
     tx.finished = true;
     clearTimeout(tx.deadline);
     clearTimeout(tx.transactionTimer);
     live.delete(tx);
-    txBySession.delete(tx.session);
+    detachTx(tx);
     if (tx.upstream) dropUpstream(tx, !tx.dotSent);
     releaseHeld(tx);
     return true;
@@ -889,47 +962,81 @@ export async function startRelay(env = process.env, options = {}) {
     }
   }
 
-  // The DATA deadline and the transaction timer share this. Ambiguous only
-  // once the dot may have been sent and no reply has been handed to the client.
-  // The client socket is destroyed after the upstream has closed, so the slot
-  // is already free when the client observes the close.
-  function expireOpen(tx) {
-    if (!tx || tx.finished || tx.expiring) return;
-    tx.expiring = true;
-    const after = (closed) => {
-      Promise.resolve(closed).finally(() => {
-        destroyClient(tx);
-        finish(tx);
-      });
-    };
-    if (tx.dotSent && !tx.replyRelayed && !tx.clientAnswered) {
-      markAmbiguous(tx).finally(() => after(dropUpstream(tx, false)));
-      return;
-    }
-    logTx(tx, 'incomplete', tx.sessionId);
-    closeIntent(tx, 'incomplete');
-    after(dropUpstream(tx, true));
+  function halted(tx) {
+    return !tx || tx.finished || tx.expiring || tx.terminal;
   }
 
-  function closeIntent(tx, outcome) {
-    if (!tx.intentId || tx.intentClosed) return;
+  // The first caller records the log line, the journal done line and tx.terminal.
+  // A later caller returns. The journal write is not awaited here: a stuck
+  // append leaves the intent open, which a restart counts ambiguous.
+  function recordTerminal(tx, outcome) {
+    if (!tx || tx.terminal) return false;
+    tx.terminal = outcome;
+    logTx(tx, outcome, tx.sessionId);
+    if (!tx.intentId || tx.intentClosed) return true;
     tx.intentClosed = true;
-    journal.append(`done id=${tx.intentId} outcome=${outcome}`).catch(() => {
-      // The intent stays open, and a restart counts it ambiguous.
+    tx.terminalWrite = appendJournal(`done id=${tx.intentId} outcome=${outcome}`, tx);
+    tx.terminalWrite.catch(() => {
+      // The intent line is already durable. A restart counts it ambiguous.
     });
+    return true;
   }
 
-  async function markAmbiguous(tx) {
-    if (tx.ambiguousMarked) return;
-    tx.ambiguousMarked = true;
-    logTx(tx, 'ambiguous', tx.sessionId);
-    if (tx.intentId) {
-      try {
-        await journal.append(`done id=${tx.intentId} outcome=ambiguous`);
-      } catch {
-        // The intent line is already durable. The restart marks it again.
-      }
+  function finishAfterUpstream(tx) {
+    const closed = dropUpstream(tx, false);
+    Promise.resolve(closed).finally(() => finish(tx));
+  }
+
+  // Confirm the reply bytes were accepted by the kernel before recording sent.
+  // Node runs write callbacks in order, so an empty write after the reply
+  // completes only once that reply's write has completed or failed. Bytes the
+  // kernel has accepted can still be lost; no SMTP exchange can prove otherwise.
+  function observeReplyWrite(tx, clientSocket, outcome) {
+    let settled = false;
+    const lose = () => {
+      if (settled) return;
+      settled = true;
+      if (!tx.terminal) recordTerminal(tx, 'ambiguous');
+      if (!tx.finished) finishAfterUpstream(tx);
+    };
+    const onClose = () => lose();
+    clientSocket.once('close', onClose);
+    try {
+      clientSocket.write(Buffer.alloc(0), onProbe);
+    } catch {
+      lose();
     }
+    function onProbe(error) {
+      clientSocket.removeListener('close', onClose);
+      if (error || tx.terminal) {
+        lose();
+        return;
+      }
+      if (settled) return;
+      settled = true;
+      recordTerminal(tx, outcome);
+      const pending = tx.terminalWrite || Promise.resolve();
+      Promise.resolve(pending).finally(() => {
+        if (!tx.finished) finishAfterUpstream(tx);
+      }).catch(() => {
+        // The journal promise is already handled. Finish still ran above.
+      });
+    }
+  }
+
+  // Mark, destroy both sockets and drop the upstream without waiting on the
+  // journal. Once the dot may have been sent the upstream is destroyed, never
+  // reset. The slot is released when the upstream socket closes.
+  function expireOpen(tx) {
+    if (!tx || tx.finished || tx.expiring || tx.terminal) return;
+    tx.expiring = true;
+    clearTimeout(tx.deadline);
+    clearTimeout(tx.transactionTimer);
+    const ambiguous = tx.dotSent && !tx.replyRelayed && !tx.clientAnswered;
+    recordTerminal(tx, ambiguous ? 'ambiguous' : 'incomplete');
+    destroyClient(tx);
+    const closed = dropUpstream(tx, !ambiguous);
+    Promise.resolve(closed).finally(() => finish(tx));
   }
 
   function dropUpstream(tx, sendRset) {
@@ -1076,16 +1183,19 @@ export async function startRelay(env = process.env, options = {}) {
           if (opening.socket && !opening.socket.destroyed) opening.socket.destroy();
           if (upstream && !upstream.didClose) upstream.destroy();
           upstream = null;
-          if (holding) {
-            releaseSlot();
-            holding = false;
-          }
-          const conn = connBySession.get(session);
-          try {
-            if (conn && conn._socket) conn._socket.destroy();
-          } catch {
-            // already gone
-          }
+          const closed = opening.closed || Promise.resolve();
+          Promise.resolve(closed).finally(() => {
+            if (holding) {
+              releaseSlot();
+              holding = false;
+            }
+            const conn = connBySession.get(session);
+            try {
+              if (conn && conn._socket) conn._socket.destroy();
+            } catch {
+              // already gone
+            }
+          });
         }, timeouts.transaction);
         if (session.relayClosed) {
           clearTimeout(transactionTimer);
@@ -1105,9 +1215,19 @@ export async function startRelay(env = process.env, options = {}) {
         const cap = (limit) => Math.min(limit, remain());
         upstream = await connectUpstream(
           upstreamRow,
-          { ...timeouts, connect: cap(timeouts.connect) },
+          timeouts,
           extraCa,
-          opening
+          opening,
+          // Open and close times are kept only when a test asks, so a long-lived
+          // relay keeps no per-connection record.
+          options.recordUpstreams !== true ? null : (socket) => {
+            const index = upstreamAt.length;
+            upstreamAt.push(Number(process.hrtime.bigint()));
+            upstreamClosedAt.push(0);
+            socket.once('close', () => {
+              upstreamClosedAt[index] = Number(process.hrtime.bigint());
+            });
+          }
         );
         if (abandoned) return;
         const greeting = await upstream.readReply(cap(timeouts.greeting));
@@ -1165,7 +1285,8 @@ export async function startRelay(env = process.env, options = {}) {
           sender: address
         };
         tx.onClientReset = () => {
-          logTx(tx, 'incomplete', tx.sessionId);
+          if (halted(tx)) return;
+          recordTerminal(tx, 'incomplete');
           dropUpstream(tx, true);
           finish(tx);
         };
@@ -1182,8 +1303,11 @@ export async function startRelay(env = process.env, options = {}) {
         } else if (upstream) {
           const closed = upstream.whenClosed();
           if (!upstream.didClose) upstream.destroy();
-          await closed;
+          if (!abandoned) await closed;
           upstream = null;
+        } else if (opening.closed && !abandoned) {
+          if (opening.socket && !opening.socket.destroyed) opening.socket.destroy();
+          await opening.closed;
         }
         if (holding && !abandoned) releaseSlot();
         if (abandoned) return;
@@ -1250,20 +1374,20 @@ export async function startRelay(env = process.env, options = {}) {
         chunks.push(chunk);
       });
       stream.on('error', () => {
-        if (tx.finished || tx.dotSent) return;
-        logTx(tx, 'incomplete', tx.sessionId);
+        if (halted(tx) || tx.dotSent) return;
+        recordTerminal(tx, 'incomplete');
         dropUpstream(tx, true);
         finish(tx);
       });
       stream.on('end', () => {
         if (tx.finished || tx.deadlineFired) return;
         finishData().catch(async () => {
-          if (tx.finished) return;
-          logTx(tx, 'refused:451', tx.sessionId);
+          if (halted(tx)) return;
+          recordTerminal(tx, 'refused:451');
           const closed = dropUpstream(tx, !tx.dotSent);
           if (closed) await closed;
           finish(tx);
-          done(smtpError(451, 'upstream unavailable'));
+          if (!tx.expiring) done(smtpError(451, 'upstream unavailable'));
         });
       });
 
@@ -1272,42 +1396,40 @@ export async function startRelay(env = process.env, options = {}) {
         if (closed) await closed;
       }
 
-      async function finishData() {
-        if (tx.finished) return;
-        if (tx.rcptCommands > tx.rcptAccepted) {
-          logTx(tx, 'incomplete', tx.sessionId);
-          await endUpstream(true);
+      function refuse(outcome, code, message, rset) {
+        if (halted(tx)) return;
+        recordTerminal(tx, outcome);
+        return endUpstream(rset).then(() => {
           finish(tx);
-          done(smtpError(554, 'transaction incomplete'));
+          if (!tx.expiring) done(smtpError(code, message));
+        });
+      }
+
+      async function finishData() {
+        if (halted(tx)) return;
+        if (tx.rcptCommands > tx.rcptAccepted) {
+          await refuse('incomplete', 554, 'transaction incomplete', true);
           return;
         }
         if (over || total > MAX_BYTES) {
-          logTx(tx, 'refused:552', tx.sessionId);
-          await endUpstream(true);
-          finish(tx);
-          done(smtpError(552, 'message exceeds limit'));
+          await refuse('refused:552', 552, 'message exceeds limit', true);
           return;
         }
         const body = Buffer.concat(chunks);
         const headers = inspectHeaders(body, tx.domain);
         if (!headers.ok) {
-          logTx(tx, 'refused:550', tx.sessionId);
-          await endUpstream(true);
-          finish(tx);
-          done(smtpError(550, 'message refused'));
+          await refuse('refused:550', 550, 'message refused', true);
           return;
         }
         tx.messageId = headers.messageId;
-        if (tx.finished) return;
+        if (halted(tx)) return;
         const remain = Math.max(1, timeouts.transaction - (Date.now() - tx.started));
         const opened = await tx.upstream.command('DATA', Math.min(timeouts.command, remain));
-        if (tx.finished) return;
+        if (halted(tx)) return;
         if (opened.code === 354) tx.upstream.inData = true;
         if (opened.code !== 354) {
-          logTx(tx, `refused:${opened.code}`, tx.sessionId);
-          await endUpstream(true);
-          finish(tx);
-          done(smtpError(opened.code >= 400 ? opened.code : 451, 'upstream unavailable'));
+          const code = opened.code >= 400 ? opened.code : 451;
+          await refuse(`refused:${opened.code}`, code, 'upstream unavailable', true);
           return;
         }
         const intentId = randomBytes(8).toString('hex');
@@ -1323,7 +1445,7 @@ export async function startRelay(env = process.env, options = {}) {
           `time=${new Date().toISOString()}`,
           `session=${tx.sessionId}`
         ].join(' '));
-        if (tx.finished) return;
+        if (halted(tx)) return;
         const wire = dotStuff(body);
         // From here the final dot may reach the upstream, so a deadline or a
         // close is ambiguous, not incomplete, even before the write returns.
@@ -1334,25 +1456,30 @@ export async function startRelay(env = process.env, options = {}) {
             tx.upstream.socket.write(wire, (error) => (error ? reject(error) : resolve()));
           });
         } catch {
-          await markAmbiguous(tx);
+          if (halted(tx)) return;
+          recordTerminal(tx, 'ambiguous');
           await endUpstream(false);
           finish(tx);
-          done(smtpError(451, 'upstream outcome unknown'));
+          if (!tx.expiring) done(smtpError(451, 'upstream outcome unknown'));
           return;
         }
+        if (halted(tx)) return;
         let finalReply;
         try {
           const left = Math.max(1, timeouts.transaction - (Date.now() - tx.started));
           finalReply = await tx.upstream.readReply(Math.min(timeouts.dataReply, left));
         } catch {
-          if (tx.finished) return;
-          await markAmbiguous(tx);
+          if (halted(tx)) return;
+          recordTerminal(tx, 'ambiguous');
           await endUpstream(false);
           finish(tx);
-          done(smtpError(451, 'upstream outcome unknown'));
+          if (!tx.expiring) done(smtpError(451, 'upstream outcome unknown'));
           return;
         }
-        if (tx.finished) return;
+        if (halted(tx)) return;
+        clearTimeout(tx.deadline);
+        clearTimeout(tx.transactionTimer);
+        if (halted(tx)) return;
         if (typeof options.beforeClientReply === 'function') {
           try {
             options.beforeClientReply(tx);
@@ -1360,52 +1487,44 @@ export async function startRelay(env = process.env, options = {}) {
             // The hook only arranges the socket state the check below reads.
           }
         }
+        if (halted(tx)) return;
         const clientSocket = tx.conn && tx.conn._socket;
         const canAnswer = Boolean(clientSocket && !clientSocket.destroyed && clientSocket.writable);
         const upstreamText = String(finalReply.text || 'OK').replace(/[^\x20-\x7e]/g, ' ').trim().slice(0, 200);
         if (!canAnswer) {
-          await markAmbiguous(tx);
-          await endUpstream(false);
-          finish(tx);
+          recordTerminal(tx, 'ambiguous');
+          finishAfterUpstream(tx);
           return;
         }
-        // Answer the client before the outcome is durable. A crash after the
-        // answer and before the done line leaves the intent open; restart
-        // counts that intent ambiguous.
+        // Detach before the callback. smtp-server accepts the next command on
+        // this connection as soon as the callback returns, and a later finish
+        // must not delete that next transaction.
+        detachTx(tx);
         tx.clientAnswered = true;
-        if (finalReply.code >= 200 && finalReply.code < 300) done(null, upstreamText || 'OK');
+        tx.answerAttempted = true;
+        const accepted = finalReply.code >= 200 && finalReply.code < 300;
+        if (accepted) done(null, upstreamText || 'OK');
         else done(smtpError(finalReply.code, 'message refused'));
         tx.replyRelayed = true;
-        const outcome = finalReply.code >= 200 && finalReply.code < 300
-          ? 'sent'
-          : `refused:${finalReply.code}`;
-        logTx(tx, outcome, tx.sessionId);
-        try {
-          await journal.append(`done id=${intentId} outcome=${outcome}`);
-        } catch {
-          // The intent line is durable, so a restart counts this one ambiguous,
-          // which overstates and never hides an outcome.
-        }
-        await endUpstream(false);
-        finish(tx);
+        const outcome = accepted ? 'sent' : `refused:${finalReply.code}`;
+        observeReplyWrite(tx, clientSocket, outcome);
       }
     },
     onClose(session) {
       session.relayClosed = true;
       if (cancelWaiter(session)) return;
       const tx = txBySession.get(session);
-      if (!tx || tx.finished || tx.clientAnswered) return;
-      if (tx.dotSent && !tx.replyRelayed) {
-        markAmbiguous(tx).finally(() => {
-          dropUpstream(tx, false);
-          finish(tx);
-        });
+      if (!tx || tx.finished || tx.terminal || tx.expiring) return;
+      if (tx.clientAnswered || tx.replyRelayed) {
+        recordTerminal(tx, 'ambiguous');
+        finishAfterUpstream(tx);
         return;
       }
-      if (!tx.logged) logTx(tx, 'incomplete', tx.sessionId);
-      closeIntent(tx, 'incomplete');
-      dropUpstream(tx, !tx.dotSent);
-      finish(tx);
+      const ambiguous = tx.dotSent && !tx.replyRelayed;
+      recordTerminal(tx, ambiguous ? 'ambiguous' : 'incomplete');
+      destroyClient(tx);
+      const closed = dropUpstream(tx, !tx.dotSent);
+      Promise.resolve(closed).finally(() => finish(tx));
     }
   });
 
@@ -1425,7 +1544,7 @@ export async function startRelay(env = process.env, options = {}) {
   writeLog(`listening port=${address.port}`);
 
   statusTimer = setInterval(() => {
-    statusWord = readStateWord(stateFile);
+    observeControl();
     publishStatus(true);
   }, statusInterval);
   if (typeof statusTimer.unref === 'function') statusTimer.unref();
@@ -1480,6 +1599,15 @@ export async function startRelay(env = process.env, options = {}) {
     },
     failureKeys() {
       return { logins: loginFailures.size, sources: sourceFailures.size };
+    },
+    upstreamAt,
+    upstreamClosedAt,
+    forceStatus() {
+      publishStatus(true);
+      return statusSeq;
+    },
+    statusQueue() {
+      return { writing: statusWriting ? 1 : 0, pending: statusPending === null ? 0 : 1 };
     }
   };
 }

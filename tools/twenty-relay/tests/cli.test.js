@@ -408,13 +408,26 @@ describe('twenty-relay cli', { concurrency: 1 }, () => {
     writeFileSync(env.CHOWN_LOG, '');
     writeFileSync(env.DOCKER_LOG, '');
     writeFileSync(status, `state=hold inflight=1 seq=1 time=${new Date().toISOString()}`);
+    const requestPath = path.join(conf, 'state-request');
     const updater = spawn('python3', ['-c', `
 import pathlib, sys, time
 from datetime import datetime, timezone
-time.sleep(1.5)
-stamp = datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3] + 'Z'
-pathlib.Path(sys.argv[1]).write_text('state=hold inflight=0 seq=2 time=%s' % stamp)
-`, status], { stdio: 'ignore' });
+status, request = sys.argv[1], sys.argv[2]
+deadline = time.time() + 5
+rid = ""
+while time.time() < deadline:
+    path = pathlib.Path(request)
+    if path.exists():
+        rid = path.read_text().strip()
+        if len(rid) == 32:
+            break
+    time.sleep(0.05)
+else:
+    raise SystemExit("no request")
+time.sleep(1.2)
+stamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+pathlib.Path(status).write_text("state=hold inflight=0 seq=2 time=%s request=%s" % (stamp, rid))
+`, status, requestPath], { stdio: 'ignore' });
     const started = Date.now();
     const held = spawnSync(SH, ['-c', script], { encoding: 'utf8', env, timeout: 8000 });
     const elapsed = Date.now() - started;
@@ -462,6 +475,110 @@ pathlib.Path(sys.argv[1]).write_text('state=hold inflight=0 seq=2 time=%s' % sta
     const unseen = spawnSync(SH, ['-c', script], { encoding: 'utf8', env: staleEnv, timeout: 5000 });
     assert.equal(unseen.status, 0, unseen.stderr);
     assert.match(unseen.stdout, /inflight=unknown/);
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  test('hold ignores an earlier zero that carries another request id', () => {
+    const body = jsonOf(runCli(['state', '--install-name', 'ab', '--to', 'hold']));
+    assert.match(body.argv[2], /state-request/);
+    assert.match(body.argv[2], /request=%s/);
+    assert.equal(body.argv[2].includes('date +%s'), false);
+    const root = mkdtempSync(path.join(tmpdir(), 'twenty-relay-request-'));
+    const dir = binDir(root);
+    const conf = path.join(root, 'opt', 'ab', 'relay', 'conf');
+    const journal = path.join(root, 'opt', 'ab', 'relay', 'journal');
+    mkdirSync(conf, { recursive: true });
+    mkdirSync(journal, { recursive: true });
+    const status = path.join(journal, 'status');
+    const other = 'ab'.repeat(16);
+    writeFileSync(status, `state=hold inflight=0 seq=1 time=${new Date().toISOString()} request=${other}`);
+    const script = body.argv[2].replace('conf=/opt/$install/relay/conf', `conf=${root}/opt/$install/relay/conf`);
+    const env = {
+      ...process.env,
+      PATH: `${dir}:${process.env.PATH}`,
+      CHOWN_LOG: path.join(root, 'chown.log'),
+      DOCKER_LOG: path.join(root, 'docker.log'),
+      TWENTY_RELAY_HOLD_WAIT: '1'
+    };
+    writeFileSync(env.CHOWN_LOG, '');
+    writeFileSync(env.DOCKER_LOG, '');
+    const started = Date.now();
+    const held = spawnSync(SH, ['-c', script], { encoding: 'utf8', env, timeout: 5000 });
+    const elapsed = Date.now() - started;
+    assert.equal(held.status, 0, held.stderr);
+    assert.match(held.stdout, /state=hold/);
+    assert.match(held.stdout, /inflight=unknown/);
+    assert.equal(/inflight=0/.test(held.stdout), false);
+    assert.match(held.stdout, /request=[0-9a-f]{32}/);
+    assert.equal(held.stdout.includes(other), false);
+    assert.ok(elapsed >= 800, String(elapsed));
+    const requestFile = path.join(conf, 'state-request');
+    const requestId = readFileSync(requestFile, 'utf8');
+    assert.match(requestId, /^[0-9a-f]{32}$/);
+    assert.match(held.stdout, new RegExp(`request=${requestId}`));
+    assert.equal(statSync(requestFile).mode & 0o777, 0o640);
+    assert.match(readFileSync(env.CHOWN_LOG, 'utf8'), /0:1000/);
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  test('a future status is unknown and a backward clock does not extend the wait', () => {
+    const body = jsonOf(runCli(['state', '--install-name', 'ab', '--to', 'hold']));
+    const root = mkdtempSync(path.join(tmpdir(), 'twenty-relay-clock-'));
+    const dir = binDir(root);
+    const conf = path.join(root, 'opt', 'ab', 'relay', 'conf');
+    const journal = path.join(root, 'opt', 'ab', 'relay', 'journal');
+    mkdirSync(conf, { recursive: true });
+    mkdirSync(journal, { recursive: true });
+    const status = path.join(journal, 'status');
+    const requestPath = path.join(conf, 'state-request');
+    const script = body.argv[2].replace('conf=/opt/$install/relay/conf', `conf=${root}/opt/$install/relay/conf`);
+    const env = {
+      ...process.env,
+      PATH: `${dir}:${process.env.PATH}`,
+      CHOWN_LOG: path.join(root, 'chown.log'),
+      DOCKER_LOG: path.join(root, 'docker.log'),
+      DATE_COUNT: path.join(root, 'date.count'),
+      TWENTY_RELAY_HOLD_WAIT: '2'
+    };
+    writeFileSync(env.CHOWN_LOG, '');
+    writeFileSync(env.DOCKER_LOG, '');
+    writeFileSync(path.join(dir, 'date'), `#!/bin/sh
+if [ ! -f "$DATE_COUNT" ]; then
+  printf 1 > "$DATE_COUNT"
+  printf '%s\\n' 2000000000
+else
+  printf '%s\\n' 100
+fi
+`);
+    chmodSync(path.join(dir, 'date'), 0o755);
+    const watcher = spawn('python3', ['-c', `
+import pathlib, sys, time
+from datetime import datetime, timedelta, timezone
+status, request = sys.argv[1], sys.argv[2]
+deadline = time.time() + 5
+rid = ""
+while time.time() < deadline:
+    path = pathlib.Path(request)
+    if path.exists():
+        rid = path.read_text().strip()
+        if len(rid) == 32:
+            break
+    time.sleep(0.02)
+else:
+    raise SystemExit("no request")
+when = datetime.now(timezone.utc) + timedelta(seconds=60)
+stamp = when.strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+pathlib.Path(status).write_text("state=hold inflight=0 seq=1 time=%s request=%s" % (stamp, rid))
+`, status, requestPath], { stdio: 'ignore' });
+    const started = Date.now();
+    const held = spawnSync(SH, ['-c', script], { encoding: 'utf8', env, timeout: 6000 });
+    const elapsed = Date.now() - started;
+    watcher.kill('SIGKILL');
+    assert.equal(held.status, 0, held.stderr);
+    assert.match(held.stdout, /inflight=unknown/);
+    assert.equal(/inflight=0/.test(held.stdout), false);
+    assert.ok(elapsed >= 1500, String(elapsed));
+    assert.ok(elapsed < 5000, String(elapsed));
     rmSync(root, { recursive: true, force: true });
   });
 

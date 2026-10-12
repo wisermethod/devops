@@ -3,7 +3,7 @@ name: Back Up Twenty
 type: skill
 category: operations
 description: Set up scheduled, age-encrypted backups of an install Deploy Twenty made to a Cloudflare R2 bucket, back one up now, check the key's recovery copy, recover after an interrupted backup, stop scheduled backups, or restore a backup onto an install made for a restore, and report what was done.
-version: 0.1.11
+version: 0.1.12
 gaps:
   - authenticating a set's origin, and object lock
   - alerting on an overdue backup
@@ -115,7 +115,7 @@ The machine question, the map, the health, the role, and the approval questions 
 
 One `vm.command.run`, a read, with `machine` set to the identifier and `argv` exactly `/bin/sh`, `-c`, the script, `sh`, and the install name. The install name is the operand. It is not written into the script. The person is told the call is a read. The script does not print `backup.env` or `.env`. It prints `config` and `source-id`, which hold no secret.
 
-This script is 3452 code points. `argv` is `/bin/sh`, `-c`, this script, `sh`, and the operands the question names.
+This script is 3998 code points. `argv` is `/bin/sh`, `-c`, this script, `sh`, and the operands the question names.
 
 ```sh
 export LC_ALL=C
@@ -160,6 +160,19 @@ else
   printf '%s\n' docker-absent
   printf '%s\n' project-exit:127
 fi
+pending=$dir/relay/rotation-pending
+if [ -e "$pending" ]; then
+  login=$(awk 'NR==1 { print; exit }' "$pending" 2>/dev/null)
+  case "$login" in ''|*[!A-Za-z0-9._@-]*) login=unread ;; esac
+  when=$(sed -n '2p' "$pending" 2>/dev/null)
+  born=$([ -n "$when" ] && date -u -d "$when" +%s 2>/dev/null)
+  now=$(date +%s)
+  age=unread
+  case "$born:$now" in *[!0-9:]*|:*|*:) ;; *) age=$((now - born)); [ "$age" -ge 0 ] || age=0 ;; esac
+  printf 'rotation-pending:login:%s:age-seconds:%s\n' "$login" "$age"
+else
+  printf '%s\n' rotation-pending:absent
+fi
 printf '%s\n' '--- backup ---'
 bk=$dir/backup
 if [ -d "$bk" ]; then
@@ -202,7 +215,7 @@ exit 0
 ```
 
 
-The token, the jobs list, and the systemd version are read the way Deploy Twenty's inspection reads them (`skills/Deploy Twenty/`). The other sections are this skill's.
+The token, the jobs list, and the systemd version are read the way Deploy Twenty's inspection reads them (`skills/Deploy Twenty/`). The other sections are this skill's. The same inspection reads `rotation-pending` in one added output line within the 4096-code-point argument bound; no new call is needed. Its first line is the login and its second line is the UTC time written by Deploy Twenty's Job 5. Age is seconds since that time, floored at zero. A missing or unreadable login or age is `unread`, never an absent marker. Record `rotation-pending:absent` or `rotation-pending:login:<login>:age-seconds:<age>` for every job.
 
 - The answer is not `ok` or `remote_failure` naming this identifier, or the output is `truncated`, or a section the question needs is missing. The inspection was not read. Stop. Change nothing. Do not start a job.
 - Both token lines are present and the sections below were read. Continue to the token question.
@@ -338,7 +351,7 @@ The schedule in `config` derives an interval only when it matches `*-*-*` then a
 - The schedule does not match that daily form. Report `interval-not-derived`. Do not say overdue. Report the age when a newest set was read.
 - The stamp or the clock cannot be read. The age was not read. Do not say overdue.
 
-Report the skip count from the scheduled record, or `none` when the class was `none`. Report the state section's last line, or `state-absent`. Alerting someone unprompted is missing. Do not send an alert.
+Report the skip count from the scheduled record, or `none` when the class was `none`. That is the wrapper's busy skip count. Report a `relay:skip:rotation-pending` firing separately as skipped, not counted and not failed, with the marker's login and age from the inspection. Whenever the marker exists, name it, its login and age even if the last firing was successful. Finish the rotation in Twenty and close it through Deploy Twenty's Job 5. Report the state section's last line, or `state-absent`. Alerting someone unprompted is missing. Do not send an alert.
 
 ### Is the plan gated?
 
@@ -561,10 +574,10 @@ printf '%s\n' config:written
 ```
 
 
-`run` is the backup program. It starts `server` and `worker` under `timeout 120`, and a start cut off at that bound does not end the run: while the worker is not running, its wait of 900 seconds reads the clock again and starts them again, each start bounded by 120 seconds or the time left. The deadline bounds starts, not readings: a pass begun before it reports what its reads saw, so a restart read just past 900 seconds still counts, and no start is sent after the deadline. When a helper fails, `run` prints the helper's last output line to the journal as `s3-detail:`, tabs turned to colons and every character but letters, digits and `:._/-` removed, at most 160 characters, before the stage's failure line. The helper's output files are deleted with the work directory, so without that line a failed upload needs a separate probe to diagnose. The files-bucket helper returns the status of its Docker call, not of the cleanup after it. When `/opt/<install>/relay/` is a directory, `run` opens `/opt/<install>/relay/.helper.lock` on descriptor 9 and takes `flock -w 600` on it before it stops `server` and `worker`, and it holds that lock until the relay files are copied. A wait that runs out appends `relay:fail:locked`, starts `server` and `worker`, and exits, the same way a config-db refusal does. `TWENTY_BACKUP_LOCK_WAIT`, when it is a whole number of seconds, is that wait in place of 600. A login helper run while the lock is held waits for this backup. The last writer runs `sh -n` on the assembled file and sets mode 700.
+`run` is the backup program. It starts `server` and `worker` under `timeout 120`, and a start cut off at that bound does not end the run: while the worker is not running, its wait of 900 seconds reads the clock again and starts them again, each start bounded by 120 seconds or the time left. The deadline bounds starts, not readings: a pass begun before it reports what its reads saw, so a restart read just past 900 seconds still counts, and no start is sent after the deadline. When a helper fails, `run` prints the helper's last output line to the journal as `s3-detail:`, tabs turned to colons and every character but letters, digits and `:._/-` removed, at most 160 characters, before the stage's failure line. The helper's output files are deleted with the work directory, so without that line a failed upload needs a separate probe to diagnose. The files-bucket helper returns the status of its Docker call, not of the cleanup after it. When `/opt/<install>/relay/` is a directory, `run` opens `/opt/<install>/relay/.helper.lock` on descriptor 9 and takes `flock -w 600` on it before it stops `server` and `worker`, and it holds that lock until the relay files are copied. A wait that runs out appends `relay:fail:locked`, starts `server` and `worker`, and exits, the same way a config-db refusal does. `TWENTY_BACKUP_LOCK_WAIT`, when it is a whole number of seconds, is that wait in place of 600. After taking the lock and before `stopping`, an existing `/opt/<install>/relay/rotation-pending` appends `relay:skip:rotation-pending`, unlocks and closes descriptor 9, and exits 75. It leaves `server` and `worker` running and creates no set. Exit 75 with that last line is a skipped firing, not counted and not failed by this skill, even though systemd or the poll records a nonzero exit. A login helper run while the lock is held waits for this backup. The last writer runs `sh -n` on the assembled file and sets mode 700.
 
-The assembled file is 12563 code points.
-Writer 1 of 4, 4041 code points. `argv` is `/bin/sh`, `-c`, this script, `sh`, and the install name.
+The assembled file is 12706 code points.
+Writer 1 of 4, 3899 code points. `argv` is `/bin/sh`, `-c`, this script, `sh`, and the install name.
 ```sh
 set -eu
 export LC_ALL=C
@@ -648,20 +661,20 @@ listed=$(awk '$1=="bytes" { print $2; exit }' "$work/list.out")
 num "$listed" || { note checks:refused:list; exit 2; }
 local_line=$(timeout 60 docker run --rm --user 0:0 --label "backup-twenty=${install}" --entrypoint du -v "${install}_server-local-data:/s:ro" "$image" -s -k /s) || { note checks:refused:local; exit 2; }
 local_k=$(printf '%s\n' "$local_line" | awk 'NR==1 { print $1 }')
-num "$local_k" || { note checks:refused:local; exit 2; }
-local_b=$((local_k * 1024))
-num "$local_b" || { note checks:refused:local; exit 2; }
 RUN1END
 printf '%s\n' writer-ok
 ```
 
-Writer 2 of 4, 4059 code points. `argv` is `/bin/sh`, `-c`, this script, `sh`, and the install name.
+Writer 2 of 4, 3863 code points. `argv` is `/bin/sh`, `-c`, this script, `sh`, and the install name.
 ```sh
 set -eu
 export LC_ALL=C
 install=$1
 umask 077
 cat >> "/opt/$install/backup/run" << 'RUN2END'
+num "$local_k" || { note checks:refused:local; exit 2; }
+local_b=$((local_k * 1024))
+num "$local_b" || { note checks:refused:local; exit 2; }
 need=$(( (dump_b + listed + local_b) * 2 + 1073741824 ))
 avail=$(df -B1 -P -- "$work" | awk 'NR==2 { print $4 }')
 num "$avail" || { note checks:refused:df; exit 2; }
@@ -688,6 +701,13 @@ if [ -d "$base/relay" ]; then
     exit 3
   fi
   held=1
+  if [ -e "$base/relay/rotation-pending" ]; then
+    note relay:skip:rotation-pending
+    flock -u 9
+    exec 9>&-
+    held=0
+    exit 75
+  fi
 fi
 
 note stopping
@@ -741,23 +761,23 @@ fi
 rm -f "$work/get.out"
 note files:ok
 
-enc=$(awk -F= '$1=="ENCRYPTION_KEY" { print substr($0, index($0, "=") + 1); exit }' "$base/.env")
-fb=$(awk -F= '$1=="FALLBACK_ENCRYPTION_KEY" { print substr($0, index($0, "=") + 1); exit }' "$base/.env")
-case "$enc" in ''|*[[:space:]]*|*[!A-Za-z0-9+/=]*) note secrets:refused; exit 4 ;; esac
-case "$fb" in *[[:space:]]*|*[!A-Za-z0-9+/=]*) note secrets:refused; exit 4 ;; esac
-printf 'ENCRYPTION_KEY=%s\nFALLBACK_ENCRYPTION_KEY=%s\n' "$enc" "$fb" > "$work/secrets.env"
-unset enc fb
 RUN2END
 printf '%s\n' writer-ok
 ```
 
-Writer 3 of 4, 4052 code points. `argv` is `/bin/sh`, `-c`, this script, `sh`, and the install name.
+Writer 3 of 4, 3916 code points. `argv` is `/bin/sh`, `-c`, this script, `sh`, and the install name.
 ```sh
 set -eu
 export LC_ALL=C
 install=$1
 umask 077
 cat >> "/opt/$install/backup/run" << 'RUN3END'
+enc=$(awk -F= '$1=="ENCRYPTION_KEY" { print substr($0, index($0, "=") + 1); exit }' "$base/.env")
+fb=$(awk -F= '$1=="FALLBACK_ENCRYPTION_KEY" { print substr($0, index($0, "=") + 1); exit }' "$base/.env")
+case "$enc" in ''|*[[:space:]]*|*[!A-Za-z0-9+/=]*) note secrets:refused; exit 4 ;; esac
+case "$fb" in *[[:space:]]*|*[!A-Za-z0-9+/=]*) note secrets:refused; exit 4 ;; esac
+printf 'ENCRYPTION_KEY=%s\nFALLBACK_ENCRYPTION_KEY=%s\n' "$enc" "$fb" > "$work/secrets.env"
+unset enc fb
 url=$(awk -F= '$1=="SERVER_URL" { print substr($0, index($0, "=") + 1); exit }' "$base/.env")
 fbk=$(awk -F= '$1=="STORAGE_S3_NAME" { print substr($0, index($0, "=") + 1); exit }' "$base/.env")
 relay=absent
@@ -836,6 +856,17 @@ pmd5=$(awk '$1=="put" { print $5; exit }' "$work/put.out")
 hmd5=$(printf '%s\n' "$h" | awk '$1=="head" { print $4; exit }')
 case "$pmd5" in ''|*[!0-9a-f]*) note uploaded:fail; exit 4 ;; esac
 [ "${#pmd5}" -eq 32 ] && [ "$hmd5" = "$pmd5" ] || { note uploaded:fail; exit 4; }
+RUN3END
+printf '%s\n' writer-ok
+```
+
+Writer 4 of 4, 1640 code points. `argv` is `/bin/sh`, `-c`, this script, `sh`, and the install name.
+```sh
+set -eu
+export LC_ALL=C
+install=$1
+umask 077
+cat >> "/opt/$install/backup/run" << 'RUN4END'
 s3b put /backup/COMPLETE.part "$prefix/COMPLETE" > "$work/complete.out" || { s3why "$work/complete.out"; note uploaded:fail; exit 4; }
 printf '%s\n' "set:$prefix"
 note uploaded:ok
@@ -851,17 +882,6 @@ while :; do
   if [ $((now - t0)) -ge 900 ]; then break; fi
   cid=$(timeout 60 docker compose -p "$install" ps -aq -- server | awk 'NR==1 { print; exit }')
   wid=$(timeout 60 docker compose -p "$install" ps -aq -- worker | awk 'NR==1 { print; exit }')
-RUN3END
-printf '%s\n' writer-ok
-```
-
-Writer 4 of 4, 1023 code points. `argv` is `/bin/sh`, `-c`, this script, `sh`, and the install name.
-```sh
-set -eu
-export LC_ALL=C
-install=$1
-umask 077
-cat >> "/opt/$install/backup/run" << 'RUN4END'
   hs=$(timeout 60 docker inspect --format '{{.State.Health.Status}}' "$cid" 2>/dev/null || echo missing)
   wr=$(timeout 60 docker inspect --format '{{.State.Status}}' "$wid" 2>/dev/null || echo missing)
   if [ "$hs" = healthy ] && [ "$wr" = running ]; then ok=1; break; fi
@@ -1363,9 +1383,13 @@ The timer is not enabled yet. Job 2 runs once. Only a Job 2 that counts is follo
 
 ### Job 2. Back up now
 
+If the inspection shows `rotation-pending`, stop before starting the job. Report `relay:skip:rotation-pending`, the marker's login and age, not counted and not failed. Name Deploy Twenty's Job 5 to finish the rotation: save the password in Twenty and have Job 5 close the marker. Do not remove it here.
+
 One job. Purpose `twenty-backup`, limit 3600, `--stop-post` `/opt/<install>/backup/recover`, `--stop-post-timeout 1200`, operand the install name. The script is the temp copy of `job`. Build it with `tools/vm-job/` `start` and send the `argv` it prints, unchanged. The job question is Deploy Twenty's (`skills/Deploy Twenty/`).
 
-It counts only when all of these hold. The poll class is `succeeded`. The read-back, in the text after the first `]: `, contains `restart-verified` and a later line `end`. A line `set:` names the prefix. A line `archive-sha256:` and a line `archive-size:` were printed. The list script, with the install and that prefix as operands, shows a `field` line `sha256=` equal to that archive sha256, and a `head` line whose size equals that archive size. Anything else does not count. Release still follows a finished poll. Do not leave the unit loaded because the count failed.
+First read this invocation's exit and its last line, in the text after the first `]: `. Exit 75 with last line `relay:skip:rotation-pending` is skipped, not counted and not failed, for a scheduled firing or a manual Job 2 that met a marker after inspection. Release the finished unit and re-inspect for the marker's login and age (or say it was since closed). Name Deploy Twenty's Job 5 to finish the rotation. Do not list a set, retry the backup, enable the timer in Job 1, or send the person to Job 6 for this skip. This rule takes precedence over a failed poll class and the generic failed re-inspection rule; no downtime was incurred.
+
+Otherwise, it counts only when all of these hold. The poll class is `succeeded`. The read-back, in the text after the first `]: `, contains `restart-verified` and a later line `end`. A line `set:` names the prefix. A line `archive-sha256:` and a line `archive-size:` were printed. The list script, with the install and that prefix as operands, shows a `field` line `sha256=` equal to that archive sha256, and a `head` line whose size equals that archive size. Anything else does not count. Release still follows a finished poll. Do not leave the unit loaded because the count failed.
 
 The list script's second operand is the prefix. It matches 32 hex, a slash, `YYYYMMDDTHHMMSSZ`, a hyphen, and 6 hex. Any other prefix is `prefix:refused`, and the backup does not count.
 
@@ -3101,11 +3125,11 @@ Job 4's requested state is the one its question states. Job 6's requested state 
 
 ### What does the report say?
 
-One report. For each part: what was inspected, what was planned, the gate's verdict or that no gate was taken, each call's action and its `outcome`, any `exit_code`, the output copied verbatim where the report shows it, the re-inspection, and `changed`, `unchanged`, or failed.
+One report. For each part: what was inspected, what was planned, the gate's verdict or that no gate was taken, each call's action and its `outcome`, any `exit_code`, the output copied verbatim where the report shows it, the re-inspection, and `changed`, `unchanged`, failed, or skipped by Job 2's rotation-pending rule.
 
 A line that contains `PG_DATABASE_PASSWORD=`, `ENCRYPTION_KEY=`, `FALLBACK_ENCRYPTION_KEY=`, `CLOUDFLARE_API_KEY=`, `EMAIL_SMTP_PASSWORD=`, `RESEND_API_KEY=`, `STORAGE_S3_SECRET_ACCESS_KEY=`, `STORAGE_S3_ACCESS_KEY_ID=`, `S3_SECRET_ACCESS_KEY=`, `S3_ACCESS_KEY_ID=`, `ADMIN_PASSWORD=`, or `AGE-SECRET-KEY-` is withheld, and the report says the line was withheld. A secret value is not a report line. Lengths, booleans, counts, and statuses are.
 
-The report names the install, the bucket, the schedule, the retention, the source id, and the recipient's sha256. It names the newest set's stamp and age, or `no-set`, and `overdue` or `interval-not-derived` when Job 0's rule says so. It names the skip count and the state file's last line. It names a backup's unit, invocation id, limit, whether it counted, the archive sha256 and size, the set prefix, and the measured downtime when both lines were read. It says Redis's queue was not carried. When the install has a relay, it says the set carries that relay's logins, its upstream names and its tokens, and that it does not carry `conf/state`, because a restore decides hold or send for itself. It says a rotation is complete only once Twenty's mailbox holds the new password, and that a set taken between the helper and that update restores a login whose password Twenty does not hold: rotate, update Twenty, then back up. When a restore's set says `relay=present`, the report says the target's relay is `hold` until Deploy Twenty's Job 5 writes `send`, and that a restored login keeps its binding and its password, because the hash and Twenty's encrypted copy of the password travel together in one set. When the install has no relay, or the newest set has no `relay=` field line, it says `relay=absent`. It says a holder of the bucket key cannot read the set without the identity, and that age does not authenticate who made the set. It names every gap that applies. A restore names the target, the set's source id, stamp and `server-url`, each stage reached, the witness's lines, and `changed` or the stage that stopped it. A cleanup names each key it deleted and its last line.
+The report names the install, the bucket, the schedule, the retention, the source id, and the recipient's sha256. It names the newest set's stamp and age, or `no-set`, and `overdue` or `interval-not-derived` when Job 0's rule says so. It names the skip count and the state file's last line. Whenever `rotation-pending` exists, it names that marker, its login and age (or `unread`), and Deploy Twenty's Job 5 as the way to finish the rotation. Exit 75 with last line `relay:skip:rotation-pending` is skipped, not counted and not failed, separately from the wrapper's busy skip count; it is never a referral to Job 6. It names a backup's unit, invocation id, limit, whether it counted, the archive sha256 and size, the set prefix, and the measured downtime when both lines were read. It says Redis's queue was not carried. When the install has a relay, it says the set carries that relay's logins, its upstream names and its tokens, and that it does not carry `conf/state`, because a restore decides hold or send for itself. It says a rotation is complete only once Twenty's mailbox holds the new password and Deploy Twenty's Job 5 closes `rotation-pending`; the marker prevents a set from capturing the interval between the helper and that update. Rotate, update Twenty, close the marker through Job 5, then back up. When a restore's set says `relay=present`, the report says the target's relay is `hold` until Deploy Twenty's Job 5 writes `send`, and that a restored login keeps its binding and its password, because the hash and Twenty's encrypted copy of the password travel together in one set. When the install has no relay, or the newest set has no `relay=` field line, it says `relay=absent`. It says a holder of the bucket key cannot read the set without the identity, and that age does not authenticate who made the set. It names every gap that applies. A restore names the target, the set's source id, stamp and `server-url`, each stage reached, the witness's lines, and `changed` or the stage that stopped it. A cleanup names each key it deleted and its last line.
 
 For each job, also: its unit name, its invocation ID and its limit, the last poll's state, the read-back lines the report may show and the line count shown, and the release outcome. A job not read as finished after six polls is reported in the state the last poll that was read showed, or as unknown when none was read.
 
@@ -3139,7 +3163,7 @@ For each job, also: its unit name, its invocation ID and its limit, the last pol
 - **A failure with no `machine`, called a finished backup.** It does not establish whether the router reached the machine. Re-inspect when a read is still possible. Do not repeat the change.
 - **A restored relay treated as allowed to send.** The restore writes `hold`. The relay stays held until Deploy Twenty's Job 5 writes `send`. Bringing the install online does not write `send`.
 - **A restored login's password typed again.** The hash in `logins.json` and Twenty's encrypted copy of the password travel together in one set. The restore does not generate a new password.
-- **A backup between a rotation and Twenty's mailbox update.** A rotation is complete only once Twenty's mailbox holds the new password. A set taken after the helper writes the new hash and before that update restores a login whose password Twenty does not hold. Rotate, update Twenty, then back up.
+- **A rotation marker left in place.** `rotation-pending` skips every scheduled backup, even after the helper finishes. Finish the rotation in Twenty and close the marker through Deploy Twenty's Job 5; never remove it here. Name the marker, its login and age on every report while it exists. Exit 75 with `relay:skip:rotation-pending` is skipped, not counted and not failed; it leaves the app running and never sends the person to Job 6.
 - **A relay lock that runs out left with the app stopped.** The program starts `server` and `worker` before it exits. It does not count as a backup.
 - **The fleet called down.** A router-host failure, or a `list_hosts` `vendor_error`, means connector access to the whole fleet depends on the router host. Installs keep serving.
 
@@ -3155,9 +3179,10 @@ For each job, also: its unit name, its invocation ID and its limit, the last pol
 - A change was sent only after `experts/DevOps Expert/` returned safe as planned, or safe with named conditions the person was told, and only after the person approved that call's stop. Job 0 and a standalone Job 5 took no gate.
 - Job 1's confirmation named the install, the bucket, and the schedule. The person ran `keygen-helper` and `token-helper` over the shell they hold. Job 5 printed `key-check:match` before `run`, `recover`, `s3.js`, `job`, and the units were written. The identity was not copied into the conversation.
 - Every `argv` element was at most 4096 code points. A longer file was written by the writers listed with that file, the last of which checked the assembled file and set its mode. The wrapper and the units were the texts `vm-job scheduled` printed, or the run stopped because the tool did not print them.
+- A pending rotation stopped Job 2 before start, or the backup took the helper lock, checked `rotation-pending` before `stopping`, appended `relay:skip:rotation-pending`, released the lock and exited 75 with the app running. It was reported as skipped, not counted and not failed, with the marker's login and age, and Deploy Twenty's Job 5 named to finish it. No timer was enabled and no Job 6 was prescribed for the skip.
 - Job 2 was one job, purpose `twenty-backup`, limit 3600, with `--stop-post` on `recover` and `--stop-post-timeout 1200`. It counted only on `succeeded`, a state ending in `end` with `restart-verified`, and `COMPLETE` read back with its sha256 equal to the archive. The timer was enabled only after that count, with `systemctl enable --now` on the timer, and the re-inspection showed the next elapse.
 - Job 4 ran only after the person named the install, refused a running `vm-job-twenty-backup-*` unit, and removed the units, the record, and the directory. The re-inspection showed the units not loaded and the directory gone. Nothing in the bucket was deleted.
 - Job 6 was the recovery rule as a job. A `recovered:fail` did not count. The way back named was Job 6 again.
 - A restore ran only onto a target Deploy Twenty made for a restore, with an empty files bucket that was neither the source's nor the backup bucket, after the person confirmed the set's source id, stamp and `server-url`. The identity and the witness's password reached the job through FIFOs from helpers the person ran. It counted only on every stage line through `end`, `witness:kid:match` and `file:match` included. When the set says `relay=present`, the count also requires `relay:installed`, `relay:credentials` and `relay:held` before `server:ok`, and `outbound:ok` after `worker:ok`. When it does not, those four lines are absent, and a read-back that holds one of them does not count. A set that says `relay=present` on a target with no relay is `checks:refused:relay-missing`. A set that does not, on a target that has a relay, is `checks:refused:relay-unexpected`. A restore that did not count was not re-sent: Job 7 cleaned the target, deleting only the keys the restore attempted, and, when the restore stopped between the relay's stages, that relay's labelled container, by the id it read, and `/opt/<target>/relay`, and nothing else of it, and Deploy Twenty's removal was named.
-- The report names the recipient sha256, the source id, the newest set's age, overdue or not, the skip count, the last state, whether a backup counted, the measured downtime when both lines were read, that Redis's queue was not carried, and every gap that applies. When the install has a relay, the report says the set carries the relay's logins, upstream names and tokens, and that `state` was not carried. It says a rotation is complete only once Twenty's mailbox holds the new password, and that a set taken between the helper and that update restores a login whose password Twenty does not hold: rotate, update Twenty, then back up. When a restore's set says `relay=present`, the report says the relay stays `hold` until Deploy Twenty's Job 5 writes `send`, and that a restored login keeps its binding and its password because the hash and Twenty's encrypted copy travel together in one set.
+- The report names the recipient sha256, the source id, the newest set's age, overdue or not, the skip count, the last state, whether a backup counted, the measured downtime when both lines were read, that Redis's queue was not carried, and every gap that applies. When the install has a relay, the report says the set carries the relay's logins, upstream names and tokens, and that `state` was not carried. It says a rotation is complete only once Twenty's mailbox holds the new password and Deploy Twenty's Job 5 closes `rotation-pending`; the marker prevents a set from capturing the interval between the helper and that update. Rotate, update Twenty, close the marker through Job 5, then back up. When a restore's set says `relay=present`, the report says the relay stays `hold` until Deploy Twenty's Job 5 writes `send`, and that a restored login keeps its binding and its password because the hash and Twenty's encrypted copy travel together in one set.
 - DNS was handed to `experts/IT Expert/` in `wiser`. A package was handed to `skills/VM Configure/`. An install, a route, or a removal was handed to `skills/Deploy Twenty/`.

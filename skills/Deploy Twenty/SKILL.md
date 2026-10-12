@@ -3,7 +3,7 @@ name: Deploy Twenty
 type: skill
 category: operations
 description: Install Twenty CRM v2.45.6 on one machine a person's router maps, behind the Caddy that machine already runs, including that install's mail relay when one is named, or add or remove one hostname route for an install this skill made, or remove that install, or take that install offline or bring it back online, or add, rotate or remove one relay login, replace one relay upstream token, add or remove one relay upstream, or write the relay to send or hold, and report the URL, what answered, the relay, and what is not configured.
-version: 0.1.22
+version: 0.1.23
 gaps:
   - installing a Twenty release other than v2.45.6, or upgrading an install to another release
   - a machine with no Docker, or with no Caddy running in the shape `skills/Deploy Workload/` runs it
@@ -2515,7 +2515,48 @@ An organisation's login is bound to its domain once. A second login for a domain
 
 The tool is `tools/twenty-relay/`. Its commands used here are `login-helper` and `state`. The token helper, the upstream write, and the report read are the scripts in this job. The tool does not print those three.
 
-A change counts on a new loaded hash. The read before the change records the hex of the latest `config hash=` line the login read or the token read-back printed, or records that none was printed. The read after the change counts only when that latest line is `status=loaded` and its hex differs. The same hex does not count. A missing line does not count. A line `status=refused` stops: the file on disk was not taken, and the relay keeps the old configuration. Do not send another change in this run. Helper exit 3 never counts by itself. The session then sends one direct call, `docker kill --signal=HUP -- <install>-relay`, waits two seconds, and reads the latest `config hash=` line again. The same rule applies to that line, and that is the only further signal in this run.
+A change counts on a fresh reload acknowledgment, whatever the hash. After any relay change in this job, a login helper, a token helper, or an upstream write, and whatever exit that call had, the session sends one direct call, the reload acknowledgment. It is one script, sent within 20 seconds. `argv` is `/bin/sh`, `-c`, the script, `sh`, and the install name. The person is told it signals the relay. The script records `t=$(date -u +%Y-%m-%dT%H:%M:%S.%NZ)`, sends `docker kill --signal=HUP -- <install>-relay`, waits two seconds, and prints the `config hash=` lines of `docker logs --since "$t" -- <install>-relay`, then one of `relay-ack:loaded:<hex>`, `relay-ack:refused`, or `relay-ack:none`. The change counts only on `relay-ack:loaded:` together with the disk read that shows the change. For a login, that read is the login read: the login present and `relay-login-hash:<login>:` equal to the helper's `hash=`, or the login absent and the helper's `hash=` equal to the prefix recorded before the helper. For a token, that read is the token read-back: `relay-token:<name>:640 0:1000 <bytes>` whose byte count is at least 1 and equal to the helper's `length:`. For an upstream, that read is a login read: `relay-upstream-known:<name>` present after an add, and absent after a remove. A reload logged after the session's own signal read the files after the change was written, so the same hex counts when the line is fresh. The `relay-reload:` line the login read and the token read-back print does not count. `relay-ack:refused` stops: the file on disk was not taken, and the relay keeps the old configuration. Do not send another change in this run. `relay-ack:none`, or a failed signal, stops and is the direct-call question. Do not send the acknowledgment again in this run. A repeat of the change is never the recovery.
+
+`<script>` is this text and no other:
+
+```
+set -eu
+export LC_ALL=C
+install=$1
+fail() { printf '%s\n' "relay-ack:fail:$1"; exit 1; }
+case "$install" in *[!a-z0-9]*|""|caddy) fail install;; esac
+n=${#install}
+[ "$n" -ge 2 ] && [ "$n" -le 13 ] || fail install
+case $(printf '%.1s' "$install") in [a-z]);; *) fail install;; esac
+t=$(date -u +%Y-%m-%dT%H:%M:%S.%NZ)
+if ! docker kill --signal=HUP -- "${install}-relay"; then
+  printf '%s\n' "relay-ack:none"
+  exit 1
+fi
+sleep 2
+if ! logs=$(docker logs --since "$t" -- "${install}-relay" 2>&1); then
+  printf '%s\n' "relay-ack:none"
+  exit 1
+fi
+printf '%s\n' "$logs" | awk '/config hash=/ { print }'
+line=$(printf '%s\n' "$logs" | awk '/config hash=/ { kept = $0 } END { if (kept != "") print kept }')
+hex=$(printf '%s\n' "$line" | awk '{ for (i=1; i<=NF; i++) if ($i ~ /^hash=[0-9a-f]+$/) { sub(/^hash=/, "", $i); print $i } }')
+case "$line" in
+  *status=refused*)
+    printf '%s\n' "relay-ack:refused"
+    ;;
+  *status=loaded*)
+    if [ -n "$hex" ]; then
+      printf '%s\n' "relay-ack:loaded:$hex"
+    else
+      printf '%s\n' "relay-ack:none"
+    fi
+    ;;
+  *)
+    printf '%s\n' "relay-ack:none"
+    ;;
+esac
+```
 
 #### One login
 
@@ -2602,13 +2643,86 @@ Before the helper, take the first match.
 - The action is `add` or `rotate`, and no `relay-upstream-known:` line is the named upstream. Refuse by name. `upstreams.json` lacks that upstream. Write nothing. The helper is not given.
 - Otherwise record the eight-character prefix when one was printed. Continue.
 
+For `rotate` only, before the login helper is given, send the rotation marker write below as one direct call within 20 seconds. `argv` is `/bin/sh`, `-c`, the script, `sh`, the install name and the login. It waits for `vmjob-scheduled-twenty-backup.service` to finish, including its stop-post, for up to 12 seconds, then takes the relay helper lock and rechecks the unit before writing. A scheduled firing that starts after that recheck must acquire the same lock and sees the marker before its snapshot. A running backup, a busy lock, a failed call, or any result without `relay-rotation:marked:<login>` stops: the helper is not given. Ask again later. An existing marker is named and left in place; settle that rotation first. `add` and `remove` do not write this marker.
+
+`<script>` is this text and no other:
+
+```
+set -eu
+export LC_ALL=C
+install=$1
+login=$2
+fail() { printf '%s\n' "relay-rotation:fail:$1"; exit 1; }
+case "$install" in *[!a-z0-9]*|""|caddy) fail install;; esac
+n=${#install}
+[ "$n" -ge 2 ] && [ "$n" -le 13 ] || fail install
+case $(printf '%.1s' "$install") in [a-z]);; *) fail install;; esac
+case "$login" in ""|*[!a-z0-9-]*) fail login;; esac
+[ "${#login}" -le 32 ] || fail login
+base=/opt/$install/relay
+[ -d "$base/conf" ] || fail absent
+unit=vmjob-scheduled-twenty-backup.service
+state() { timeout 2 systemctl is-active -- "$unit" 2>/dev/null || true; }
+end=$(( $(date -u +%s) + 12 ))
+while :; do
+  word=$(state)
+  case "$word" in
+    inactive|failed|unknown) break;;
+    active|activating|deactivating|reloading) ;;
+    *) fail unit;;
+  esac
+  [ "$(date -u +%s)" -lt "$end" ] || fail backup-running
+  sleep 1
+done
+exec 9>"$base/.helper.lock"
+flock -w 1 9 || fail locked
+case $(state) in inactive|failed|unknown) ;; *) fail backup-running;; esac
+dest=$base/rotation-pending
+[ ! -e "$dest" ] && [ ! -L "$dest" ] || fail pending
+tmp=$(mktemp "$base/.rotation.XXXXXX")
+trap 'rm -f -- "$tmp"' EXIT
+printf '%s\n' "$login" "$(date -u +%Y-%m-%dT%H:%M:%S.%NZ)" > "$tmp"
+chmod 640 "$tmp"
+chown 0:1000 "$tmp"
+mv -T -- "$tmp" "$dest"
+trap - EXIT
+printf '%s\n' "relay-rotation:marked:$login"
+```
+
 Build the helper where the plugin is, from the plugin root: `node tools/twenty-relay/scripts/twenty-relay.js login-helper --install-name <install> --login <login> --domain <domain> --upstream <upstream> --action add|rotate|remove`. The domain is the hostname lowercased. The command prints one JSON object. Its `helper` field is the text. Its `argv` is `sh`, `-c`, the helper, `sh`, then the install, the login, the domain, the upstream and the action. The session reads those five values from that JSON at `argv[4]` through `argv[8]`. That text is longer than 4096 code points, so it is never an argument of `vm.command.run`, and it needs a terminal. Give the person the invocation, not the helper text alone. They paste it into their own Oracle Cloud Shell session, the route `skills/Prepare VM/providers/oracle.md` names. The quoted heredoc saves the helper on the machine: `cat > /tmp/twenty-relay-login.sh <<'HELPER'`, then the helper text, then a line that is exactly `HELPER`. Then `sudo sh /tmp/twenty-relay-login.sh <install> <login> <domain> <upstream> <action>`, with those five values from `argv[4]` through `argv[8]`. Then `rm -f /tmp/twenty-relay-login.sh`. The password is printed only in that terminal. This skill does not ask for it, does not repeat it, and does not place it in an operand.
 
 The helper refuses, writing nothing, a second login for a bound domain, a rotate or a remove whose domain differs, and an upstream `upstreams.json` lacks. It writes the new `logins.json` by rename, mode `0640`, owner `0:1000`, and signals `<install>-relay`. Its standard output is `login=`, `domain=`, and `hash=`, the first eight hex characters of the stored hash. Exit 3 means `logins.json` is in place and the relay reads it at its next start or `SIGHUP`. The password was not in that output.
 
-After the person has run it, send the login read again. The action counts only when the call came back, the reload rule above counts, and the login lines hold. For `add` and `rotate`: a line `relay-login:<login>:<domain>:<upstream>`, and a line `relay-login-hash:<login>:` whose prefix equals the helper's `hash=`. For `remove`: `relay-login:absent:<login>`, no `relay-login:<login>:` line remains, and the helper's `hash=` equals the prefix recorded before the helper. The hash the read before the helper recorded is the hash the reload rule compares. Do not give the helper again in this run. The lines shown are the login, the domain, the upstream, the eight-character prefix, and the reload line.
+After the person has run it, send the login read again, then the reload acknowledgment. The action counts only when both calls came back, the acknowledgment is `relay-ack:loaded:`, and the login lines hold. For `add` and `rotate`: a line `relay-login:<login>:<domain>:<upstream>`, and a line `relay-login-hash:<login>:` whose prefix equals the helper's `hash=`. For `remove`: `relay-login:absent:<login>`, no `relay-login:<login>:` line remains, and the helper's `hash=` equals the prefix recorded before the helper. Do not give the helper again in this run. The lines shown are the login, the domain, the upstream, the eight-character prefix, and the reload line.
 
-The way back for an add is a remove of that login, named and not sent in this run. A rotate or a remove cannot put the old password back. The person copies the new password from that terminal into Twenty.
+The way back for an add is a remove of that login, named and not sent in this run. A rotate or a remove cannot put the old password back. The person copies the new password from that terminal into Twenty. For `rotate`, after the acknowledgment counts, ask the person to save the new password in Twenty's mailbox settings. Leave `rotation-pending` in place until their word says it is saved. Then send this second direct call, within 20 seconds, with `argv` `/bin/sh`, `-c`, the script, `sh`, the install name and the login. It removes only that login's marker under the helper lock. `relay-rotation:cleared:<login>` counts the removal. An unclear call leaves its outcome unknown; the report reads the marker. Do not infer that Twenty saved the password from the relay acknowledgment.
+
+`<script>` is this text and no other:
+
+```
+set -eu
+export LC_ALL=C
+install=$1
+login=$2
+fail() { printf '%s\n' "relay-rotation:fail:$1"; exit 1; }
+case "$install" in *[!a-z0-9]*|""|caddy) fail install;; esac
+n=${#install}
+[ "$n" -ge 2 ] && [ "$n" -le 13 ] || fail install
+case $(printf '%.1s' "$install") in [a-z]);; *) fail install;; esac
+case "$login" in ""|*[!a-z0-9-]*) fail login;; esac
+[ "${#login}" -le 32 ] || fail login
+base=/opt/$install/relay
+[ -d "$base/conf" ] || fail absent
+exec 9>"$base/.helper.lock"
+flock -w 1 9 || fail locked
+dest=$base/rotation-pending
+[ -f "$dest" ] && [ ! -L "$dest" ] || fail marker
+who=$(head -n 1 -- "$dest")
+[ "$who" = "$login" ] || fail login-mismatch
+rm -- "$dest"
+[ ! -e "$dest" ] || fail remove
+printf '%s\n' "relay-rotation:cleared:$login"
+```
 
 #### Send or hold
 
@@ -2677,7 +2791,7 @@ fi
 printf '%s\n' "saved:$key:length:$n"
 ```
 
-Exit 3 means the token file is in place and the signal failed. It does not count. The one direct call in the reload rule is the only further signal in this run.
+Exit 3 means the token file is in place and the helper's signal failed. It does not count by itself. The reload acknowledgment is the only further signal in this run. It counts when that acknowledgment is `relay-ack:loaded:` and the read-back's byte count equals the helper's `length:`.
 
 The read-back is one direct call after the person has run the helper. `argv` is `/bin/sh`, `-c`, the script, `sh`, the install name, and the upstream name. The person is told it is a read. It prints the token file's mode, owner and byte count, and the relay's latest `config hash=` line. It prints no token.
 
@@ -2715,7 +2829,7 @@ fi
 printf '%s\n' "relay-token:reload:ok"
 ```
 
-The login read before this helper records the hash the reload rule compares. The read-back counts when the call came back, the reload rule counts, and a line `relay-token:<name>:640 0:1000 <bytes>` has a byte count of at least 1 equal to the helper's `length:`. The way back needs a token the vendor reissues. This run does not put the old bytes back.
+After the person has run the helper, send the read-back, then the reload acknowledgment. The read-back is the disk read. It counts toward the change when the call came back and a line `relay-token:<name>:640 0:1000 <bytes>` has a byte count of at least 1 equal to the helper's `length:`. The acknowledgment is what counts the reload, including when the fresh line carries the same hex as the line read before the helper. The way back needs a token the vendor reissues. This run does not put the old bytes back.
 
 #### One upstream
 
@@ -2806,6 +2920,7 @@ fi
 chmod 640 "$tmp"
 chown 0:1000 "$tmp"
 mv -T -- "$tmp" "$dest"
+printf '%s\n' "relay-upstream:renamed:$action:$name"
 if ! docker kill --signal=HUP -- "${install}-relay"; then
   printf '%s\n' "relay-upstream:signal-failed"
   exit 3
@@ -2816,15 +2931,17 @@ fi
 printf '%s\n' "relay-upstream:$action:ok"
 ```
 
-Before an add, refuse by name when `relay-upstream-known:<name>` was printed. Write nothing. A missing token file still loads, its digest `missing`, so this signal changes the hash and is `status=loaded` when the new file is valid. The add counts when the call came back, the output includes `relay-upstream:<name>:smtp.mx.cloudflare.net:465:api_token:/secrets/<name>.token` and `relay-upstream:add:ok`, and the reload rule counts. On `status=refused`, stop. Do not give the token helper in this run. When the reload counts, the token helper follows, and that helper's signal reloads the token. Then the token read-back. The upstream is configured only when the token read-back then counts.
+Before an add, refuse by name when `relay-upstream-known:<name>` was printed. Write nothing. A missing token file still loads, its digest `missing`, and is `status=loaded` when the new file is valid. After the upstream write, whatever its exit, send a login read and the reload acknowledgment. The add counts when the write printed `relay-upstream:renamed:add:<name>`, the read shows `relay-upstream-known:<name>`, and the acknowledgment is `relay-ack:loaded:`. On `relay-ack:refused` or `relay-ack:none`, stop. Do not give the token helper in this run. When the add counts, the token helper follows, then its token read-back and its own reload acknowledgment. The upstream is configured only when that token change counts.
 
-Removing an upstream is refused while a login names it. Before the call, refuse by name when a `relay-login:` line carries that upstream. Send nothing. The script also refuses: it prints `relay-upstream:fail:named` and writes nothing, and the token file stays. The remove counts when the call came back, the output includes `relay-upstream:remove:ok`, the reload rule counts, and a login read after it has no login on that upstream and no `relay-upstream-known:` line for that name. The token file is left in place.
+Removing an upstream is refused while a login names it. Before the call, refuse by name when a `relay-login:` line carries that upstream. Send nothing. The script also refuses: it prints `relay-upstream:fail:named` and writes nothing, and the token file stays. The remove counts when the write printed `relay-upstream:renamed:remove:<name>`, a login read after it has no login on that upstream and no `relay-upstream-known:` line for that name, and the acknowledgment is `relay-ack:loaded:`. The token file is left in place.
+
+Exit 3 after `relay-upstream:renamed:<add|remove>:<name>` means the rename completed and the helper's signal failed. The reload acknowledgment plus that disk read closes exit 3; `relay-upstream:add:ok` or `relay-upstream:remove:ok` is not required to close it. A repeat of the upstream write is never the recovery.
 
 The way back for an add is a remove, only when no login names the upstream, named and not sent in this run. The way back for a remove is an add of the same name, named and not sent in this run, then a token.
 
 #### The relay in the report
 
-One direct call of the report script on every run whose relay directory is present, on every Job 1 run where `<relay>` was named, on every Job 5 run, and after Job 3's removal. `argv` is `/bin/sh`, `-c`, the script, `sh`, the install name, and the offset. The offset is the `relay-journal:end:` value the last report of this install recorded, or `0` when none was recorded. That value is `<inode>:<bytes>` of the current journal. The inode is what `stat -c %i` prints. The person is told it is a read. The call writes nothing, including `conf/state`. On Job 1 it follows `outbound:ok`, or the resting state on a restore.
+One direct call of the report script on every run whose relay directory is present, on every Job 1 run where `<relay>` was named, on every Job 5 run, and after Job 3's removal. `argv` is `/bin/sh`, `-c`, the script, `sh`, the install name, and the offset. The offset is the `relay-journal:end:` value the last report of this install recorded, or `0` when none was recorded. That value is `<inode>:<bytes>` of the current journal. The inode comes from `os.fstat` on the descriptor whose bytes were read. The person is told it is a read. The call writes nothing, including `conf/state`. On Job 1 it follows `outbound:ok`, or the resting state on a restore.
 
 `<script>` is this text and no other:
 
@@ -2841,67 +2958,54 @@ case $(printf '%.1s' "$install") in [a-z]);; *) fail install;; esac
 case "$from" in 0|*:*) ;; *) fail offset;; esac
 base=/opt/$install/relay
 if [ ! -d "$base" ]; then
-  printf '%s\n' "relay-report:state:absent"
-  printf '%s\n' "relay-report:logins:none"
-  printf '%s\n' "relay-report:upstreams:none"
-  printf '%s\n' "relay-ambiguous:0"
-  printf '%s\n' "relay-journal:end:0"
-  printf '%s\n' "relay-report:ok"
+  printf '%s\n' "relay-rotation:absent" "relay-report:state:absent" "relay-report:logins:none" "relay-report:upstreams:none" "relay-ambiguous:0" "relay-journal:end:0" "relay-report:ok"
   exit 0
 fi
 rep=$(mktemp)
 trap 'rm -f -- "$rep"' EXIT
 python3 - "$base" "$from" > "$rep" <<'PY'
-import json, os, re, sys
-base, from_text = sys.argv[1], sys.argv[2]
-conf = os.path.join(base, 'conf')
-state_path = os.path.join(conf, 'state')
-try:
-    word = open(state_path, 'rb').read()
-except OSError:
-    word = b''
-if word == b'send':
-    state = 'send'
-else:
-    state = 'hold'
-sys.stdout.write('relay-report:state:%s\n' % state)
-try:
-    rows = json.load(open(os.path.join(conf, 'logins.json'), encoding='utf-8'))
-except (OSError, ValueError):
-    rows = []
-wrote = False
-if isinstance(rows, list):
-    for row in rows:
-        if not isinstance(row, dict):
-            continue
-        login = row.get('login')
-        domain = row.get('domain')
-        upstream = row.get('upstream')
-        if not all(isinstance(value, str) and value and all(ch not in value for ch in ':\n\r') for value in (login, domain, upstream)):
-            sys.stderr.write('row\n')
-            sys.exit(1)
-        sys.stdout.write('relay-report:login:%s:%s:%s\n' % (login, domain, upstream))
-        wrote = True
-if not wrote:
-    sys.stdout.write('relay-report:logins:none\n')
-try:
-    ups = json.load(open(os.path.join(conf, 'upstreams.json'), encoding='utf-8'))
-except (OSError, ValueError):
-    ups = []
-named = False
-if isinstance(ups, list):
-    for row in ups:
-        if isinstance(row, dict) and isinstance(row.get('name'), str):
-            sys.stdout.write('relay-upstream-name:%s\n' % row['name'])
-            named = True
-if not named:
-    sys.stdout.write('relay-report:upstreams:none\n')
+import json, os, re, sys, time
+from datetime import datetime
+base,from_text=sys.argv[1:3]
+conf=os.path.join(base,'conf')
 def load(path):
  try:
-  data=open(path,'rb').read()
-  return data,os.stat(path).st_ino
+  with open(path,'rb') as handle:
+   data=handle.read()
+   return data,os.fstat(handle.fileno()).st_ino
  except OSError:
   return b'',None
+def rows(name):
+ try: return json.loads(load(os.path.join(conf,name))[0])
+ except ValueError: return []
+mark=load(os.path.join(base,'rotation-pending'))[0]
+if mark or os.path.lexists(os.path.join(base,'rotation-pending')):
+ try:
+  who,when=mark.decode().splitlines()
+  if re.fullmatch('[a-z0-9-]{1,32}',who)==None: raise ValueError()
+  age=max(0,int(time.time()-datetime.fromisoformat(when[:26]+'+00:00').timestamp()))
+  print('relay-rotation:pending:%s:age:%d'%(who,age))
+ except (ValueError,UnicodeError): print('relay-rotation:pending:invalid:age:unknown')
+else: print('relay-rotation:absent')
+word=load(os.path.join(conf,'state'))[0]
+print('relay-report:state:%s'%('send' if word==b'send' else 'hold'))
+wrote=False
+items=rows('logins.json')
+for row in items if isinstance(items,list) else []:
+ if not isinstance(row,dict): continue
+ values=[row.get(k) for k in ('login','domain','upstream')]
+ if not all(isinstance(v,str) and v and all(c not in v for c in ':\n\r') for v in values):
+  sys.exit('row')
+ print('relay-report:login:%s:%s:%s'%tuple(values))
+ wrote=True
+if not wrote: print('relay-report:logins:none')
+named=False
+items=rows('upstreams.json')
+for row in items if isinstance(items,list) else []:
+ if isinstance(row,dict) and isinstance(row.get('name'),str):
+  print('relay-upstream-name:%s'%row['name'])
+  named=True
+if not named: print('relay-report:upstreams:none')
 def amb(data):
  n=0
  for line in data.decode('utf-8','replace').splitlines():
@@ -2909,48 +3013,48 @@ def amb(data):
    n+=1
  return n
 journal=os.path.join(base,'journal','journal')
-previous=os.path.join(base,'journal','journal.1')
-cur,cur_ino=load(journal)
-oldb,old_ino=load(previous)
-bad=0
-if from_text=='0':
- blob=oldb+cur
-else:
+previous=journal+'.1'
+want=None
+lo=0
+if from_text!='0':
  pair=from_text.split(':',1)
- if len(pair)!=2 or not pair[0].isdigit() or not pair[1].isdigit():
-  sys.stderr.write('offset\n')
-  sys.exit(1)
- want,lo=int(pair[0]),int(pair[1])
- if cur_ino!=None and want==cur_ino:
-  blob=cur[lo:]
- elif old_ino!=None and want==old_ino:
-  blob=oldb[lo:]+cur
- else:
-  blob=oldb+cur
-  bad=1
-if bad:
- sys.stdout.write('relay-journal:history-unavailable\n')
-sys.stdout.write('relay-ambiguous:%d\n'%amb(blob))
+ if len(pair)!=2 or not all(v.isdigit() for v in pair): sys.exit('offset')
+ want,lo=map(int,pair)
+def snapshot():
+ cur,ci=load(journal)
+ old,oi=load(previous)
+ try: st=os.stat(journal); size,pi=st.st_size,st.st_ino
+ except OSError: size,pi=0,None
+ bad=ci!=pi or (ci!=None and ci==oi) or (oi==want and size<len(cur))
+ return cur,ci,old,oi,bad
+cur,cur_ino,oldb,old_ino,bad=snapshot()
+if bad: cur,cur_ino,oldb,old_ino,bad=snapshot()
+if want==None or bad: blob=oldb+cur
+elif want==cur_ino and lo<=len(cur): blob=cur[lo:]
+elif want==old_ino and lo<=len(oldb): blob=oldb[lo:]+cur
+else:
+ blob=oldb+cur
+ bad=True
+if bad: print('relay-journal:history-unavailable')
+print('relay-ambiguous:%d'%amb(blob))
 end='0' if cur_ino==None else '%d:%d'%(cur_ino,len(cur))
-sys.stdout.write('relay-journal:end:%s\n'%end)
+print('relay-journal:end:%s'%end)
 PY
 while IFS= read -r line || [ -n "$line" ]; do
   case "$line" in
     relay-upstream-name:*)
       name=${line#relay-upstream-name:}
-      case "$name" in ""|*[!a-z0-9-]*) printf '%s\n' "relay-report:upstream:$name:not-configured"; continue;; esac
-      f=$base/secrets/$name.token
-      if [ ! -f "$f" ]; then
-        printf '%s\n' "relay-report:upstream:$name:not-configured"
-      else
-        st=$(stat -c '%a %u:%g %s' -- "$f")
-        set -- $st
-        if [ "$1" = 640 ] && [ "$2" = 0:1000 ] && [ "$3" -ge 1 ]; then
-          printf '%s\n' "relay-report:upstream:$name:configured"
-        else
-          printf '%s\n' "relay-report:upstream:$name:not-configured"
-        fi
-      fi
+      kind=not-configured
+      case "$name" in ""|*[!a-z0-9-]*) ;;
+        *)
+          f=$base/secrets/$name.token
+          if [ -f "$f" ]; then
+            st=$(stat -c '%a %u:%g %s' -- "$f")
+            set -- $st
+            if [ "$1" = 640 ] && [ "$2" = 0:1000 ] && [ "$3" -ge 1 ]; then kind=configured; fi
+          fi;;
+      esac
+      printf '%s\n' "relay-report:upstream:$name:$kind"
       ;;
     *)
       printf '%s\n' "$line"
@@ -2962,7 +3066,7 @@ trap - EXIT
 printf '%s\n' "relay-report:ok"
 ```
 
-Copy `relay-report:state:`, each `relay-report:login:`, each `relay-report:upstream:`, `relay-ambiguous:`, and `relay-journal:end:`. `relay-report:state:` is `send`, `hold`, or `absent`. `absent` means the relay is not installed. A login line is that login's name, domain and upstream, with no secret. An upstream line is `configured` or `not-configured`. Configured means the token file is a regular file, mode `640`, owner `0:1000`, and at least one byte. `relay-ambiguous:` counts only lines matching `done id=` then hex, then ` outcome=ambiguous` and nothing more. An `intent` line is not counted, including one whose Message-ID contains `outcome=ambiguous`. `relay-journal:end:` is `<inode>:<bytes>` of the current journal, or `0` when that file cannot be statted. The next report passes that value as the offset. An offset of `0` reads `journal.1` and the current journal whole. An offset whose inode is the current journal's reads that file from the byte offset. An offset whose inode is `journal.1`'s reads `journal.1` from the byte offset and the current journal whole. Any other offset reads both whole and prints `relay-journal:history-unavailable`. The report prints no token, no salt, and no hash from this call.
+Copy `relay-rotation:pending:<login>:age:<seconds>` or `relay-rotation:absent`, `relay-report:state:`, each `relay-report:login:`, each `relay-report:upstream:`, `relay-ambiguous:`, and `relay-journal:end:`. The rotation line names a pending login and its UTC age in seconds, or says absent; an invalid marker is pending with unknown age. `relay-report:state:` is `send`, `hold`, or `absent`. `absent` means the relay is not installed. A login line is that login's name, domain and upstream, with no secret. An upstream line is `configured` or `not-configured`. Configured means the token file is a regular file, mode `640`, owner `0:1000`, and at least one byte. `relay-ambiguous:` counts only lines matching `done id=` then hex, then ` outcome=ambiguous` and nothing more. An `intent` line is not counted, including one whose Message-ID contains `outcome=ambiguous`. `relay-journal:end:` is `<inode>:<bytes>` of the current journal, or `0` when that file cannot be opened. The report opens and reads each journal once and takes its inode from that same descriptor. A path stat checks the current inode and length against that descriptor read, without using its inode for the offset: equal current and previous inodes, a changed current inode, or a current file that became shorter while the previous inode matches the offset causes one retry. A pair still inconsistent prints `relay-journal:history-unavailable` and reads both whole. The next report passes that value as the offset. An offset of `0` reads `journal.1` and the current journal whole. An offset whose inode is the current journal's reads that file from the byte offset. An offset whose inode is `journal.1`'s reads `journal.1` from the byte offset and the current journal whole. Any other offset reads both whole and prints `relay-journal:history-unavailable`. The report prints no token, no salt, and no hash from this call.
 
 On Job 3, `relay-report:state:absent`, no service `relay` in the project section, and `dir-absent` together say the relay is gone.
 ### What did the job do?
@@ -3065,6 +3169,8 @@ For each job, also: its unit name, its invocation ID and its limit, the last pol
 
 ## Pitfalls
 
+- **A rotation marker left in place.** `relay/rotation-pending` stops scheduled backups. Every relay report names its presence, login and age. Clear it only after the person says the new password is saved in Twenty's mailbox settings; a relay acknowledgment alone does not finish the rotation.
+
 - **A glob written `/*/` in a script this skill sends.** A script carrying `/*` or `*/` can come back `vendor_error` HTTP 400 before it reaches the machine, because something on the connector's path reads that pair as a database-comment attack. Do not put that pair in a script. Do not read a repeated `vendor_error` on an unchanged script as the machine's answer. `uncertain` is not that measurement. It does not establish whether the call ran.
 - **The request is ambiguous.** More than one machine, more than one install, an install and a removal together, an offline change together with a removal or a new install, or a route change that does not name the install. Ask before any call.
 - **A machine that is not on the map, or whose health is not `ok`.** Stop. Not on the map: point to `skills/Prepare VM/`. Not reachable: name the outcome the way `skills/VM Inventory/` does. Change nothing.
@@ -3122,7 +3228,7 @@ For each job, also: its unit name, its invocation ID and its limit, the last pol
 - When the driver is `RESEND`, the install job wrote `INBOUND_EMAIL_DOMAIN` and mapped `RESEND_WEBHOOK_SIGNING_SECRET`, and the report named the person's Resend steps, IT Expert Rule 5's question without answering it, and the receiving price. When the driver is `LOG`, the install job wrote no inbound domain and mapped no signing secret.
 - Job 2 added an alias by reattaching the full list and then posting the route, or removed the route, confirmed the saved config, and then removed the alias. A half-finished pair was reported and not repaired in the same run.
 - Job 3's full removal ran only after the person confirmed by naming the install, and the report says the removal destroys every organisation's data on the install. It deleted only objects whose identity was read back, routes first, and it read Caddy's live and saved config back to the before-state with those routes removed, before it deleted data. The removal order was containers, volumes, project networks, and the directory. A container count, a volume count, or a network count of 0 was accepted when that set was empty. `<install>_default` was removed with `<install>-proxy`, and only when no container but this install's and Caddy was attached. Images stayed. Job 3's partial branch ran only after the person confirmed by naming the install. It removed the directory alone when the marker held `skill=deploy-twenty`, `release=v2.45.6`, and the project line, with or without `compose-sha256`, and the inspection showed the directory and its marker alone, with no container, no volume, and no project network. The job required the path `/opt/<install>`, a directory, the inspection's device and inode, and no mount on or under the directory. The re-inspection showed the directory absent. A project container, volume, or network with no `compose-sha256` line, or an absent marker, was named and left unchanged. A stopped removal was not re-sent. Its continuation was a new plan from a fresh identity read.
-- Job 5 ran one action on a complete install this skill made, after the person confirmed by naming the install and the action and after `experts/DevOps Expert/` gated the plan, except a report-only read, which wrote nothing and took no gate. A login change was the helper the person ran on the machine, then one login read. A token change was the helper the person ran on the machine, then one token read. An upstream add was one direct call, then that token helper and that read. `hold` was the tracked job `twenty-relay-hold`, limit 200. `send` was one direct call. `inflight=unknown` on a hold was not counted as settled. No password and no token was an operand, a router argument, or a report line. A restore target stayed `hold` until this job wrote `send`.
+- Job 5 ran one action on a complete install this skill made, after the person confirmed by naming the install and the action and after `experts/DevOps Expert/` gated the plan, except a report-only read, which wrote nothing and took no gate. A login change was the helper the person ran on the machine, then one login read and the reload acknowledgment. A token change was the helper the person ran on the machine, then one token read and the reload acknowledgment. An upstream add was one direct call, then a login read and the reload acknowledgment, then that token helper, its token read and its own reload acknowledgment. `hold` was the tracked job `twenty-relay-hold`, limit 200. `send` was one direct call. `inflight=unknown` on a hold was not counted as settled. No password and no token was an operand, a router argument, or a report line. A restore target stayed `hold` until this job wrote `send`.
 - Job 4 offline ran only after the person confirmed by naming the install and saying to take it offline. It removed only this install's routes and left every alias, container, network, volume, and file in place. The outside checks did not get a Twenty answer. Job 4 online ran only after the person confirmed by naming the install and saying to bring it online. It posted the route objects from the recorded before-state and no others.
 - The report names each check's answer, both URLs, what is configured and what is not, the three kinds of email, the base name's direct path when the zone applies, the no-real-contact rule, and every gap that applies.
 - Per job the report names the unit name, the invocation ID, the limit, the last poll's state, the read-back lines it may show, and the release outcome. A job was polled at most six times, each wait at most 10 seconds. A stuck job was not released.

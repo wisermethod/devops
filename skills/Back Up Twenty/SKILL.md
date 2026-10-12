@@ -3,7 +3,7 @@ name: Back Up Twenty
 type: skill
 category: operations
 description: Set up scheduled, age-encrypted backups of an install Deploy Twenty made to a Cloudflare R2 bucket, back one up now, check the key's recovery copy, recover after an interrupted backup, stop scheduled backups, or restore a backup onto an install made for a restore, and report what was done.
-version: 0.1.5
+version: 0.1.6
 gaps:
   - authenticating a set's origin, and object lock
   - alerting on an overdue backup
@@ -48,7 +48,7 @@ The success path appends, in order: `begin`, `checks:ok`, `stopping`, `stopped`,
 
 The backup program traps `TERM`, `INT`, `HUP`, and `PIPE` and exits 143, so systemd records a failure and runs `ExecStopPost`. A job is cancelled with `systemctl stop` of the job's unit, which runs `ExecStopPost`, never with `systemctl kill`. `KILL` and the runtime limit already count as unclean. With `RemainAfterExit=yes`, a main process that exits 0 stays `active/exited`, and `ExecStopPost` runs when release stops the unit. A process that fails, or is killed at `RuntimeMaxSec`, runs `ExecStopPost` as the unit deactivates. The poll class `signal` stays the one `tools/vm-job/` already has.
 
-`recover` is the `--stop-post` script. It runs whenever the unit stops, scheduled or manual. When the state shows `stopping` or `starting` with no `restart-verified` after that line, it appends `recovering`, starts `server` and `worker`, and waits until the server is healthy and the worker's status is `running`. Its deadline is 840 seconds, counted from before its first call. The start is bounded by `timeout 120`, the bound `run` gives the same start. Compose waits for the server to report healthy before it starts the worker, which took about 30 seconds on a 4 GB machine, and a shorter bound cuts the start off with the worker never started. Every other Docker call is bounded by `timeout 30`. The start falls inside the deadline, so its last pass, its result and its cleanup still end by about 1030 seconds, inside `--stop-post-timeout 1200`. It appends `recovered:ok` or `recovered:fail:deadline`. It always removes this install's containers labelled `backup-twenty=<install>` and the work directory. Only `restart-verified` ends the downtime, so a later stop runs the rule again, and a second `recovered:ok` is the same recovery, not a new backup. Job 6 applies that rule, a `recovered:fail` included.
+`recover` is the `--stop-post` script. It runs whenever the unit stops, scheduled or manual. When the state shows `stopping` or `starting` with no `restart-verified` after that line, it appends `recovering`, starts `server` and `worker`, and waits until the server is healthy and the worker's status is `running`. Its deadline is 840 seconds, counted from before its first call. The start is bounded by `timeout 120`, the bound `run` gives the same start. Compose waits for the server to report healthy before it starts the worker, which took from 30 to 112 seconds on a 4 GB machine, and a start cut off at its bound leaves the worker never started. So each pass that finds the worker not running reads the clock again and starts `server` and `worker` again, bounded by 120 seconds or the time left before the deadline, whichever is less, and appends `recovered:fail:deadline` instead when no time is left. The deadline bounds starts, not readings: a pass begun before it reports what its reads saw, so a healthy server and a running worker read just past 840 seconds still append `recovered:ok`, which is a true recovery, and no start is sent after the deadline. Every other Docker call is bounded by `timeout 30`. Each start falls inside the deadline, so its last pass, its result and its cleanup still end by about 1030 seconds, inside `--stop-post-timeout 1200`. It appends `recovered:ok` or `recovered:fail:deadline`. It always removes this install's containers labelled `backup-twenty=<install>` and the work directory. Only `restart-verified` ends the downtime, so a later stop runs the rule again, and a second `recovered:ok` is the same recovery, not a new backup. Job 6 applies that rule, a `recovered:fail` included.
 
 The disk check runs before `stopping`, on the filesystem of the work directory. The need is `pg_database_size` plus the files bucket's listed bytes plus the local volume's bytes (`du -s -k` in the pinned image times 1024, since its `du` is BusyBox and takes no `-B1`), that sum again for the ciphertext, plus 1073741824. Below it, the run appends `checks:refused:disk` and exits, and the app is never stopped. The memory check follows: `MemAvailable` in `/proc/meminfo` must reach that sum in KiB plus 262144 KiB, since the helper holds the archive whole to upload it. Below it, `checks:refused:memory`, and the app is never stopped. A restore applies the same rule to `COMPLETE`'s size before it downloads the archive.
 
@@ -561,10 +561,10 @@ printf '%s\n' config:written
 ```
 
 
-`run` is the backup program. The last writer runs `sh -n` on the assembled file and sets mode 700.
+`run` is the backup program. It starts `server` and `worker` under `timeout 120`, and a start cut off at that bound does not end the run: while the worker is not running, its wait of 900 seconds reads the clock again and starts them again, each start bounded by 120 seconds or the time left. The deadline bounds starts, not readings: a pass begun before it reports what its reads saw, so a restart read just past 900 seconds still counts, and no start is sent after the deadline. When a helper fails, `run` prints the helper's last output line to the journal as `s3-detail:`, tabs turned to colons and every character but letters, digits and `:._/-` removed, at most 160 characters, before the stage's failure line. The helper's output files are deleted with the work directory, so without that line a failed upload needs a separate probe to diagnose. The files-bucket helper returns the status of its Docker call, not of the cleanup after it. The last writer runs `sh -n` on the assembled file and sets mode 700.
 
-The assembled file is 10645 code points.
-Writer 1 of 3, 3755 code points. `argv` is `/bin/sh`, `-c`, this script, `sh`, and the install name.
+The assembled file is 11319 code points.
+Writer 1 of 3, 3984 code points. `argv` is `/bin/sh`, `-c`, this script, `sh`, and the install name.
 ```sh
 set -eu
 export LC_ALL=C
@@ -621,10 +621,16 @@ psqlc() {
 s3f() {
   awk -F= '$1 ~ /^STORAGE_S3_(ACCESS_KEY_ID|SECRET_ACCESS_KEY|NAME|ENDPOINT|REGION)$/' "$base/.env" > "$bk/files.env"
   timeout 1800 docker run --rm --user 0:0 --network "${install}_default" --label "backup-twenty=${install}" --entrypoint node --env-file "$bk/files.env" -v "$bk:/backup:ro" -v "$work:/work" "$image" /backup/s3.js "$@"
+  s3rc=$?
   rm -f "$bk/files.env"
+  return "$s3rc"
 }
 s3b() {
   timeout 1800 docker run --rm --user 0:0 --network "${install}_default" --label "backup-twenty=${install}" --entrypoint node --env-file "$bk/backup.env" -e "S3_BUCKET=$bucket" -e "S3_ENDPOINT=$endpoint" -e "S3_REGION=$region" -v "$bk:/backup:ro" -v "$work:/work" "$image" /backup/s3.js "$@"
+}
+s3why() {
+  [ -s "$1" ] || return 0
+  awk 'NF { l = $0 } END { gsub(/\t/, ":", l); gsub(/[^A-Za-z0-9:._\/-]/, "", l); if (l != "") print "s3-detail:" substr(l, 1, 160) }' "$1"
 }
 num() {
   case "$1" in
@@ -637,7 +643,7 @@ rm -rf "$work"
 mkdir -m 700 "$work"
 dump_b=$(psqlc "select pg_database_size(current_database())") || { note checks:refused:size; exit 2; }
 num "$dump_b" || { note checks:refused:size; exit 2; }
-s3f list-files > "$work/list.out" || { note checks:refused:list; exit 2; }
+s3f list-files > "$work/list.out" || { s3why "$work/list.out"; note checks:refused:list; exit 2; }
 listed=$(awk '$1=="bytes" { print $2; exit }' "$work/list.out")
 num "$listed" || { note checks:refused:list; exit 2; }
 local_line=$(timeout 60 docker run --rm --user 0:0 --label "backup-twenty=${install}" --entrypoint du -v "${install}_server-local-data:/s:ro" "$image" -s -k /s) || { note checks:refused:local; exit 2; }
@@ -648,7 +654,7 @@ RUN1END
 printf '%s\n' writer-ok
 ```
 
-Writer 2 of 3, 3673 code points. `argv` is `/bin/sh`, `-c`, this script, `sh`, and the install name.
+Writer 2 of 3, 3791 code points. `argv` is `/bin/sh`, `-c`, this script, `sh`, and the install name.
 ```sh
 set -eu
 export LC_ALL=C
@@ -711,6 +717,7 @@ timeout 600 docker run --rm --user 0:0 --label "backup-twenty=${install}" --entr
 note local:ok
 
 if ! s3f get-files /work/files > "$work/get.out"; then
+  s3why "$work/get.out"
   note files:fail
   exit 4
 fi
@@ -724,18 +731,18 @@ case "$enc" in ''|*[[:space:]]*|*[!A-Za-z0-9+/=]*) note secrets:refused; exit 4 
 case "$fb" in *[[:space:]]*|*[!A-Za-z0-9+/=]*) note secrets:refused; exit 4 ;; esac
 printf 'ENCRYPTION_KEY=%s\nFALLBACK_ENCRYPTION_KEY=%s\n' "$enc" "$fb" > "$work/secrets.env"
 unset enc fb
+url=$(awk -F= '$1=="SERVER_URL" { print substr($0, index($0, "=") + 1); exit }' "$base/.env")
 RUN2END
 printf '%s\n' writer-ok
 ```
 
-Writer 3 of 3, 3705 code points. `argv` is `/bin/sh`, `-c`, this script, `sh`, and the install name.
+Writer 3 of 3, 4032 code points. `argv` is `/bin/sh`, `-c`, this script, `sh`, and the install name.
 ```sh
 set -eu
 export LC_ALL=C
 install=$1
 umask 077
 cat >> "/opt/$install/backup/run" << 'RUN3END'
-url=$(awk -F= '$1=="SERVER_URL" { print substr($0, index($0, "=") + 1); exit }' "$base/.env")
 fbk=$(awk -F= '$1=="STORAGE_S3_NAME" { print substr($0, index($0, "=") + 1); exit }' "$base/.env")
 ( cd "$work" && sha256sum db.dump counts.txt state.txt config-db.txt local.tgz files.list secrets.env > SHA256SUMS )
 recip=$(awk 'NR==1 { print; exit }' "$bk/recipient")
@@ -762,12 +769,12 @@ case "$hex" in
   *) note uploaded:fail; exit 4 ;;
 esac
 prefix="$source_id/${stamp}-$hex"
-s3b list-sets "$source_id" > "$work/sets.out" || { note uploaded:fail; exit 4; }
+s3b list-sets "$source_id" > "$work/sets.out" || { s3why "$work/sets.out"; note uploaded:fail; exit 4; }
 if grep -F "$prefix/" "$work/sets.out" >/dev/null 2>&1; then
   note uploaded:refused:prefix
   exit 4
 fi
-s3b put /backup/backup.tar.age "$prefix/backup.tar.age" > "$work/put.out" || { note uploaded:fail; exit 4; }
+s3b put /backup/backup.tar.age "$prefix/backup.tar.age" > "$work/put.out" || { s3why "$work/put.out"; note uploaded:fail; exit 4; }
 {
   printf 'source-id=%s\n' "$source_id"
   printf 'stamp=%s\n' "$stamp"
@@ -778,21 +785,22 @@ s3b put /backup/backup.tar.age "$prefix/backup.tar.age" > "$work/put.out" || { n
   printf 'server-url=%s\n' "$url"
   printf 'files-bucket=%s\n' "$fbk"
 } > "$bk/COMPLETE.part"
-h=$(s3b head "$prefix/backup.tar.age") || { note uploaded:fail; exit 4; }
+s3b head "$prefix/backup.tar.age" > "$work/head.out" || { s3why "$work/head.out"; note uploaded:fail; exit 4; }
+h=$(cat "$work/head.out")
 hsz=$(printf '%s\n' "$h" | awk '$1=="head" { print $3; exit }')
 [ "$hsz" = "$sz" ] || { note uploaded:fail; exit 4; }
 pmd5=$(awk '$1=="put" { print $5; exit }' "$work/put.out")
 hmd5=$(printf '%s\n' "$h" | awk '$1=="head" { print $4; exit }')
 case "$pmd5" in ''|*[!0-9a-f]*) note uploaded:fail; exit 4 ;; esac
 [ "${#pmd5}" -eq 32 ] && [ "$hmd5" = "$pmd5" ] || { note uploaded:fail; exit 4; }
-s3b put /backup/COMPLETE.part "$prefix/COMPLETE" >/dev/null || { note uploaded:fail; exit 4; }
+s3b put /backup/COMPLETE.part "$prefix/COMPLETE" > "$work/complete.out" || { s3why "$work/complete.out"; note uploaded:fail; exit 4; }
 printf '%s\n' "set:$prefix"
 note uploaded:ok
 note complete:ok
 rm -f "$bk/backup.tar.age" "$bk/COMPLETE.part"
 
 note starting
-timeout 120 docker compose -p "$install" start server worker
+timeout 120 docker compose -p "$install" start server worker || true
 t0=$(date +%s)
 ok=0
 while :; do
@@ -803,12 +811,20 @@ while :; do
   hs=$(timeout 60 docker inspect --format '{{.State.Health.Status}}' "$cid" 2>/dev/null || echo missing)
   wr=$(timeout 60 docker inspect --format '{{.State.Status}}' "$wid" 2>/dev/null || echo missing)
   if [ "$hs" = healthy ] && [ "$wr" = running ]; then ok=1; break; fi
+  if [ "$wr" != running ]; then
+    now=$(date +%s)
+    left=$((900 - (now - t0)))
+    [ "$left" -gt 0 ] || break
+    [ "$left" -le 120 ] || left=120
+    timeout "$left" docker compose -p "$install" start server worker || true
+  fi
   sleep 5
 done
 [ "$ok" -eq 1 ] || { note restart:fail; exit 5; }
 note restart-verified
 
 if ! s3b retention "$source_id" "$retention" "${stamp}-$hex" > "$work/retention.out"; then
+  s3why "$work/retention.out"
   note retention:fail
   exit 6
 fi
@@ -825,8 +841,8 @@ printf '%s\n' 'run:written'
 
 `recover` is the stop-post script. Mode 700.
 
-The assembled file is 1542 code points.
-Writer 1 of 1, 1804 code points. `argv` is `/bin/sh`, `-c`, this script, `sh`, and the install name.
+The assembled file is 1829 code points.
+Writer 1 of 1, 2091 code points. `argv` is `/bin/sh`, `-c`, this script, `sh`, and the install name.
 ```sh
 set -eu
 export LC_ALL=C
@@ -888,6 +904,16 @@ while :; do
     note recovered:ok
     exit 0
   fi
+  if [ "$wr" != running ]; then
+    now=$(date +%s)
+    left=$((840 - (now - t0)))
+    if [ "$left" -le 0 ]; then
+      note recovered:fail:deadline
+      exit 1
+    fi
+    [ "$left" -le 120 ] || left=120
+    timeout "$left" docker compose -p "$install" start server worker || true
+  fi
   sleep 5
 done
 RECO1END
@@ -900,7 +926,7 @@ printf '%s\n' 'recover:written'
 
 `s3.js` runs inside a one-shot container of the pinned image. The container is `--rm`, `--network` `<install>_default`, `--label backup-twenty=<install>`, `--entrypoint node`, `--env-file` the credential file, and the work directory bind-mounted when the command needs it. `run` passes `backup.env` and `S3_BUCKET`, `S3_ENDPOINT`, and `S3_REGION` for the backup bucket, and passes `files.env` for the files bucket: the five `STORAGE_S3_` lines of `.env` and no other, written mode 600 for the call and removed after it, so no other secret of the install reaches the helper. Every helper container runs as `--user 0:0`, since the backup directory is root-owned, mode 700. The program reads `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_BUCKET`, `S3_ENDPOINT`, and `S3_REGION`, and otherwise the `STORAGE_S3_` names. It loads `@aws-sdk/client-s3` from `@aws-sdk/client-s3`, `/app/node_modules/@aws-sdk/client-s3`, or `/app/packages/twenty-server/node_modules/@aws-sdk/client-s3`, the first that resolves. The pinned image hoists the client to `/app/node_modules`. A bare name resolves from the script's own directory, `/backup`, so it misses there. Deploy Twenty's start check finds it by the bare name only because `node -e` resolves from the server's working directory. It sets `forcePathStyle`. It prints keys, sizes, hashes, and counts. It never prints a credential. A missing client prints `s3-client:absent`. A missing setting prints `s3-config:absent`.
 
-The commands are `list-files`, `get-files` and a directory, `get` and a key and a file, `put` and a file and a key, `head` and a key, `list-sets` and a source id, `delete` and a key, and `retention` and a source id, N, and the set this run wrote. `list-files` follows `ContinuationToken` while `IsTruncated` is set. `get-files` writes every object under the directory and writes `<dir>.list` as key, size, and sha256. `get-files` and `get` stream each object to disk while hashing it, so no download is held whole in memory. It refuses a key that starts with `/` or contains `..`. `put` sends `Content-MD5` and prints the key, the size, the sha256 and the MD5. The client is made with `requestChecksumCalculation` and `responseChecksumValidation` set to `WHEN_REQUIRED`. Without that, the image's SDK adds a CRC32 checksum to every upload, and R2 refuses a request carrying two (`You can only specify one non-default checksum at a time`). A wrong `Content-MD5` is still refused (`BadDigest`). An error the commands do not catch prints `s3:fail`, the error's name, and the HTTP status. `head` prints the size and the ETag, or `absent` and exit 2 when the key is missing. `delete` prints `deleted` for a missing key as well. `list-sets` prints each object and, for a key that ends in `/COMPLETE`, each body line as `field`. `retention` keeps the newest N matching sets and the set this run wrote, named by its stamp and hex, always keeps the newest of those, deletes older matching sets, and deletes a prefix with no matching `COMPLETE` once it is older than 24 hours. The last writer runs `node --check` on the assembled file inside the image, with the network off and only that file mounted, and sets mode 644.
+The commands are `list-files`, `get-files` and a directory, `get` and a key and a file, `put` and a file and a key, `head` and a key, `list-sets` and a source id, `delete` and a key, and `retention` and a source id, N, and the set this run wrote. `list-files` follows `ContinuationToken` while `IsTruncated` is set. `get-files` writes every object under the directory and writes `<dir>.list` as key, size, and sha256. `get-files` and `get` stream each object to disk while hashing it, so no download is held whole in memory. It refuses a key that starts with `/` or contains `..`. `put` sends `Content-MD5` and prints the key, the size, the sha256 and the MD5. The client is made with `requestChecksumCalculation` and `responseChecksumValidation` set to `WHEN_REQUIRED`. Without that, the image's SDK adds a CRC32 checksum to every upload, and R2 refuses a request carrying two (`You can only specify one non-default checksum at a time`). A wrong `Content-MD5` is still refused (`BadDigest`). An error the commands do not catch prints `s3:fail`, the error's name, and the HTTP status, which `run` copies into the journal as its `s3-detail:` line. `head` prints the size and the ETag, or `absent` and exit 2 when the key is missing. `delete` prints `deleted` for a missing key as well. `list-sets` prints each object and, for a key that ends in `/COMPLETE`, each body line as `field`. `retention` keeps the newest N matching sets and the set this run wrote, named by its stamp and hex, always keeps the newest of those, deletes older matching sets, and deletes a prefix with no matching `COMPLETE` once it is older than 24 hours. The last writer runs `node --check` on the assembled file inside the image, with the network off and only that file mounted, and sets mode 644.
 
 The assembled file is 10233 code points.
 Writer 1 of 3, 3852 code points. `argv` is `/bin/sh`, `-c`, this script, `sh`, and the install name.

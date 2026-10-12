@@ -3,7 +3,7 @@ name: Back Up Twenty
 type: skill
 category: operations
 description: Set up scheduled, age-encrypted backups of an install Deploy Twenty made to a Cloudflare R2 bucket, back one up now, check the key's recovery copy, recover after an interrupted backup, stop scheduled backups, or restore a backup onto an install made for a restore, and report what was done.
-version: 0.1.10
+version: 0.1.11
 gaps:
   - authenticating a set's origin, and object lock
   - alerting on an overdue backup
@@ -561,9 +561,9 @@ printf '%s\n' config:written
 ```
 
 
-`run` is the backup program. It starts `server` and `worker` under `timeout 120`, and a start cut off at that bound does not end the run: while the worker is not running, its wait of 900 seconds reads the clock again and starts them again, each start bounded by 120 seconds or the time left. The deadline bounds starts, not readings: a pass begun before it reports what its reads saw, so a restart read just past 900 seconds still counts, and no start is sent after the deadline. When a helper fails, `run` prints the helper's last output line to the journal as `s3-detail:`, tabs turned to colons and every character but letters, digits and `:._/-` removed, at most 160 characters, before the stage's failure line. The helper's output files are deleted with the work directory, so without that line a failed upload needs a separate probe to diagnose. The files-bucket helper returns the status of its Docker call, not of the cleanup after it. The last writer runs `sh -n` on the assembled file and sets mode 700.
+`run` is the backup program. It starts `server` and `worker` under `timeout 120`, and a start cut off at that bound does not end the run: while the worker is not running, its wait of 900 seconds reads the clock again and starts them again, each start bounded by 120 seconds or the time left. The deadline bounds starts, not readings: a pass begun before it reports what its reads saw, so a restart read just past 900 seconds still counts, and no start is sent after the deadline. When a helper fails, `run` prints the helper's last output line to the journal as `s3-detail:`, tabs turned to colons and every character but letters, digits and `:._/-` removed, at most 160 characters, before the stage's failure line. The helper's output files are deleted with the work directory, so without that line a failed upload needs a separate probe to diagnose. The files-bucket helper returns the status of its Docker call, not of the cleanup after it. When `/opt/<install>/relay/` is a directory, `run` opens `/opt/<install>/relay/.helper.lock` on descriptor 9 and takes `flock -w 600` on it before it stops `server` and `worker`, and it holds that lock until the relay files are copied. A wait that runs out appends `relay:fail:locked`, starts `server` and `worker`, and exits, the same way a config-db refusal does. `TWENTY_BACKUP_LOCK_WAIT`, when it is a whole number of seconds, is that wait in place of 600. A login helper run while the lock is held waits for this backup. The last writer runs `sh -n` on the assembled file and sets mode 700.
 
-The assembled file is 12168 code points.
+The assembled file is 12563 code points.
 Writer 1 of 4, 4041 code points. `argv` is `/bin/sh`, `-c`, this script, `sh`, and the install name.
 ```sh
 set -eu
@@ -655,7 +655,7 @@ RUN1END
 printf '%s\n' writer-ok
 ```
 
-Writer 2 of 4, 4062 code points. `argv` is `/bin/sh`, `-c`, this script, `sh`, and the install name.
+Writer 2 of 4, 4059 code points. `argv` is `/bin/sh`, `-c`, this script, `sh`, and the install name.
 ```sh
 set -eu
 export LC_ALL=C
@@ -674,6 +674,21 @@ printf '%s\n' "memory-need-kib:$mneed_k" "memory-avail-kib:$mem_k"
 if [ "$mem_k" -lt "$mneed_k" ]; then note checks:refused:memory; exit 2; fi
 rm -f "$work/list.out"
 note checks:ok
+
+held=0
+if [ -d "$base/relay" ]; then
+  lockw=${TWENTY_BACKUP_LOCK_WAIT:-600}
+  case "$lockw" in
+    ''|*[!0-9]*) lockw=600 ;;
+  esac
+  exec 9<>"$base/relay/.helper.lock"
+  if ! flock -w "$lockw" 9; then
+    note relay:fail:locked
+    timeout 120 docker compose -p "$install" start server worker || true
+    exit 3
+  fi
+  held=1
+fi
 
 note stopping
 timeout 120 docker compose -p "$install" stop server worker
@@ -732,23 +747,23 @@ case "$enc" in ''|*[[:space:]]*|*[!A-Za-z0-9+/=]*) note secrets:refused; exit 4 
 case "$fb" in *[[:space:]]*|*[!A-Za-z0-9+/=]*) note secrets:refused; exit 4 ;; esac
 printf 'ENCRYPTION_KEY=%s\nFALLBACK_ENCRYPTION_KEY=%s\n' "$enc" "$fb" > "$work/secrets.env"
 unset enc fb
-url=$(awk -F= '$1=="SERVER_URL" { print substr($0, index($0, "=") + 1); exit }' "$base/.env")
-fbk=$(awk -F= '$1=="STORAGE_S3_NAME" { print substr($0, index($0, "=") + 1); exit }' "$base/.env")
-relay=absent
-sumf="db.dump counts.txt state.txt config-db.txt local.tgz files.list secrets.env"
-if [ -d "$base/relay" ]; then
-  relay=present
 RUN2END
 printf '%s\n' writer-ok
 ```
 
-Writer 3 of 4, 4077 code points. `argv` is `/bin/sh`, `-c`, this script, `sh`, and the install name.
+Writer 3 of 4, 4052 code points. `argv` is `/bin/sh`, `-c`, this script, `sh`, and the install name.
 ```sh
 set -eu
 export LC_ALL=C
 install=$1
 umask 077
 cat >> "/opt/$install/backup/run" << 'RUN3END'
+url=$(awk -F= '$1=="SERVER_URL" { print substr($0, index($0, "=") + 1); exit }' "$base/.env")
+fbk=$(awk -F= '$1=="STORAGE_S3_NAME" { print substr($0, index($0, "=") + 1); exit }' "$base/.env")
+relay=absent
+sumf="db.dump counts.txt state.txt config-db.txt local.tgz files.list secrets.env"
+if [ -d "$base/relay" ]; then
+  relay=present
   if [ ! -f "$base/relay/conf/logins.json" ] || [ ! -f "$base/relay/conf/upstreams.json" ]; then
     note relay:fail
     exit 4
@@ -765,6 +780,10 @@ cat >> "/opt/$install/backup/run" << 'RUN3END'
     cp "$tok" "$work/relay/secrets/$bn"
     sumf="$sumf relay/secrets/$bn"
   done
+fi
+if [ "$held" -eq 1 ]; then
+  flock -u 9 || true
+  exec 9<&-
 fi
 printf 'relay=%s\n' "$relay" >> "$work/state.txt"
 ( cd "$work" && sha256sum $sumf > SHA256SUMS )
@@ -832,6 +851,17 @@ while :; do
   if [ $((now - t0)) -ge 900 ]; then break; fi
   cid=$(timeout 60 docker compose -p "$install" ps -aq -- server | awk 'NR==1 { print; exit }')
   wid=$(timeout 60 docker compose -p "$install" ps -aq -- worker | awk 'NR==1 { print; exit }')
+RUN3END
+printf '%s\n' writer-ok
+```
+
+Writer 4 of 4, 1023 code points. `argv` is `/bin/sh`, `-c`, this script, `sh`, and the install name.
+```sh
+set -eu
+export LC_ALL=C
+install=$1
+umask 077
+cat >> "/opt/$install/backup/run" << 'RUN4END'
   hs=$(timeout 60 docker inspect --format '{{.State.Health.Status}}' "$cid" 2>/dev/null || echo missing)
   wr=$(timeout 60 docker inspect --format '{{.State.Status}}' "$wid" 2>/dev/null || echo missing)
   if [ "$hs" = healthy ] && [ "$wr" = running ]; then ok=1; break; fi
@@ -840,17 +870,6 @@ while :; do
     left=$((900 - (now - t0)))
     [ "$left" -gt 0 ] || break
     [ "$left" -le 120 ] || left=120
-RUN3END
-printf '%s\n' writer-ok
-```
-
-Writer 4 of 4, 600 code points. `argv` is `/bin/sh`, `-c`, this script, `sh`, and the install name.
-```sh
-set -eu
-export LC_ALL=C
-install=$1
-umask 077
-cat >> "/opt/$install/backup/run" << 'RUN4END'
     timeout "$left" docker compose -p "$install" start server worker || true
   fi
   sleep 5
@@ -1624,7 +1643,7 @@ Then the restore's files, each by its writers, in this order: `run`, `restore-re
 - **The secrets.** `secrets.env` must be exactly two lines, `ENCRYPTION_KEY=` and `FALLBACK_ENCRYPTION_KEY=`, their values in the base64 alphabet. They replace the target's `ENCRYPTION_KEY` line and its `FALLBACK_ENCRYPTION_KEY` line, adding the latter when the target has none, as an install Deploy Twenty made does not, through `.env.new` and a move, mode 600. The program never sources the file.
 - **Data before the app.** `docker compose create` for `db`, `redis`, `server` and `worker`; both volumes exist with Compose's project and volume labels; `db` and `redis` up and healthy; `pg_restore`; the row counts equal to the set's `counts.txt`; the restored database's `CONFIG_VARIABLE` names equal to the set's `config-db.txt` and passing the backup's refusal list; the local volume extracted, owner `1000:1000`.
 - **Files.** For each line of the set's `files.list`, the key is appended to `attempted.list` before its upload, and the upload's answer after it. A key with `..` or a leading `/` stops the stage. Each upload's sha256 must equal the list's.
-- **The relay, only when the set says `relay=present`.** The target already holds the relay. Deploy Twenty 0.1.19 wrote `/opt/<target>/relay/` with the program, `node_modules`, `conf/state` holding `hold`, `logins.json` holding `[]`, no token file, and the `relay` service in the override, and it started no `<target>-relay` container. This job does not run the relay-files job, the relay writers, or `npm ci`, and it starts no second `vm-job`. `relay:installed` checks that `relay.js`, `headers.js`, `package.json` and `package-lock.json` are present, that `node_modules/smtp-server/package.json` has `"version"` `3.19.17`, that the override matches the relay service Deploy Twenty wrote, and that no container named `<target>-relay` exists. It installs nothing. A missing file is `relay:installed:fail:files`. Another version is `relay:installed:fail:version`. A read-back that does not match is `relay:installed:fail:override`. A container already there is `relay:installed:fail:container`. `relay:credentials` copies the set's `relay/conf/logins.json`, `relay/conf/upstreams.json` and each `relay/secrets/*.token` into `conf/` and `secrets/`, mode `0640`, owner `0:1000`. It does not copy `conf/state` or anything under `journal/`. A missing carried file is `relay:credentials:fail:missing`. A name that is not one token file is `relay:credentials:fail:token`. A mode or owner that does not read back is `relay:credentials:fail:mode`. `relay:held` writes `conf/state` as the four bytes `hold`, starts the `relay` service, and reads a greeting whose first line begins `220`. A state that does not read back is `relay:held:fail:state`. A start that fails is `relay:held:fail:start`. No such greeting within 300 seconds is `relay:held:fail:greet`. The three result lines are `relay:installed`, `relay:credentials` and `relay:held`. At `checks`, after `COMPLETE` is read and before the archive is downloaded, a set that says `relay=present` on a target with no `relay/` directory is `checks:refused:relay-missing`. A set that says `relay=absent`, or an older set with no `relay=` line, on a target that has a `relay/` directory is `checks:refused:relay-unexpected`. Any other `relay=` value is `checks:refused:relay`.
+- **The relay, only when the set says `relay=present`.** The target already holds the relay. Deploy Twenty 0.1.19 wrote `/opt/<target>/relay/` with the program, `node_modules`, `conf/state` holding `hold`, `logins.json` holding `[]`, no token file, and the `relay` service in the override, and it started no `<target>-relay` container. This job does not run the relay-files job, the relay writers, or `npm ci`, and it starts no second `vm-job`. `relay:installed` checks that `relay.js`, `headers.js`, `package.json` and `package-lock.json` are present, that `node_modules/smtp-server/package.json` has `"version"` `3.19.17`, that the override matches the relay service Deploy Twenty wrote, and that no container labelled `com.docker.compose.project=<target>` and `com.docker.compose.service=relay` is present. It installs nothing. A missing file is `relay:installed:fail:files`. Another version is `relay:installed:fail:version`. A read-back that does not match is `relay:installed:fail:override`. A labelled relay container already there is `relay:installed:fail:container`. A container named `<target>-relay` without those labels is `relay:installed:fail:foreign-container`, and the check leaves that container in place. `relay:credentials` copies the set's `relay/conf/logins.json`, `relay/conf/upstreams.json` and each `relay/secrets/*.token` into `conf/` and `secrets/`, mode `0640`, owner `0:1000`. It does not copy `conf/state` or anything under `journal/`. A missing carried file is `relay:credentials:fail:missing`. A name that is not one token file is `relay:credentials:fail:token`. A mode or owner that does not read back is `relay:credentials:fail:mode`. `relay:held` writes `conf/state` as the four bytes `hold`, starts the `relay` service, and reads a greeting whose first line begins `220`. A state that does not read back is `relay:held:fail:state`. A start that fails is `relay:held:fail:start`. No such greeting within 300 seconds is `relay:held:fail:greet`. The three result lines are `relay:installed`, `relay:credentials` and `relay:held`. At `checks`, after `COMPLETE` is read and before the archive is downloaded, a set that says `relay=present` on a target with no `relay/` directory is `checks:refused:relay-missing`. A set that says `relay=absent`, or an older set with no `relay=` line, on a target that has a `relay/` directory is `checks:refused:relay-unexpected`. Any other `relay=` value is `checks:refused:relay`.
 - **Outbound, only when the set says `relay=present`.** After `worker:ok` and before `witness`, the raw environment of the `server` container and of the `worker` container is read. Each must contain a line `OUTBOUND_HTTP_ALLOWED_INTERNAL_HOSTS=smtp-relay`, and neither may contain `OUTBOUND_HTTP_SAFE_MODE_ENABLED`. The database must hold no `CONFIG_VARIABLE` row, with no user and no workspace, named either of those. The result line is `outbound:ok`. A container whose environment was not read is `outbound:fail:server-unread` or `outbound:fail:worker-unread`. An allow line that is not exactly that value is `outbound:fail:server-allow` or `outbound:fail:worker-allow`. A safe-mode variable present in the environment is `outbound:fail:server-safe` or `outbound:fail:worker-safe`. A database row of either name is `outbound:fail:db`. A set that does not say `relay=present` does not run this check and does not write `outbound:ok`.
 - **The app.** `server` started, and its log since that start must hold `Successfully migrated DB!` and `Successfully registered all background sync jobs!` and neither `Upgrade completed with errors` nor `Failed to register background jobs`, within 300 seconds. Then healthy within 300 seconds. Then `worker`, running within 300 seconds.
 - **The witness.** The restored state rows equal the database rows in the set's `state.txt`, and every workspace's activation status is unchanged. A line `relay=present` or `relay=absent` is not a row, and the comparison skips it. A set with no such line is an older set, read as `relay=absent`. Then the program makes `/run/twenty-restore-<target>/password` a FIFO and prints `witness-ready`. The person runs `witness-helper` then, and types the witness user's password. Like `identity-helper`, it writes only into the FIFO that exists and waits at most 30 seconds, otherwise printing `witness:refused:closed`. `witness.js`, in a one-shot container on the target's proxy network, signs in at the server's private address, with the host, `X-Forwarded-Host`, `X-Forwarded-Proto` and `Origin` set to `<witness_host>`, as Deploy Twenty's first contact does. It prints `witness:login:ok`, then `witness:kid:match` when the fresh token's key id is the signing key the set's `state.txt` marked current, then `witness:record:ok` and `witness:attachment:<n>` for the record and its attachments, then `witness:attachment:match` when one of those attachments holds the file whose id is `<witness_file_key>`'s last segment without its extension. Last, the file at `<witness_file_key>` is fetched from the target's bucket and its sha256 compared with the set's `files.list`: `file:match`.
@@ -1634,7 +1653,7 @@ Then the restore's files, each by its writers, in this order: `run`, `restore-re
 
 `run`, the restore program.
 
-The assembled file is 25495 code points.
+The assembled file is 25897 code points.
 Writer 1 of 7, 3929 code points. `argv` is `/bin/sh`, `-c`, this script, `sh`, and the install name.
 ```sh
 set -eu
@@ -1755,7 +1774,7 @@ RST1END
 printf '%s\n' writer-ok
 ```
 
-Writer 2 of 7, 3953 code points. `argv` is `/bin/sh`, `-c`, this script, `sh`, and the install name.
+Writer 2 of 7, 4072 code points. `argv` is `/bin/sh`, `-c`, this script, `sh`, and the install name.
 ```sh
 set -eu
 export LC_ALL=C
@@ -1824,21 +1843,21 @@ case "$mem_k" in ''|*[!0-9]*) stop checks:refused:memory 2 ;; esac
 if ! s3bak get "$prefix/backup.tar.age" /restore/backup.tar.age > "$rs/s3.out"; then
   s3why "$rs/s3.out"
   rm -f "$rs/s3.out"
+  stop checks:refused:archive 2
+fi
+rm -f "$rs/s3.out"
+sum=$(sha256sum "$rs/backup.tar.age" | awk 'NR==1 { print $1 }')
 RST2END
 printf '%s\n' writer-ok
 ```
 
-Writer 3 of 7, 3828 code points. `argv` is `/bin/sh`, `-c`, this script, `sh`, and the install name.
+Writer 3 of 7, 3981 code points. `argv` is `/bin/sh`, `-c`, this script, `sh`, and the install name.
 ```sh
 set -eu
 export LC_ALL=C
 install=$1
 umask 077
 cat >> "/opt/$install/restore/run" << 'RST3END'
-  stop checks:refused:archive 2
-fi
-rm -f "$rs/s3.out"
-sum=$(sha256sum "$rs/backup.tar.age" | awk 'NR==1 { print $1 }')
 [ "$sum" = "$(field sha256)" ] || stop checks:refused:sha 2
 sz=$(wc -c < "$rs/backup.tar.age" | tr -d ' ')
 [ "$sz" = "$(field size)" ] || stop checks:refused:size 2
@@ -1951,22 +1970,22 @@ note volumes
 for pair in "db-data ${install}_db-data" "server-local-data ${install}_server-local-data"; do
   short=${pair%% *}
   name=${pair#* }
+  got=$(timeout 60 docker volume inspect --format '{{index .Labels "com.docker.compose.project"}} {{index .Labels "com.docker.compose.volume"}}' "$name" 2>/dev/null || true)
+  [ "$got" = "$install $short" ] || { note volumes:fail; exit 4; }
+done
+note volumes:ok
+note data
 RST3END
 printf '%s\n' writer-ok
 ```
 
-Writer 4 of 7, 3942 code points. `argv` is `/bin/sh`, `-c`, this script, `sh`, and the install name.
+Writer 4 of 7, 4040 code points. `argv` is `/bin/sh`, `-c`, this script, `sh`, and the install name.
 ```sh
 set -eu
 export LC_ALL=C
 install=$1
 umask 077
 cat >> "/opt/$install/restore/run" << 'RST4END'
-  got=$(timeout 60 docker volume inspect --format '{{index .Labels "com.docker.compose.project"}} {{index .Labels "com.docker.compose.volume"}}' "$name" 2>/dev/null || true)
-  [ "$got" = "$install $short" ] || { note volumes:fail; exit 4; }
-done
-note volumes:ok
-note data
 if ! timeout 300 docker compose -p "$install" up -d --wait --wait-timeout 300 db redis; then note data:fail; exit 4; fi
 for svc in db redis; do
   id=$(timeout 60 docker compose -p "$install" ps -aq -- "$svc" | awk 'NR==1 { print; exit }')
@@ -2050,23 +2069,23 @@ if [ "$setrelay" = present ]; then
   put640() {
     p_src=$1
     p_dest=$2
-RST4END
-printf '%s\n' writer-ok
-```
-
-Writer 5 of 7, 3928 code points. `argv` is `/bin/sh`, `-c`, this script, `sh`, and the install name.
-```sh
-set -eu
-export LC_ALL=C
-install=$1
-umask 077
-cat >> "/opt/$install/restore/run" << 'RST5END'
     p_tmp=$(mktemp "${p_dest}.XXXXXX") || return 1
     cp "$p_src" "$p_tmp" || { rm -f "$p_tmp"; return 1; }
     chmod 640 "$p_tmp" || { rm -f "$p_tmp"; return 1; }
     chown 0:1000 "$p_tmp" || { rm -f "$p_tmp"; return 1; }
     p_mode=$(stat -c '%a' -- "$p_tmp") || { rm -f "$p_tmp"; return 1; }
     p_own=$(stat -c '%u:%g' -- "$p_tmp") || { rm -f "$p_tmp"; return 1; }
+RST4END
+printf '%s\n' writer-ok
+```
+
+Writer 5 of 7, 4083 code points. `argv` is `/bin/sh`, `-c`, this script, `sh`, and the install name.
+```sh
+set -eu
+export LC_ALL=C
+install=$1
+umask 077
+cat >> "/opt/$install/restore/run" << 'RST5END'
     if [ "$p_mode" != 640 ] || [ "$p_own" != "0:1000" ]; then
       rm -f "$p_tmp"
       return 1
@@ -2109,9 +2128,18 @@ r && $0 == "          - smtp-relay" { al++ }
 END { if (sc != 1 || wc != 1 || dn != 1 || al != 1 || bad) exit 41 }
 ' "$ov" || okov=0
   [ "$okov" -eq 1 ] || stop relay:installed:fail:override 4
-  if timeout 30 docker inspect --format '{{.Name}}' "${install}-relay" >/dev/null 2>&1; then
+  if ! rids=$(timeout 30 docker ps -aq --filter "label=com.docker.compose.project=${install}" --filter "label=com.docker.compose.service=relay"); then
     stop relay:installed:fail:container 4
   fi
+  rid=$(printf '%s\n' "$rids" | awk 'NR==1 { print; exit }')
+  if [ -n "$rid" ]; then
+    stop relay:installed:fail:container 4
+  fi
+  cname=${install}-relay
+  rname=$(timeout 30 docker inspect --format '{{.Name}}' "$cname" 2>/dev/null || true)
+  case "$rname" in
+    "$cname"|"/$cname") stop relay:installed:fail:foreign-container 4 ;;
+  esac
   note relay:installed
   [ -f "$work/relay/conf/logins.json" ] && [ -f "$work/relay/conf/upstreams.json" ] || stop relay:credentials:fail:missing 4
   put640 "$work/relay/conf/logins.json" "$base/relay/conf/logins.json" || stop relay:credentials:fail:mode 4
@@ -2133,19 +2161,19 @@ END { if (sc != 1 || wc != 1 || dn != 1 || al != 1 || bad) exit 41 }
   fi
   note relay:credentials
   printf '%s' hold > "$work/hold.word"
+  put640 "$work/hold.word" "$base/relay/conf/state" || stop relay:held:fail:state 4
+  hgot=$(cat "$base/relay/conf/state")
 RST5END
 printf '%s\n' writer-ok
 ```
 
-Writer 6 of 7, 3940 code points. `argv` is `/bin/sh`, `-c`, this script, `sh`, and the install name.
+Writer 6 of 7, 3956 code points. `argv` is `/bin/sh`, `-c`, this script, `sh`, and the install name.
 ```sh
 set -eu
 export LC_ALL=C
 install=$1
 umask 077
 cat >> "/opt/$install/restore/run" << 'RST6END'
-  put640 "$work/hold.word" "$base/relay/conf/state" || stop relay:held:fail:state 4
-  hgot=$(cat "$base/relay/conf/state")
   hbytes=$(wc -c < "$base/relay/conf/state" | tr -d ' ')
   [ "$hgot" = hold ] && [ "$hbytes" = 4 ] || stop relay:held:fail:state 4
   if ! timeout 120 docker compose -p "$install" up -d --no-deps relay; then
@@ -2257,21 +2285,21 @@ if [ "$setrelay" = present ]; then
   case "$werc" in
     0) ;;
     2) stop outbound:fail:worker-unread 5 ;;
+    3) stop outbound:fail:worker-allow 5 ;;
+    4) stop outbound:fail:worker-safe 5 ;;
+    *) stop outbound:fail:worker-unread 5 ;;
+  esac
 RST6END
 printf '%s\n' writer-ok
 ```
 
-Writer 7 of 7, 2977 code points. `argv` is `/bin/sh`, `-c`, this script, `sh`, and the install name.
+Writer 7 of 7, 2838 code points. `argv` is `/bin/sh`, `-c`, this script, `sh`, and the install name.
 ```sh
 set -eu
 export LC_ALL=C
 install=$1
 umask 077
 cat >> "/opt/$install/restore/run" << 'RST7END'
-    3) stop outbound:fail:worker-allow 5 ;;
-    4) stop outbound:fail:worker-safe 5 ;;
-    *) stop outbound:fail:worker-unread 5 ;;
-  esac
   if ! psqlc "select \"key\" from core.\"keyValuePair\" where type = 'CONFIG_VARIABLE' and \"userId\" is null and \"workspaceId\" is null and \"key\" in ('OUTBOUND_HTTP_ALLOWED_INTERNAL_HOSTS', 'OUTBOUND_HTTP_SAFE_MODE_ENABLED')" > "$work/outbound.now"; then
     stop outbound:fail:db 5
   fi
@@ -2799,14 +2827,14 @@ A reboot that already restarted the containers still gets this read when the per
 
 Ask on a target whose restore `state` exists and does not end `end`, or whose `backup/clean-state` exists and does not end `clean:end`, a cleanup cut off after it removed `restore/`. The confirmation names the target and says to clean it up. It is safe to repeat. Every step treats an absent thing as done.
 
-The inspection, then the restore read of Job 3. The gate is Deploy Twenty's (`skills/Deploy Twenty/`), with `experts/DevOps Expert/`. The plan names the target, the job and its stop-post, and the way back: none is needed, since the job only stops the target's app, deletes keys the restore attempted, removes the restore's files, and, when the restore stopped between the relay's stages, removes that relay's container and its files and nothing else of it, and the target is Deploy Twenty's to remove next.
+The inspection, then the restore read of Job 3. The gate is Deploy Twenty's (`skills/Deploy Twenty/`), with `experts/DevOps Expert/`. The plan names the target, the job and its stop-post, and the way back: none is needed, since the job only stops the target's app, deletes keys the restore attempted, removes the restore's files, and, when the restore stopped between the relay's stages, removes that relay's labelled container by the id it read and its files, and nothing else of it, and the target is Deploy Twenty's to remove next.
 
-The cleanup's files are written into `/opt/<target>/backup/`, each by its writers, when the inspection shows them absent: `clean`, `clean-recover`, then `clean-job`. `clean` stops `server` and `worker` first, absent counting as stopped, and checks they are no longer running: a Docker read that fails is `clean:<service>:fail`, never absent, and only `exited`, `created` or `dead` count as stopped. It then deletes every key named on a `key ` line of `restore/attempted.list` from the target's files bucket, with the target's own files key, a missing key counting as deleted. It removes `restore/` and `admin.password`. When `restore/state` has a line that begins `relay:` and its last line is not `end`, or a container named `<target>-relay` exists and that last line is not `end`, it removes that container with `docker rm -f` and removes `/opt/<target>/relay`. A state whose last line is `end` keeps the container and the directory. A restore that stopped before any `relay:` line, with no relay container, leaves the directory in place. It does not remove another install, `.env`, `INSTALL`, or `compose.override.yml`. Each step is appended to `backup/clean-state`, ending `clean:end`. `clean-recover` is its stop-post: it removes this install's labelled helper containers and `files.env`.
+The cleanup's files are written into `/opt/<target>/backup/`, each by its writers, when the inspection shows them absent: `clean`, `clean-recover`, then `clean-job`. `clean` stops `server` and `worker` first, absent counting as stopped, and checks they are no longer running: a Docker read that fails is `clean:<service>:fail`, never absent, and only `exited`, `created` or `dead` count as stopped. It then deletes every key named on a `key ` line of `restore/attempted.list` from the target's files bucket, with the target's own files key, a missing key counting as deleted. It removes `restore/` and `admin.password`. When `restore/state`'s last line is not `end`, it removes a relay container only when `docker ps -aq` lists one labelled `com.docker.compose.project=<target>` and `com.docker.compose.service=relay`, and it removes that container by the id from that list. A container named `<target>-relay` without those labels is left in place, and the journal names it on a `clean:relay:foreign` line. It removes `/opt/<target>/relay` when the state has a line that begins `relay:` or when that labelled container was removed. A state whose last line is `end` keeps the container and the directory. A restore that stopped before any `relay:` line, with no labelled relay container, leaves the directory in place. It does not remove another install, `.env`, `INSTALL`, or `compose.override.yml`. Each step is appended to `backup/clean-state`, ending `clean:end`. `clean-recover` is its stop-post: it removes this install's labelled helper containers and `files.env`.
 
 `clean`.
 
-The assembled file is 3794 code points.
-Writer 1 of 1, 4044 code points. `argv` is `/bin/sh`, `-c`, this script, `sh`, and the install name.
+The assembled file is 4507 code points.
+Writer 1 of 2, 4090 code points. `argv` is `/bin/sh`, `-c`, this script, `sh`, and the install name.
 ```sh
 set -eu
 export LC_ALL=C
@@ -2902,26 +2930,61 @@ if [ -f "$rs/state" ]; then
   if grep -q '^relay:' "$rs/state"; then relayline=1; fi
 fi
 cname=${install}-relay
-cup=0
-if timeout 30 docker inspect --format '{{.Name}}' "$cname" >/dev/null 2>&1; then cup=1; fi
+if ! ownids=$(timeout 30 docker ps -aq --filter "label=com.docker.compose.project=${install}" --filter "label=com.docker.compose.service=relay"); then
+  say clean:relay:fail
+  exit 1
+fi
+printf '%s\n' "$ownids" > "$bk/relay.ids"
+foreign=0
+if timeout 30 docker inspect --format '{{.Name}}' "$cname" >/dev/null 2>&1; then
+  foreign=1
+  while IFS= read -r ownid; do
+    [ -n "$ownid" ] || continue
+    oname=$(timeout 30 docker inspect --format '{{.Name}}' "$ownid" 2>/dev/null || true)
+    case "$oname" in
+      "$cname"|"/$cname") foreign=0 ;;
+    esac
+  done < "$bk/relay.ids"
+fi
 if [ "$ended" -eq 1 ]; then
+  rm -f "$bk/relay.ids"
   say clean:relay:kept
   say clean:relay-files:kept
 else
-  if [ "$cup" -eq 1 ]; then
-    if ! timeout 60 docker rm -f -- "$cname" >/dev/null 2>&1; then
+  if [ "$foreign" -eq 1 ]; then
+    say "clean:relay:foreign:${cname}"
+  fi
+  saw=0
+  while IFS= read -r ownid; do
+    [ -n "$ownid" ] || continue
+    saw=1
+    if ! timeout 60 docker rm -f -- "$ownid" >/dev/null 2>&1; then
       say clean:relay:fail
       exit 1
     fi
-    if timeout 30 docker inspect --format '{{.Name}}' "$cname" >/dev/null 2>&1; then
+    if timeout 30 docker inspect --format '{{.Name}}' "$ownid" >/dev/null 2>&1; then
       say clean:relay:fail
       exit 1
     fi
+  done < "$bk/relay.ids"
+  rm -f "$bk/relay.ids"
+  if [ "$saw" -eq 1 ]; then
     say clean:relay:removed
   else
     say clean:relay:absent
   fi
-  if [ "$relayline" -eq 1 ] || [ "$cup" -eq 1 ]; then
+CLN1END
+printf '%s\n' writer-ok
+```
+
+Writer 2 of 2, 793 code points. `argv` is `/bin/sh`, `-c`, this script, `sh`, and the install name.
+```sh
+set -eu
+export LC_ALL=C
+install=$1
+umask 077
+cat >> "/opt/$install/backup/clean" << 'CLN2END'
+  if [ "$relayline" -eq 1 ] || [ "$saw" -eq 1 ]; then
     if [ -e "$base/relay" ]; then
       rm -rf "$base/relay"
       say clean:relay-files:removed
@@ -2949,7 +3012,7 @@ else
 fi
 say clean:end
 exit 0
-CLN1END
+CLN2END
 sh -n "/opt/$install/backup/clean"
 chmod 700 "/opt/$install/backup/clean"
 chown root:root "/opt/$install/backup/clean"
@@ -3042,7 +3105,7 @@ One report. For each part: what was inspected, what was planned, the gate's verd
 
 A line that contains `PG_DATABASE_PASSWORD=`, `ENCRYPTION_KEY=`, `FALLBACK_ENCRYPTION_KEY=`, `CLOUDFLARE_API_KEY=`, `EMAIL_SMTP_PASSWORD=`, `RESEND_API_KEY=`, `STORAGE_S3_SECRET_ACCESS_KEY=`, `STORAGE_S3_ACCESS_KEY_ID=`, `S3_SECRET_ACCESS_KEY=`, `S3_ACCESS_KEY_ID=`, `ADMIN_PASSWORD=`, or `AGE-SECRET-KEY-` is withheld, and the report says the line was withheld. A secret value is not a report line. Lengths, booleans, counts, and statuses are.
 
-The report names the install, the bucket, the schedule, the retention, the source id, and the recipient's sha256. It names the newest set's stamp and age, or `no-set`, and `overdue` or `interval-not-derived` when Job 0's rule says so. It names the skip count and the state file's last line. It names a backup's unit, invocation id, limit, whether it counted, the archive sha256 and size, the set prefix, and the measured downtime when both lines were read. It says Redis's queue was not carried. When the install has a relay, it says the set carries that relay's logins, its upstream names and its tokens, and that it does not carry `conf/state`, because a restore decides hold or send for itself. When a restore's set says `relay=present`, the report says the target's relay is `hold` until Deploy Twenty's Job 5 writes `send`, and that a restored login keeps its binding and its password, because the hash and Twenty's encrypted copy of the password travel together in one set. When the install has no relay, or the newest set has no `relay=` field line, it says `relay=absent`. It says a holder of the bucket key cannot read the set without the identity, and that age does not authenticate who made the set. It names every gap that applies. A restore names the target, the set's source id, stamp and `server-url`, each stage reached, the witness's lines, and `changed` or the stage that stopped it. A cleanup names each key it deleted and its last line.
+The report names the install, the bucket, the schedule, the retention, the source id, and the recipient's sha256. It names the newest set's stamp and age, or `no-set`, and `overdue` or `interval-not-derived` when Job 0's rule says so. It names the skip count and the state file's last line. It names a backup's unit, invocation id, limit, whether it counted, the archive sha256 and size, the set prefix, and the measured downtime when both lines were read. It says Redis's queue was not carried. When the install has a relay, it says the set carries that relay's logins, its upstream names and its tokens, and that it does not carry `conf/state`, because a restore decides hold or send for itself. It says a rotation is complete only once Twenty's mailbox holds the new password, and that a set taken between the helper and that update restores a login whose password Twenty does not hold: rotate, update Twenty, then back up. When a restore's set says `relay=present`, the report says the target's relay is `hold` until Deploy Twenty's Job 5 writes `send`, and that a restored login keeps its binding and its password, because the hash and Twenty's encrypted copy of the password travel together in one set. When the install has no relay, or the newest set has no `relay=` field line, it says `relay=absent`. It says a holder of the bucket key cannot read the set without the identity, and that age does not authenticate who made the set. It names every gap that applies. A restore names the target, the set's source id, stamp and `server-url`, each stage reached, the witness's lines, and `changed` or the stage that stopped it. A cleanup names each key it deleted and its last line.
 
 For each job, also: its unit name, its invocation ID and its limit, the last poll's state, the read-back lines the report may show and the line count shown, and the release outcome. A job not read as finished after six polls is reported in the state the last poll that was read showed, or as unknown when none was read.
 
@@ -3076,6 +3139,8 @@ For each job, also: its unit name, its invocation ID and its limit, the last pol
 - **A failure with no `machine`, called a finished backup.** It does not establish whether the router reached the machine. Re-inspect when a read is still possible. Do not repeat the change.
 - **A restored relay treated as allowed to send.** The restore writes `hold`. The relay stays held until Deploy Twenty's Job 5 writes `send`. Bringing the install online does not write `send`.
 - **A restored login's password typed again.** The hash in `logins.json` and Twenty's encrypted copy of the password travel together in one set. The restore does not generate a new password.
+- **A backup between a rotation and Twenty's mailbox update.** A rotation is complete only once Twenty's mailbox holds the new password. A set taken after the helper writes the new hash and before that update restores a login whose password Twenty does not hold. Rotate, update Twenty, then back up.
+- **A relay lock that runs out left with the app stopped.** The program starts `server` and `worker` before it exits. It does not count as a backup.
 - **The fleet called down.** A router-host failure, or a `list_hosts` `vendor_error`, means connector access to the whole fleet depends on the router host. Installs keep serving.
 
 ## Success
@@ -3093,6 +3158,6 @@ For each job, also: its unit name, its invocation ID and its limit, the last pol
 - Job 2 was one job, purpose `twenty-backup`, limit 3600, with `--stop-post` on `recover` and `--stop-post-timeout 1200`. It counted only on `succeeded`, a state ending in `end` with `restart-verified`, and `COMPLETE` read back with its sha256 equal to the archive. The timer was enabled only after that count, with `systemctl enable --now` on the timer, and the re-inspection showed the next elapse.
 - Job 4 ran only after the person named the install, refused a running `vm-job-twenty-backup-*` unit, and removed the units, the record, and the directory. The re-inspection showed the units not loaded and the directory gone. Nothing in the bucket was deleted.
 - Job 6 was the recovery rule as a job. A `recovered:fail` did not count. The way back named was Job 6 again.
-- A restore ran only onto a target Deploy Twenty made for a restore, with an empty files bucket that was neither the source's nor the backup bucket, after the person confirmed the set's source id, stamp and `server-url`. The identity and the witness's password reached the job through FIFOs from helpers the person ran. It counted only on every stage line through `end`, `witness:kid:match` and `file:match` included. When the set says `relay=present`, the count also requires `relay:installed`, `relay:credentials` and `relay:held` before `server:ok`, and `outbound:ok` after `worker:ok`. When it does not, those four lines are absent, and a read-back that holds one of them does not count. A set that says `relay=present` on a target with no relay is `checks:refused:relay-missing`. A set that does not, on a target that has a relay, is `checks:refused:relay-unexpected`. A restore that did not count was not re-sent: Job 7 cleaned the target, deleting only the keys the restore attempted, and, when the restore stopped between the relay's stages, that relay's container and `/opt/<target>/relay` and nothing else of it, and Deploy Twenty's removal was named.
-- The report names the recipient sha256, the source id, the newest set's age, overdue or not, the skip count, the last state, whether a backup counted, the measured downtime when both lines were read, that Redis's queue was not carried, and every gap that applies. When the install has a relay, the report says the set carries the relay's logins, upstream names and tokens, and that `state` was not carried. When a restore's set says `relay=present`, the report says the relay stays `hold` until Deploy Twenty's Job 5 writes `send`, and that a restored login keeps its binding and its password because the hash and Twenty's encrypted copy travel together in one set.
+- A restore ran only onto a target Deploy Twenty made for a restore, with an empty files bucket that was neither the source's nor the backup bucket, after the person confirmed the set's source id, stamp and `server-url`. The identity and the witness's password reached the job through FIFOs from helpers the person ran. It counted only on every stage line through `end`, `witness:kid:match` and `file:match` included. When the set says `relay=present`, the count also requires `relay:installed`, `relay:credentials` and `relay:held` before `server:ok`, and `outbound:ok` after `worker:ok`. When it does not, those four lines are absent, and a read-back that holds one of them does not count. A set that says `relay=present` on a target with no relay is `checks:refused:relay-missing`. A set that does not, on a target that has a relay, is `checks:refused:relay-unexpected`. A restore that did not count was not re-sent: Job 7 cleaned the target, deleting only the keys the restore attempted, and, when the restore stopped between the relay's stages, that relay's labelled container, by the id it read, and `/opt/<target>/relay`, and nothing else of it, and Deploy Twenty's removal was named.
+- The report names the recipient sha256, the source id, the newest set's age, overdue or not, the skip count, the last state, whether a backup counted, the measured downtime when both lines were read, that Redis's queue was not carried, and every gap that applies. When the install has a relay, the report says the set carries the relay's logins, upstream names and tokens, and that `state` was not carried. It says a rotation is complete only once Twenty's mailbox holds the new password, and that a set taken between the helper and that update restores a login whose password Twenty does not hold: rotate, update Twenty, then back up. When a restore's set says `relay=present`, the report says the relay stays `hold` until Deploy Twenty's Job 5 writes `send`, and that a restored login keeps its binding and its password because the hash and Twenty's encrypted copy travel together in one set.
 - DNS was handed to `experts/IT Expert/` in `wiser`. A package was handed to `skills/VM Configure/`. An install, a route, or a removal was handed to `skills/Deploy Twenty/`.

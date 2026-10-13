@@ -3,7 +3,7 @@ name: Deploy Twenty
 type: skill
 category: operations
 description: Install Twenty CRM v2.45.6 on one machine a person's router maps, behind the Caddy that machine already runs, including that install's mail relay when one is named, or add or remove one hostname route for an install this skill made, or remove that install, or take that install offline or bring it back online, or add, rotate or remove one relay login, replace one relay upstream token, add or remove one relay upstream, or write the relay to send or hold, and report the URL, what answered, the relay, and what is not configured.
-version: 0.1.24
+version: 0.1.25
 gaps:
   - installing a Twenty release other than v2.45.6, or upgrading an install to another release
   - a machine with no Docker, or with no Caddy running in the shape `skills/Deploy Workload/` runs it
@@ -521,7 +521,7 @@ for ref in "$@"; do
 done
 ```
 
-The pull counts only when the job's class is `succeeded` and, for each reference, the text after the first `]: ` on a `--- digest ---` marker's following line equals that reference. A tag is not accepted. A mismatch stops the run. Do not start the install job. Images already pulled stay. Their removal is not this run. When `<relay>` is present the fourth reference is `node:24-alpine@sha256:ebfe2f90462722a7a4de65e91990e97fe0d401c70e0e762c5b53302f905ec1c1`, and it is compared the same way. A mismatch on it stops the run before the install job. The pull script above is not edited for the relay. Its text is that block whether `<relay>` is present or absent. The node image sits inside the disk bar the headroom question already requires. That bar does not change.
+The pull counts only when the job's class is `succeeded` and, for each reference, the text after the first `]: ` on a `--- digest ---` marker's following line equals that reference with any `:<tag>` between its name and its `@` removed. Docker records a pulled digest as `<name>@sha256:<digest>` and drops the tag a reference carried, so `node:24-alpine@sha256:ebfe2f90…` reads back as `node@sha256:ebfe2f90…`; the three Twenty references carry no tag and read back unchanged. The name and the full digest must both match. A line that carries a tag and no digest is not accepted. A mismatch stops the run. Do not start the install job. Images already pulled stay. Their removal is not this run. When `<relay>` is present the fourth reference is `node:24-alpine@sha256:ebfe2f90462722a7a4de65e91990e97fe0d401c70e0e762c5b53302f905ec1c1`, compared the same way, so its line is `node@sha256:ebfe2f90462722a7a4de65e91990e97fe0d401c70e0e762c5b53302f905ec1c1`. A mismatch on it stops the run before the install job. The pull script above is not edited for the relay. Its text is that block whether `<relay>` is present or absent. The node image sits inside the disk bar the headroom question already requires. That bar does not change.
 
 ### The install job
 

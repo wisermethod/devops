@@ -3,7 +3,7 @@ name: Deploy Twenty
 type: skill
 category: operations
 description: Install Twenty CRM v2.45.6 on one machine a person's router maps, behind the Caddy that machine already runs, including that install's mail relay when one is named, or add or remove one hostname route for an install this skill made, or remove that install, or take that install offline or bring it back online, or add, rotate or remove one relay login, replace one relay upstream token, add or remove one relay upstream, or write the relay to send or hold, and report the URL, what answered, the relay, and what is not configured.
-version: 0.1.23
+version: 0.1.24
 gaps:
   - installing a Twenty release other than v2.45.6, or upgrading an install to another release
   - a machine with no Docker, or with no Caddy running in the shape `skills/Deploy Workload/` runs it
@@ -1338,7 +1338,7 @@ for alias in $aliases; do
 done
 [ "$okalias" -eq 1 ] || fail alias
 printf '%s\n' "relay-alias:smtp-relay"
-mounts=$(docker inspect --format '{{range .Mounts}}{{printf "%s %s\n" .Destination .RW}}{{end}}' -- "$id")
+mounts=$(docker inspect --format '{{range .Mounts}}{{printf "%s %t\n" .Destination .RW}}{{end}}' -- "$id")
 printf '%s\n' "$mounts" | awk '
 $1 == "/relay" && $2 == "false" { r++; next }
 $1 == "/conf" && $2 == "false" { c++; next }

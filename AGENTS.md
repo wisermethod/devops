@@ -46,11 +46,3 @@ None is declared at instantiation.
 ## Layout
 
 This root's layout is governed by `wiser/standards/plugin-root.md`. That standard's C1 owns the `layout:` stamp: the current tree version, a bare nonnegative integer. `wiser/skills/Onboard Plugin Root/` writes it last, only once every applicable obligation other than the stamp itself scores present or N/A. A stamp written before that would advertise a conformance nothing had earned, which is why an unstamped tree reads as not current rather than as clean.
-
-## Handover
-
-Stood up 2026-09-26 by `wiser/skills/Onboard Plugin Root/`. Each line is owed to a person and names what closes it. Strike a line when its boundary closes; when the last line goes, delete this section.
-
-- Push: owed (the operator; the repository exists and is committed, and nothing is pushed)
-- A row in the operator's repository roster: owed (the operator; waits on the repository)
-- Descriptions of this root: owed (the operator; waits on the build records that describe this plugin as unnamed and not yet stood up being updated)

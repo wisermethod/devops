@@ -3,7 +3,7 @@ name: vm-job
 type: tool
 category: operations
 description: Build the argument vectors that start, poll, read back and release a tracked background job on one machine a router maps, build the texts for a scheduled job, and classify each answer, as one JSON object
-version: 0.3.3
+version: 0.3.4
 ---
 
 # vm-job
@@ -156,7 +156,7 @@ The outcome names are the ones `connectors/vm/CONNECTOR.md` in `wiser` publishes
 
 **Starting it** is one `vm.command.run` whose `argv` is the array `start` prints. Without `--stop-post` that is `/bin/sh`, `-c`, the starter below, `sh`, the unit name, the limit in seconds, the token the inspection read, the job's script, and then any operands the job takes, which reach the job's script as `$1` onward. With `--stop-post` the same starter is an operand of the stop-post driver, after `-p`, `ExecStopPost=/bin/sh <path>`, `-p` and `TimeoutStopSec=<seconds>`. The script and its operands are never spliced into the starter's text, so a package name stays an operand all the way to the command that uses it.
 
-**Polling it** is one `vm.command.run` whose `argv` is the array `poll` prints. The wait is at most 10 seconds, which leaves the call headroom inside the Wiser endpoint's bound of 20 seconds without guaranteeing it: an SSH connection slower than usual can still carry a poll past it. That poll is `not-read`, and the next poll reads again. A call that outlasts that bound answers `status` `uncertain`, and the endpoint does not retry it. The router's own limit of 60 seconds is the looser bound.
+**Polling it** is one `vm.command.run` whose `argv` is the array `poll` prints. The wait is at most 10 seconds, which leaves the call wide headroom inside the Wiser endpoint's bound of 65 seconds. An app's own limit on a tool call can be shorter; a poll that misses either is `not-read`, and the next poll reads again. A call that outlasts the endpoint's bound answers `status` `uncertain`, and the endpoint does not retry it. A poll stays far inside the router's own limit of 60 seconds.
 
 **Reading it back** is one `vm.command.run` whose `argv` is the array `readback` prints. It reads by the recorded invocation ID, not by the name's current one. A `truncated` answer is read again with fewer lines; the report says how many it shows. **The journal outlives release**, so the read-back can come before or after it.
 

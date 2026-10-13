@@ -3,7 +3,7 @@ name: VM Configure
 type: skill
 category: operations
 description: Change one apt package or apply every pending upgrade, or change one systemd unit, or one package and then one unit, on one machine a person's router maps, running each package change as a tracked background job after inspecting that machine, and report whether it changed, through a router the person already runs
-version: 0.3.1
+version: 0.3.2
 gaps:
   - a router this plugin does not ship, which every change goes through
   - a package manager other than apt
@@ -69,7 +69,7 @@ On Ubuntu, an apt hook (`needrestart`) restarts the services that use an upgrade
 
 `busy` means the router was at its concurrency limit and the machine was not asked. `vendor_error` does not establish whether the call ran. A failure outcome whose answer carries no `machine` does not establish whether the router reached the machine. `remote_failure` carries the command's `exit_code` and its `output` when the command ran.
 
-Through the Wiser endpoint every call has 20 seconds. A call that outlasts that bound answers `status` `uncertain`, and the endpoint does not retry it. Read `uncertain` everywhere this skill reads `vendor_error`. It does not establish whether the call ran, or whether the router reached the machine. It can also be about an earlier call the endpoint failed to settle, and then the call just made did not run; `skills/Connection Troubleshooter/` in `wiser` names which call is in doubt.
+Through the Wiser endpoint a `vm` action has 65 seconds, and every other call there, the endpoint's own calls around a `vm` action included, has 20. A call that outlasts its bound answers `status` `uncertain`, and the endpoint does not retry it. The app the person uses can stop waiting sooner, by its own limit on a tool call; read an answer that never came as this skill reads `uncertain`. Read `uncertain` everywhere this skill reads `vendor_error`. It does not establish whether the call ran, or whether the router reached the machine. It can also be about an earlier call the endpoint failed to settle, and then the call just made did not run; `skills/Connection Troubleshooter/` in `wiser` names which call is in doubt.
 
 `systemctl status` exits 0 for an active unit, 3 for an inactive or dead one, and 4 when no such unit exists. Exit 1 and exit 2 are systemd's other dead codes. Through `vm.units.status` a nonzero exit is `remote_failure` with that `exit_code` and the status text in `output`.
 

@@ -3,7 +3,7 @@ name: Prepare VM
 type: skill
 category: operations
 description: Enroll an existing machine into a fleet reached over a tailnet through a router the person already runs, merge that tailnet's access policy, register the machine, and report whether it joined, or take the machine back out
-version: 0.1.1
+version: 0.1.2
 gaps:
   - a router this plugin does not ship, which enrollment requires the person to already run
 ---
@@ -24,7 +24,7 @@ No session sees a credential value. The person generates, holds, and enters each
 
 Irreversible effects are the person's hands. This skill composes and explains. The person runs them: terminating an instance, deleting a tailnet device, and anything that destroys storage. The person saves the tailnet policy, after the console's Preview changes. Every reversible change on a machine is confirmed before it runs.
 
-Through the Wiser endpoint every call has 20 seconds. A call that outlasts that bound answers `status` `uncertain`, and the endpoint does not retry it. Read `uncertain` everywhere this skill reads `vendor_error`. It does not establish whether the call ran, or whether the router reached the machine. It can also be about an earlier call the endpoint failed to settle, and then the call just made did not run; `skills/Connection Troubleshooter/` in `wiser` names which call is in doubt.
+Through the Wiser endpoint a `vm` action has 65 seconds, and every other call there, the endpoint's own calls around a `vm` action included, has 20. A call that outlasts its bound answers `status` `uncertain`, and the endpoint does not retry it. The app the person uses can stop waiting sooner, by its own limit on a tool call; read an answer that never came as this skill reads `uncertain`. Read `uncertain` everywhere this skill reads `vendor_error`. It does not establish whether the call ran, or whether the router reached the machine. It can also be about an earlier call the endpoint failed to settle, and then the call just made did not run; `skills/Connection Troubleshooter/` in `wiser` names which call is in doubt.
 
 Classifier seam: none.
 

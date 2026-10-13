@@ -3,7 +3,7 @@ name: Deploy Workload
 type: skill
 category: operations
 description: Deploy one container to one machine a person's router maps, behind a Caddy the skill runs there, through targeted admin-API updates, or remove one it deployed, and report the URL it serves and whether it answered, through a router the person already runs
-version: 0.1.4
+version: 0.1.5
 gaps:
   - a router this plugin does not ship, which every deploy goes through
   - a workload on the router host, where Caddy has not been measured beside the router's own public origin
@@ -73,7 +73,7 @@ On Ubuntu, an apt hook (`needrestart`) restarts the services that use an upgrade
 
 `busy` means the router was at its concurrency limit and the machine was not asked. `vendor_error` does not establish whether the call ran. A failure outcome whose answer carries no `machine` does not establish whether the router reached the machine. `remote_failure` carries the command's `exit_code` and its `output` when the command ran.
 
-Through the Wiser endpoint every call has 20 seconds. A call that outlasts that bound answers `status` `uncertain`, and the endpoint does not retry it. Read `uncertain` everywhere this skill reads `vendor_error`. It does not establish whether the call ran, or whether the router reached the machine. It can also be about an earlier call the endpoint failed to settle, and then the call just made did not run; `skills/Connection Troubleshooter/` in `wiser` names which call is in doubt. The inspection and the config read each carry two Caddy admin reads of up to 10 seconds; when both run long through the endpoint, the call answers `uncertain`. The read itself changes nothing. At the inspection the run has changed nothing yet. At the config read the container, its network and any volume it made already exist: make no further change, post no route, and report what the run made and that the config was not read.
+Through the Wiser endpoint a `vm` action has 65 seconds, and every other call there, the endpoint's own calls around a `vm` action included, has 20. A call that outlasts its bound answers `status` `uncertain`, and the endpoint does not retry it. The app the person uses can stop waiting sooner, by its own limit on a tool call; read an answer that never came as this skill reads `uncertain`. Read `uncertain` everywhere this skill reads `vendor_error`. It does not establish whether the call ran, or whether the router reached the machine. It can also be about an earlier call the endpoint failed to settle, and then the call just made did not run; `skills/Connection Troubleshooter/` in `wiser` names which call is in doubt. The inspection and the config read each carry two Caddy admin reads of up to 10 seconds, 20 in all, inside that bound. When either call still answers `uncertain`, the read itself changes nothing. At the inspection the run has changed nothing yet. At the config read the container, its network and any volume it made already exist: make no further change, post no route, and report what the run made and that the config was not read.
 
 Call one action at a time. Do not start the next call until this call's answer is classified.
 

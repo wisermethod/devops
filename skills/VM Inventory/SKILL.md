@@ -3,7 +3,7 @@ name: VM Inventory
 type: skill
 category: operations
 description: List every machine a person's router maps, or the machines they name, each with its role, whether it is reachable, and the facts the router returned, read through a router the person already runs
-version: 0.1.1
+version: 0.1.2
 gaps:
   - a router this plugin does not ship, which the inventory reads through
 ---
@@ -20,7 +20,7 @@ This plugin does not ship a router, and no primitive in this root provides one. 
 
 Reaching the gateway is `skills/Set Up Connectors/` and `gateway/SETUP.md` in `wiser`. Connecting the `inventory` module is `skills/Connect Account/` in `wiser`. The toolkit registration is `connectors/vm/auth.md` in `wiser`. Cite those files. Do not restate them. The outcome vocabulary is `connectors/vm/CONNECTOR.md` in `wiser`. The connector passes the router's outcome string through unchanged. A gateway status is `status` on the answer. A router result is `outcome`. Do not rename either.
 
-Through the Wiser endpoint every call has 20 seconds. A call that outlasts that bound answers `status` `uncertain`, and the endpoint does not retry it. Read `uncertain` everywhere this skill reads `vendor_error`. It does not establish whether the call ran, or whether the router reached the machine. It can also be about an earlier call the endpoint failed to settle, and then the call just made did not run; `skills/Connection Troubleshooter/` in `wiser` names which call is in doubt.
+Through the Wiser endpoint a `vm` action has 65 seconds, and every other call there, the endpoint's own calls around a `vm` action included, has 20. A call that outlasts its bound answers `status` `uncertain`, and the endpoint does not retry it. The app the person uses can stop waiting sooner, by its own limit on a tool call; read an answer that never came as this skill reads `uncertain`. Read `uncertain` everywhere this skill reads `vendor_error`. It does not establish whether the call ran, or whether the router reached the machine. It can also be about an earlier call the endpoint failed to settle, and then the call just made did not run; `skills/Connection Troubleshooter/` in `wiser` names which call is in doubt.
 
 No credential is asked for, printed, or written into a file in a repository. The report asks for no address and no hostname, and it prints none as a field of its own. The facts cell is the router's output copied verbatim.
 

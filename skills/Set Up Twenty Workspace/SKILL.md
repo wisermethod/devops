@@ -3,7 +3,7 @@ name: Set Up Twenty Workspace
 type: skill
 category: crm
 description: Set up one organisation's workspace on a Twenty install Deploy Twenty made, its address, admin, members and roles, pipeline, fields and objects, each member's mailbox, a shared inbox and branded email from the organisation's own domain, and a first import judged by CRM Expert, adopting the install's first workspace when it is the organisation's, and report what was set up and what each person still does.
-version: 0.1.4
+version: 0.1.5
 gaps:
   - connecting Google or Microsoft mailboxes, which needs an OAuth client and the provider's approval
   - taking an organisation off the install
@@ -306,7 +306,7 @@ Does the last `list` show `seeded: 0` and `trashed: 0` for every object and an e
 5. The two records go through `experts/IT Expert/` Job 1 and `skills/Zone Publisher/` in `wiser`, each approved by name. A DNS-only CNAME from the address to the fallback origin, read from the deployment record the person names: the proxied record pointing at the machine that Deploy Twenty's Cloudflare for SaaS question had them confirm. It is never the `app.<base>` target Twenty's screen suggests. A record pointed there is served past Cloudflare's edge. The deployment record names no origin: stop. Do not publish the suggested target. And a DNS-only CNAME at `_acme-challenge.<address>` to the target item 4 read. IT Expert checks that neither record is the domain's MX.
 6. `skills/Deploy Twenty/` Job 2 adds the address's route, under DevOps Expert's gate, with the word `add` and the filed alias label from item 1.
 7. Done when all four of these hold. The zone's own nameservers answer both CNAMEs. The settings status shows the hostname and its certificate active. `https://<address>/` through Cloudflare's edge serves the workspace: one curl on the person's machine, sent as a browser sends it, no `--resolve` and no `-k`, `curl -sS -o /dev/null -w '%{http_code}\n' --max-time 20 -H 'Accept: text/html' https://<address>/`, exit 0 and the code `200`. Twenty serves its app only to `Accept: text/html` and answers a bare `GET /` with `404`, on every address of an install. Any other result is not done. Do not pass it with `-k`. A lookup of the address that returns the machine's own address is the edge bypassed: stop, and do not call the domain done. The public read for `https://<address>` answers the display name.
-8. Once item 7 holds, each actor signs in again at `https://<address>` in their own profile. Twenty sends the subdomain there, and a session on the base's names does not carry. Every later signed-in step uses the address.
+8. Once item 7 holds, each actor signs in again at `https://<address>` in their own profile. Twenty sends the subdomain there, and a session on the base's names does not carry. Every later signed-in step uses the address. Everyone in this workspace, its admin included, signs in at the address, never at `app.<base>`. On v2.45.6 a member who held a session at the address and signed in at `app.<base>` was sent to the address signed out, at its Continue page, with that session gone; signing in again at the address worked. That was observed once, for one member, and not investigated.
 
 A route Job 2 left partial, the alias attached and the route not posted, stops the run. Name Deploy Twenty's own recovery, a new gated plan. Do not repair it here. Do not remove the alias in this run.
 
@@ -385,7 +385,7 @@ The body is not a confirming read when it is not JSON, when JSON has neither `da
 
 ## What does the report say?
 
-One report. What was set up. The sample-data removal and the last `list`'s counts, or the person's filed word to keep the seed and that `list`'s counts. Name `inUse` and `trashed` wherever they were above 0. A kept seed is reported plainly: the workspace still holds Twenty's sample data. Each step's filed state. Each profile the run used, by its path, and that removing a profile signs that actor out on this machine. Each person's remaining steps, and no step filed `complete` listed as remaining.
+One report. What was set up. The address the organisation's people sign in at, which its admin passes on to them: `https://<address>` once the custom domain is complete, never `app.<base>` then (on v2.45.6, the custom domain's item 8); before that, or with no custom domain, `https://<subdomain>.<base>`, where a sign-in at `app.<base>` was not tested. The sample-data removal and the last `list`'s counts, or the person's filed word to keep the seed and that `list`'s counts. Name `inUse` and `trashed` wherever they were above 0. A kept seed is reported plainly: the workspace still holds Twenty's sample data. Each step's filed state. Each profile the run used, by its path, and that removing a profile signs that actor out on this machine. Each person's remaining steps, and no step filed `complete` listed as remaining.
 
 The remaining steps, when they were not done in the run:
 

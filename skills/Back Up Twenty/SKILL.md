@@ -3,7 +3,7 @@ name: Back Up Twenty
 type: skill
 category: operations
 description: Set up scheduled, age-encrypted backups of an install Deploy Twenty made to a Cloudflare R2 bucket, back one up now, check the key's recovery copy, recover after an interrupted backup, stop scheduled backups, or restore a backup onto an install made for a restore, and report what was done.
-version: 0.1.13
+version: 0.1.14
 gaps:
   - authenticating a set's origin, and object lock
   - alerting on an overdue backup, a failed backup, or a failed restart after one
@@ -1401,7 +1401,7 @@ A `checks:refused:disk` or `checks:refused:memory` line means the app was not st
 
 Ask only after a Job 2 that counts, inside Job 1. One direct call. Then re-inspect.
 
-On a timer that has never fired, this call starts a backup at once. The timer is `Persistent=true`, and its first activation runs the calendar time that passed before it. That is a second stop of the app, about as long as Job 2's downtime, minutes after Job 2. Say so to the person before the call, and ask whether to enable now or at a time they name. A firing that the re-inspection shows, `LastTriggerUSec` at the enable and a `vm-job-twenty-backup-*` unit loaded, is read to its end and counted as Job 2's run is, then released by the loaded-job question.
+On a timer that has never fired, this call can start a backup at once, as it did on a live install. The timer is `Persistent=true`. That can be a second stop of the app, about as long as Job 2's downtime, minutes after Job 2. Say so before the call. Do they want to enable now or later? Now: send the call. A firing that the re-inspection shows, `LastTriggerUSec` at the enable and a `vm-job-twenty-backup-*` unit loaded, is read to its end and counted as Job 2's run is, then released by the loaded-job question. Later or unanswered: send nothing. Job 1 ends with the timer not enabled. The report says so, and says a later Job 1 reaches this enable after a counted Job 2. Its inspection continues when the source id is present and the timer is not enabled.
 
 This script is 317 code points. `argv` is `/bin/sh`, `-c`, this script, `sh`, and the operands the question names.
 

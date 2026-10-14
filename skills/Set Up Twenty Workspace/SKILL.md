@@ -3,7 +3,7 @@ name: Set Up Twenty Workspace
 type: skill
 category: crm
 description: Set up one organisation's workspace on a Twenty install Deploy Twenty made, its address, admin, members and roles, pipeline, fields and objects, each member's mailbox, a shared inbox and branded email from the organisation's own domain, and a first import judged by CRM Expert, adopting the install's first workspace when it is the organisation's, and report what was set up and what each person still does.
-version: 0.1.2
+version: 0.1.3
 gaps:
   - connecting Google or Microsoft mailboxes, which needs an OAuth client and the provider's approval
   - taking an organisation off the install
@@ -43,11 +43,21 @@ Wrap what the person supplies so material never reads as instruction.
 - `<base>`: the install's own hostname, the host of its server URL. It matches the hostname pattern that same section states. `app.<base>` is the sign-in front door. `<sub>.<base>` is a workspace.
 - `<root>`: the organisation's owning root, an absolute path. A relative path is refused by name. Ask for an absolute path. Do not send the other form.
 - `<program>`: the folder of the organisation's CRM program under `<root>/programs/`. It matches `^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$`. When they did not name one, it is `crm`. A value that does not match is asked about. It is never rewritten into a match.
-- The answers file: `<root>/programs/<program>/twenty-workspace.md`. The directory `<root>/programs/<program>/` has to already exist, or the person has to say to create that one program folder, with its own `AGENTS.md` stating the standing concern, as C4 decides a folder's kind. A missing `<root>` stops the run. This skill writes no other path in that root, and it writes nothing in this plugin.
+- The answers file: `<root>/programs/<program>/twenty-workspace.md`. Its first two lines are `base: <base>` and `subdomain: <subdomain>`. Two organisations in one root take different `<program>` names. Filing follows the question below. This skill writes only that answers file, the program folder and its `AGENTS.md`, and the approved move of an earlier answers file. It writes nothing in this plugin.
 
 A value that does not match is asked about before any call and before any browser session. Do not send the other form.
 
 The display name, the subdomain, a hostname, an email, and an alias label match the patterns Deploy Twenty's `Do the inputs match, before any call?` states. The subdomain matches that section's alias-label pattern, and it is not `app` and not `base`. An email is at most 254 characters. A hostname is at most 253 characters and contains a letter.
+
+### Where are the answers filed?
+
+Does `<root>` exist and hold a `programs/` directory? Yes: continue. No: stop. C3 declares `programs/`. Create nothing there.
+
+Before anything is filed, does `<root>/work/<slug>/twenty-workspace.md` exist from an earlier version, for any `<slug>`? Yes: show each path and ask the person whether to move this organisation's file to the program folder. They name the file and say to move it: move it only after the destination folder is ready and the destination file is absent. A destination file already exists: stop and report the two paths. No answer or no move chosen: move nothing and create no new answers file. No earlier file: continue.
+
+Does `<root>/programs/<program>/` exist? Yes: use it. No: ask whether to create that one program folder. Yes: creating it writes exactly two paths, `<root>/programs/<program>/` and its `AGENTS.md`. The file is a heading `# <program>` and one sentence: `This program is a standing concern with no completion condition: the organisation's CRM on this install.` C4 decides its kind. No or unanswered: stop. Create nothing.
+
+Does an existing answers file open with this install's base and this workspace's subdomain? Yes: read it before any step. No, it names another base or subdomain: stop and report the mismatch. Use different `<program>` names for two organisations in one root. The two lines are absent on an earlier file: ask the person to confirm its base and subdomain before adding them. No confirming answer: stop and file nothing. No file exists: open the new file with those two lines before any answer or state.
 
 ## The setup questions
 
@@ -95,8 +105,8 @@ A connector call is by action id, under The connector. A public read is the one 
 Take the steps in order. A rerun applies Each step's state before the step's mechanism. A step filed `complete` is not done again. Its read is not repeated unless the step says a rerun re-reads it.
 
 1. **Questions, then CRM Expert Job 2.** Ask The setup questions and file them. Hand the filed answers to `experts/CRM Expert/` Job 2. Confirmed by that verdict. Not as proposed: stop. Do not start step 2.
-2. **The workspace's route.** Before the workspace is created, so Twenty's redirect lands. Hand `skills/Deploy Twenty/` Job 2 the hostname `<subdomain>.<base>` and the alias label `<subdomain>`, with the word `add`. Confirmed by Job 2's own outcome, the route posted. Skipped on an adoption, whose route Deploy Twenty's first contact already added. On an adoption the adoption read confirms it, and the step is filed `complete` with `note: adopted`.
-3. **The workspace.** Is this an adoption? No: the install's server admin, signed in, creates it with the display name and the subdomain. Yes: skip creation. After the public read for `https://<subdomain>.<base>` answers the display name, run Twenty's sample data section in the server admin's own profile. Confirmed by the public read and that section's last `list`. On an adoption file `complete` with `note: adopted` only after that last `list` confirms it.
+2. **The workspace's route.** Before the workspace is created, so Twenty's redirect lands. Hand `skills/Deploy Twenty/` Job 2 the hostname `<subdomain>.<base>` and the alias label `<subdomain>`, with the word `add`. Confirmed by Job 2's own outcome, the route posted. Skipped on an adoption, whose route Deploy Twenty's first contact already added. On an adoption keep the confirming adoption read; file the step `complete` with `note: adopted` only when step 3 confirms the seed gone or files the person's word to keep it.
+3. **The workspace.** Is this an adoption? No: the install's server admin, signed in, creates it with the display name and the subdomain. Yes: skip creation. After the public read for `https://<subdomain>.<base>` answers the display name, run Twenty's sample data section in the server admin's own profile. Confirmed by the public read and that section's last `list`, or the person's filed word to keep the seed with the `list` counts. On an adoption also file `note: adopted` only after that confirmation.
 4. **Admin, members, roles, invite link.** First the bootstrap: in the server admin's own profile, the server admin invites the organisation's admin from Settings, Members. The organisation's admin accepts in their own profile, the server admin gives them the Admin role, and the organisation's admin's identity read (Browser Control) then shows their email in this workspace with the Admin role. That read is filed as `admin-signin: proved`. When question 4 filed that the server admin is the organisation's admin, the invitation and the role grant are skipped, and nothing else is: that person signs in through the `admin` profile, and the same identity read, showing their email in this workspace with the Admin role, is filed as `admin-signin: proved`. Then the organisation's admin invites the other members from Settings, Members. Invitations go out as team email, from the install's address. Roles are then assigned. The public invite link is turned off unless question 4's filed decision is to leave it on. Confirmed by Browser Control's read of the members screen and the settings screen: each filed email, each filed role, and the link's state. The connector is not used for members.
 5. **API key and connect.** The workspace admin makes the key in Settings, APIs, and enters it only on hosted connect's page through `skills/Connect Account/` in `wiser`. Confirmed by both modules' `workspace` read answering this workspace's id and subdomain. A mismatch on either module stops every connector call.
 6. **Fields, objects, stages.** `twenty.metadata.create_object`, `twenty.metadata.create_field` and `twenty.metadata.add_field_options`, each confirmed, confirmation `always`. A rename or a retirement is done in the settings screen, in CRM Expert's clearing shape: add the new option, move the records, then retire the old one. Confirmed by `twenty.metadata.list_objects`.
@@ -157,7 +167,7 @@ Adoption needs all of these.
 
 A route the read finds missing, or that is present and is not that generated object, is Deploy Twenty's to repair: its `routes-only` plan, gated again. It is not repaired here. Any other mismatch stops. A public read whose display name is not the name Deploy Twenty's report names stops. That workspace is not the first one the report named.
 
-File step 2 `complete` with `note: adopted` and the read that confirmed it. Continue through step 3 without creating a workspace. The server admin's membership is question 4.
+Keep the read for step 2. File steps 2 and 3 `complete` with `note: adopted` only after step 3's last `list` confirms removal or the person's word to keep the seed is filed. Continue through step 3 without creating a workspace. The server admin's membership is question 4.
 
 When the organisation's display name differs from the name Deploy Twenty was given, the organisation's admin changes it in settings, after step 4's admin exists. Until then, the identity read compares against `current-name`, which is Deploy Twenty's name. The public read confirms the new name, and only then is `current-name` filed as the new name. That change is not the adoption read. The adoption read still had to match Deploy Twenty's name.
 
@@ -165,68 +175,120 @@ When the organisation's display name differs from the name Deploy Twenty was giv
 
 Twenty v2.45.6 seeds every workspace when it is activated. There is no setting to turn it off (`workspace.service.ts`, `prefillCreatedWorkspaceRecords`, at `6007ad5a`). It writes five companies, five people, six opportunities and one dashboard, `My First Dashboard`, each with `createdBy.source` `SYSTEM`. It writes two active workflows, `Quick Lead` and `Create company when adding a new person`, in the workspace and in core, each with an active version. The second has an automated database-event trigger on `person.upserted`. It creates a company for each person added with an email, an import included. The seed also writes Quick Lead's command-menu item and three logic functions the second workflow calls: `Extract domain from email`, `Find matching company by domain` and `Is this a personal email?`.
 
-Remove the seed before anyone else joins and before any import. In the server admin's own Browser Control profile, open a page of this workspace at the address it answers on: `https://<subdomain>.<base>` at step 3, or `https://<address>` once its custom domain is enabled. Load `tools/Browser Control/TOOL.md` in `wiser`, its `execute` command. Pass the program below as `--code`, with its first code line's `<mode>` set to `list` or `remove`. It runs on the page's own signed-in session, reads no token, and prints counts and the logic functions' names and ids.
+Settle the seed before anyone else joins and before any import. In the server admin's own Browser Control profile, open a page of this workspace at the address it answers on: `https://<subdomain>.<base>` at step 3, or `https://<address>` once its custom domain is enabled. Load `tools/Browser Control/TOOL.md` in `wiser`, its `execute` command. Write the block below to a file on the person's machine, outside every repository. Set the lines `const MODE =` and `const EXPECT =`: the mode is `list` or `remove`, and the expected workspace id is the `id` from the public read. Pass that file's contents as `--code "$(cat <file>)"` to Browser Control's `execute`, with that session's `--port`. The tool has no file option by design. A command substitution's output is not expanded again by the shell, so the program's `$` and backticks arrive intact. The program is one async expression whose resolved value is its JSON string. `frame.evaluate(code)` awaits it, and a REPL returns it. Browser Control's JSON `result` is that output; parse it as `out`. It uses same-origin requests on the page's signed-in session and reads no token. Its live proof so far was in a person's own Chrome. The first Browser Control run of this program is the next organisation's setup.
 
-First run `list`. What kind of setup is this? Fresh: continue to `remove`. Adoption: show the `list` output to the person. A sample record they changed is still `SYSTEM`-created and would go. Do they say to remove it? Yes: continue to `remove`. No or unanswered: stop step 3 before `remove`.
+First run `list`. It reads each object's live and trashed `SYSTEM` seed separately, ids only, with `first: 50` and `pageInfo.hasNextPage`. Another seed page refuses as `seed-unexpected`. `seeded` counts live plus trashed seed; `trashed` counts the latter; `other` is the object's live total less its live seed. `inUse` reports note targets, task targets and attachments linked to seeded records; non-`SYSTEM` people linked to a seeded company; non-`SYSTEM` opportunities linked to a seeded company or person; and runs of a seeded workflow. `remove` refuses the whole run before any write when any seed count exceeds its object's stated count or any `inUse` count is above 0.
 
-Run `remove`, then `list` again. That last `list` is the read the step files. The program deletes workflows first, then destroys them, through Twenty's own hooks. Those hooks deactivate the versions, soft-delete the automated trigger, runs and versions, remove the core versions and clean up the active versions' command-menu items. Destroy removes them for good, and with them the three logic functions the workflow's code steps call. The other seeded records follow. Then the program checks for those logic functions by the ids Twenty derives from this workspace's id and removes any that remain. Never remove these rows in the database, which would bypass those hooks. Twenty records its own timeline events for the removal. They are not sample data, and they stay.
+What did this run return? An `out.error` with `out.wrote` false: step 3 keeps the state it had, report the message, and try nothing else in this run. `seed-in-use` takes the links question below before any later `remove`. `seed-unexpected` or `workspace-mismatch`: stop and report; never rerun past it. An `out.error` with `out.wrote` true: file step 3 `partial`, report what each object reached, and try nothing else; a rerun starts from `list`. No error: take the links question or judge the last `list`. A page that is not signed in fails the first read with no write. An execution that returned no program output: stop, report that the output was not read, and start a later rerun from `list`.
 
-Did the program return an error? Yes: file step 3 `partial`, put the message in the report, and try nothing else. The message is a path and Twenty's message, or a path and an HTTP status. A page that is not signed in answers the program's first read that way. No: continue to the next run or judge the last `list`. A rerun after a partial removal starts again from `list`. The program acts only on what it finds, so the rerun finishes what remains.
+Does `list` show any `inUse` count above 0, or did the program refuse with `seed-in-use`? Yes: stop step 3 before `remove`, report the `inUse` counts, and ask which the person wants. Links moved or removed by hand first: wait for their word, then a rerun starts from `list`. Seed kept: file step 3 `complete` with `note: seed kept`, their word and the `list` counts. Unanswered: stop before `remove`. No: take the setup question or judge the last `list`.
 
-Does the last `list` show `seeded: 0` for workflows, opportunities, people, companies and dashboards, and an empty `logicFunctions.seeded`? Yes: the sample data is gone. No: file step 3 `partial`, report what remains and stop before step 4. Records with `other` above 0 are not the seed's and are never touched.
+What kind of setup is this? Fresh: continue to `remove`. Adoption: show the `list` output and ask whether to remove or keep the seed. Say plainly that `remove` destroys those records for good, with no trash to restore from, and that a sample record someone edited goes with them. Remove: run `remove`, then continue as fresh. Keep: file step 3 `complete` with `note: seed kept`, the person's word and the `list` counts; the report says the workspace still holds Twenty's sample data. Unanswered: stop step 3 before `remove`. A rerun of a partial removal starts from `list` and takes these same questions before `remove`.
+
+Run `remove`, then `list` again, judging each run's error before continuing. That last `list` is the read the step files. The program deletes live workflows first, then destroys live and trashed workflows, through Twenty's own hooks. Those hooks deactivate the versions, soft-delete the automated trigger, runs and versions, remove the core versions and clean up the active versions' command-menu items. Destroy removes them for good, and with them the three logic functions the workflow's code steps call. The other seeded records follow, delete then destroy; already trashed rows go straight to destroy. Then the program checks for those logic functions by the ids Twenty derives from this workspace's id and removes any that remain. Never remove these rows in the database, which would bypass those hooks. Twenty records its own timeline events for the removal. They are not sample data, and they stay.
+
+Does the last `list` show `seeded: 0` and `trashed: 0` for every object and an empty `logicFunctions.seeded`, or is the person's word to keep the seed filed with the `list` counts? Yes: step 3 is `complete`; continue to step 4. No: file step 3 `partial`, report what remains and stop before step 4. Records counted as `other` are never touched.
 
 ```js
-// Run in a page of the workspace, signed in as its admin. MODE 'list' reads only; 'remove' deletes then destroys.
-// Touches only records whose createdBy.source is SYSTEM, and the three logic functions whose ids Twenty v2.45.6's
-// seed derives from this workspace's id. Uses the page's own signed-in session and reads no token.
-// Prints counts, ids of logic functions and messages.
-const MODE = '<mode>';
-const call = async (path, query, variables = {}) => {
-  const r = await fetch(location.origin + path, { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ query, variables }) });
-  const b = await r.json().catch(() => ({}));
-  if (b.errors?.length) throw new Error(path + ': ' + b.errors.map(e => e.message).join('; '));
-  if (!r.ok || !b.data) throw new Error(path + ': HTTP ' + r.status);
-  return b.data;
-};
-const gql = (q, v) => call('/graphql', q, v);
-const meta = (q, v) => call('/metadata', q, v);
-const uuidv5 = async (name, ns) => {
-  const nsb = ns.replace(/-/g, '').match(/../g).map(h => parseInt(h, 16));
-  const buf = new Uint8Array([...nsb, ...new TextEncoder().encode(name)]);
-  const h = new Uint8Array(await crypto.subtle.digest('SHA-1', buf)).slice(0, 16);
-  h[6] = (h[6] & 0x0f) | 0x50; h[8] = (h[8] & 0x3f) | 0x80;
-  const x = [...h].map(b => b.toString(16).padStart(2, '0')).join('');
-  return `${x.slice(0, 8)}-${x.slice(8, 12)}-${x.slice(12, 16)}-${x.slice(16, 20)}-${x.slice(20)}`;
-};
-const out = { mode: MODE };
-const ws = (await meta('query { currentWorkspace { id displayName } }')).currentWorkspace;
-out.workspace = ws.displayName;
-const objs = [['workflows', 'Workflow'], ['opportunities', 'Opportunity'], ['people', 'Person'], ['companies', 'Company'], ['dashboards', 'Dashboard']];
-for (const [plural, type] of objs) {
-  const d = await gql(`query { ${plural}(first: 200) { totalCount edges { node { id createdBy { source } } } } }`);
-  const nodes = d[plural].edges.map(e => e.node);
-  const seeded = nodes.filter(n => n.createdBy?.source === 'SYSTEM').map(n => n.id);
-  const row = { total: d[plural].totalCount, seeded: seeded.length, other: nodes.length - seeded.length };
-  if (MODE === 'remove' && seeded.length) {
-    const cap = plural.charAt(0).toUpperCase() + plural.slice(1);
-    row.deleted = (await gql(`mutation($f: ${type}FilterInput!) { delete${cap}(filter: $f) { id } }`, { f: { id: { in: seeded } } }))['delete' + cap].length;
-    row.destroyed = (await gql(`mutation($f: ${type}FilterInput!) { destroy${cap}(filter: $f) { id } }`, { f: { id: { in: seeded } } }))['destroy' + cap].length;
-    row.after = (await gql(`query { ${plural} { totalCount } }`))[plural].totalCount;
+(async () => {
+  // Uses the page's own session. Reads no token. Returns counts, progress and errors.
+  const MODE = '<mode>';
+  const EXPECT = '<workspace id>';
+  const out = { mode: MODE, wrote: false };
+  let path = 'input';
+  const call = async (endpoint, query, variables = {}) => {
+    path = endpoint;
+    const r = await fetch(location.origin + endpoint, { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ query, variables }) });
+    const b = await r.json().catch(() => ({}));
+    if (b.errors?.length) throw new Error(b.errors.map(e => e.message).join('; '));
+    if (!r.ok || !b.data) throw new Error('HTTP ' + r.status);
+    return b.data;
+  };
+  const gql = (q, v) => call('/graphql', q, v);
+  const meta = (q, v) => call('/metadata', q, v);
+  const uuidv5 = async (name, ns) => {
+    const nsb = ns.replace(/-/g, '').match(/../g).map(h => parseInt(h, 16));
+    const buf = new Uint8Array([...nsb, ...new TextEncoder().encode(name)]);
+    const h = new Uint8Array(await crypto.subtle.digest('SHA-1', buf)).slice(0, 16);
+    h[6] = (h[6] & 0x0f) | 0x50; h[8] = (h[8] & 0x3f) | 0x80;
+    const x = [...h].map(b => b.toString(16).padStart(2, '0')).join('');
+    return `${x.slice(0, 8)}-${x.slice(8, 12)}-${x.slice(12, 16)}-${x.slice(16, 20)}-${x.slice(20)}`;
+  };
+  try {
+    if (!['list', 'remove'].includes(MODE)) throw new Error('mode-refused');
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(EXPECT)) throw new Error('expect-refused');
+    const ws = (await meta('query { currentWorkspace { id displayName } }')).currentWorkspace;
+    out.workspace = ws.displayName;
+    out.workspaceId = ws.id;
+    if (ws.id !== EXPECT) throw new Error('workspace-mismatch: expected ' + EXPECT + ', read ' + ws.id);
+    const objs = [['workflows', 'Workflow', 2], ['opportunities', 'Opportunity', 6], ['people', 'Person', 5], ['companies', 'Company', 5], ['dashboards', 'Dashboard', 1]];
+    const seed = {};
+    const system = { createdBy: { source: { eq: 'SYSTEM' } } };
+    for (const [plural, type] of objs) {
+      const query = `query($f: ${type}FilterInput!) { ${plural}(first: 50, filter: $f) { totalCount edges { node { id } } pageInfo { hasNextPage } } }`;
+      const live = (await gql(query, { f: system }))[plural];
+      const trash = (await gql(query, { f: { and: [system, { deletedAt: { is: 'NOT_NULL' } }] } }))[plural];
+      const total = (await gql(`query { ${plural}(first: 50) { totalCount } }`))[plural].totalCount;
+      seed[plural] = { live: live.edges.map(e => e.node.id), all: [...live.edges, ...trash.edges].map(e => e.node.id) };
+      out[plural] = { total, seeded: live.totalCount + trash.totalCount, trashed: trash.totalCount, other: total - live.totalCount };
+      if (live.pageInfo.hasNextPage || trash.pageInfo.hasNextPage) throw new Error(`seed-unexpected: ${plural} has another seed page`);
+    }
+    const links = fields => fields.flatMap(([field, plural]) => seed[plural].all.length ? [{ [field]: { in: seed[plural].all } }] : []);
+    const targets = [['targetCompanyId', 'companies'], ['targetPersonId', 'people'], ['targetOpportunityId', 'opportunities']];
+    const count = async (plural, type, filters, nonSystem = false) => {
+      if (!filters.length) return 0;
+      const linked = { or: filters };
+      const f = nonSystem ? { and: [linked, { not: system }] } : linked;
+      return (await gql(`query($f: ${type}FilterInput!) { ${plural}(first: 50, filter: $f) { totalCount } }`, { f }))[plural].totalCount;
+    };
+    out.inUse = {};
+    out.inUse.noteTargets = await count('noteTargets', 'NoteTarget', links(targets));
+    out.inUse.taskTargets = await count('taskTargets', 'TaskTarget', links(targets));
+    out.inUse.attachments = await count('attachments', 'Attachment', links([...targets, ['targetDashboardId', 'dashboards'], ['targetWorkflowId', 'workflows']]));
+    out.inUse.people = await count('people', 'Person', links([['companyId', 'companies']]), true);
+    out.inUse.opportunities = await count('opportunities', 'Opportunity', links([['companyId', 'companies'], ['pointOfContactId', 'people']]), true);
+    out.inUse.workflowRuns = await count('workflowRuns', 'WorkflowRun', links([['workflowId', 'workflows']]));
+    if (MODE === 'remove') {
+      for (const [plural, , bound] of objs) {
+        if (out[plural].seeded > bound) throw new Error(`seed-unexpected: ${plural} seeded ${out[plural].seeded}, bound ${bound}`);
+      }
+      if (Object.values(out.inUse).some(n => n > 0)) throw new Error('seed-in-use');
+      for (const [plural, type] of objs) {
+        const row = out[plural];
+        const cap = plural.charAt(0).toUpperCase() + plural.slice(1);
+        const { live, all } = seed[plural];
+        if (all.length) {
+          if (live.length) {
+            out.wrote = true;
+            row.deleted = (await gql(`mutation($f: ${type}FilterInput!) { delete${cap}(filter: $f) { id } }`, { f: { id: { in: live } } }))['delete' + cap].length;
+          } else row.deleted = 0;
+          out.wrote = true;
+          row.destroyed = (await gql(`mutation($f: ${type}FilterInput!) { destroy${cap}(filter: $f) { id } }`, { f: { id: { in: all } } }))['destroy' + cap].length;
+          row.after = (await gql(`query { ${plural}(first: 50) { totalCount } }`))[plural].totalCount;
+        }
+      }
+    }
+    path = '/metadata';
+    const NS = 'd41b0a2d-aa97-44dc-ad5d-89774164af27';
+    const lfIds = [];
+    for (const k of ['extract-domain', 'find-matching-company-by-domain', 'is-personal-email']) lfIds.push(await uuidv5(`${ws.id}:create-company-when-adding-new-person:${k}`, NS));
+    const lfs = (await meta('query { findManyLogicFunctions { id name } }')).findManyLogicFunctions;
+    const seededLf = lfs.filter(f => lfIds.includes(f.id));
+    out.logicFunctions = { total: lfs.length, seeded: seededLf.map(f => f.name), seededIds: lfIds };
+    if (MODE === 'remove') {
+      out.logicFunctions.deleted = [];
+      for (const f of seededLf) {
+        out.wrote = true;
+        await meta('mutation($i: LogicFunctionIdInput!) { deleteOneLogicFunction(input: $i) { id } }', { i: { id: f.id } });
+        out.logicFunctions.deleted.push(f.name);
+      }
+      out.logicFunctions.after = (await meta('query { findManyLogicFunctions { id } }')).findManyLogicFunctions.filter(f => lfIds.includes(f.id)).length;
+    }
+  } catch (error) {
+    out.error = path + ': ' + error.message;
   }
-  out[plural] = row;
-}
-const NS = 'd41b0a2d-aa97-44dc-ad5d-89774164af27';
-const lfIds = [];
-for (const k of ['extract-domain', 'find-matching-company-by-domain', 'is-personal-email']) lfIds.push(await uuidv5(`${ws.id}:create-company-when-adding-new-person:${k}`, NS));
-const lfs = (await meta('query { findManyLogicFunctions { id name } }')).findManyLogicFunctions;
-const seededLf = lfs.filter(f => lfIds.includes(f.id));
-out.logicFunctions = { total: lfs.length, seeded: seededLf.map(f => f.name), seededIds: lfIds };
-if (MODE === 'remove') {
-  out.logicFunctions.deleted = [];
-  for (const f of seededLf) { await meta('mutation($i: LogicFunctionIdInput!) { deleteOneLogicFunction(input: $i) { id } }', { i: { id: f.id } }); out.logicFunctions.deleted.push(f.name); }
-  out.logicFunctions.after = (await meta('query { findManyLogicFunctions { id } }')).findManyLogicFunctions.filter(f => lfIds.includes(f.id)).length;
-}
-JSON.stringify(out);
+  return JSON.stringify(out);
+})()
 ```
 
 ### The custom domain
@@ -271,7 +333,7 @@ Each step's outcome is filed in the answers file as one of four states.
 - `partial`: begun and confirmed incomplete.
 - `unknown`: an outcome that was not read.
 
-The line is `step <n>: <state>`, then `read: <one line>` when a read confirmed it, and `note: adopted` on steps 2 and 3 when those steps were adopted. No other note is written.
+The line is `step <n>: <state>`, then `read: <one line>` when a read confirmed it, and `note: adopted` on steps 2 and 3 when those steps were adopted. Step 3 also takes `note: seed kept` with the person's word and the `list` counts when they chose to keep it. No other note is written.
 
 A rerun reads these lines first. It continues an `absent` step and re-reads an `unknown` one. It acts on a `partial` one only in the cases below.
 
@@ -283,7 +345,7 @@ A rerun reads these lines first. It continues an `absent` step and re-reads an `
 - The shared inbox, step 8: re-read the channel, the forwarding address and the domain's verification on the settings screens. Do not create the channel again when the read shows it. Ask the person whether the forward is in place, and make whichever proof is missing. File `complete` only when all four of step 8's conditions hold.
 - The custom domain, step 7: re-read the settings status. Do not save the address again when the status shows it. Continue from the first of that section's items whose read is not confirmed.
 
-A run that stops files the step it stopped on as `partial` when the read showed it incomplete, and as `unknown` when the outcome was not read. It does not file `complete` for a step whose read did not confirm it.
+A sample-data refusal before any write keeps step 3's state as its section says. Any other run that stops files the step it stopped on as `partial` when the read showed it incomplete, and as `unknown` when the outcome was not read. It does not file `complete` for a step whose read did not confirm it.
 
 ### The connector
 
@@ -317,7 +379,7 @@ The body is not a confirming read when it is not JSON, when JSON has neither `da
 
 ## What does the report say?
 
-One report. What was set up. The sample-data removal and the last `list`'s counts. Each step's filed state. Each profile the run used, by its path, and that removing a profile signs that actor out on this machine. Each person's remaining steps, and no step filed `complete` listed as remaining.
+One report. What was set up. The sample-data removal and the last `list`'s counts, or the person's filed word to keep the seed and that `list`'s counts. Name `inUse` and `trashed` wherever they were above 0. A kept seed is reported plainly: the workspace still holds Twenty's sample data. Each step's filed state. Each profile the run used, by its path, and that removing a profile signs that actor out on this machine. Each person's remaining steps, and no step filed `complete` listed as remaining.
 
 The remaining steps, when they were not done in the run:
 
@@ -340,7 +402,7 @@ A hand-off names its path. A route names Deploy Twenty Job 2 and DevOps Expert's
 - **A custom-domain save without the operator's approval by name.** Do not save. The organisation's admin pressing the button is not that approval. The save spends the operator's Cloudflare grant.
 - **The public read answered something other than GraphQL.** Stop. Report it. Do not try another path, and do not treat an HTML page or a proxy error as a workspace that is absent.
 - **Counts read from a page.** A page's text is not a count. Twenty's not-found page draws a decorative table of made-up companies. Counts come from the program or the connector.
-- **An import while the seed remains.** Stop. The seeded workflow creates a company for each person imported. Run Twenty's sample data section first.
+- **An import before the seed is settled.** Does a filed last `list` show it gone, or a filed word keep it? No: stop and run Twenty's sample data section first. Yes: continue through Job 3. A kept seed includes the workflow that creates a company for each person imported.
 - **A click filed as a completed step.** No click is evidence. The step stays at the state its read supports.
 - **The wrong actor or the wrong workspace in a profile.** The settings screen's email is not the actor's, the page's host is not this workspace's hostname, or the workspace's name is not the filed `current-name`. Stop that actor's steps. The person signs out and signs in as the actor, and the read is repeated.
 - **Steps 2 and 3 run on the install's first workspace.** That creates a second workspace and asks Job 2 for a route it will refuse as existing. Adopt when the reads agree. Otherwise stop as a conflict.
@@ -359,8 +421,8 @@ A hand-off names its path. A route names Deploy Twenty Job 2 and DevOps Expert's
 - Patterns were refused by name before any call. No key, password, or mailbox credential was a connector input, a printed line, or a report line.
 - The answers were filed at `<root>/programs/<program>/twenty-workspace.md` and nowhere in this plugin.
 - CRM Expert Job 2's verdict was in hand before anything was configured. Not as proposed stopped that part. Job 3's verdict was in hand before an import was submitted. Not as proposed stopped the import.
-- A fresh workspace's route was handed to Deploy Twenty Job 2, under DevOps Expert's gate, before the workspace was created. An adoption did not add that route and did not create a second workspace. Steps 2 and 3 were filed `complete` with `note: adopted` only after the state, the route and the public read agreed.
-- The seed was gone, by the last `list`, before step 4.
+- A fresh workspace's route was handed to Deploy Twenty Job 2, under DevOps Expert's gate, before the workspace was created. An adoption did not add that route and did not create a second workspace. Steps 2 and 3 were filed `complete` with `note: adopted` only after the state, the route, the public read and step 3's last `list` (or the filed keep) agreed.
+- The seed was gone by the last `list`, or kept on the person's filed word, before step 4.
 - The server admin's signed-in steps were the workspace's creation, its sample-data removal and the organisation admin's bootstrap, and nothing later. Later signed-in steps were the organisation's admin's, after `admin-signin: proved`, each in that actor's profile. Before every change in the browser, the window showed that actor's email, this workspace's hostname and its filed `current-name`, except at step 3's creation, where the email alone was read. Each member's mailbox was entered in that member's own profile.
 - No step was filed `complete` from a click. Each completed step names its read.
 - Both `workspace` reads were taken before any connector write and before any count, and a mismatch stopped every connector call. `twenty.records.count` returned a number. No contact row was copied.

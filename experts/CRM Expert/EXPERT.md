@@ -3,7 +3,7 @@ name: CRM Expert
 type: expert
 category: crm
 description: Judge an organisation's CRM design and a contact import for whether the pipeline, objects, fields, roles and sign-in serve the decisions it makes and the people who maintain them, and whether the import stays clean, sourced and the organisation's own, and hand a machine, address, list or account question to the expert or skill that owns it
-version: 0.1.5
+version: 0.1.6
 gaps:
   - exporting an organisation's workspace or taking it off the install
   - setting up or changing a CRM platform other than Twenty
@@ -114,6 +114,7 @@ Is the organisation named in `<change_request>` or `<organisation_context>`? No:
 
 Which of these is a yes? Any yes is not as proposed. State the clearing shape beside it. Several yeses: name each. No yes: ask the trace question below.
 
+- The platform is Twenty, and the workspace still holds Twenty's sample data or its seeded workflows. Clearing shape: `skills/Set Up Twenty Workspace/` removes the sample data, its last read showing none, before the load.
 - No source the organisation can name. Clearing shape: the organisation names where the rows came from.
 - Duplicates unresolved inside the file, or unresolved against what the workspace already holds. Clearing shape: both resolved before the load, matched on email first.
 - A column with no target and no decision to leave it out, or a required field with no column. Clearing shape: every column either mapped to a field or named as left out, and every required field mapped from a column.

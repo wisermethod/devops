@@ -3,7 +3,7 @@ name: Set Up Twenty Workspace
 type: skill
 category: crm
 description: Set up one organisation's workspace on a Twenty install Deploy Twenty made, its address, admin, members and roles, pipeline, fields and objects, each member's mailbox, a shared inbox and branded email from the organisation's own domain, and a first import judged by CRM Expert, adopting the install's first workspace when it is the organisation's, and report what was set up and what each person still does.
-version: 0.1.1
+version: 0.1.2
 gaps:
   - connecting Google or Microsoft mailboxes, which needs an OAuth client and the provider's approval
   - taking an organisation off the install
@@ -96,8 +96,8 @@ Take the steps in order. A rerun applies Each step's state before the step's mec
 
 1. **Questions, then CRM Expert Job 2.** Ask The setup questions and file them. Hand the filed answers to `experts/CRM Expert/` Job 2. Confirmed by that verdict. Not as proposed: stop. Do not start step 2.
 2. **The workspace's route.** Before the workspace is created, so Twenty's redirect lands. Hand `skills/Deploy Twenty/` Job 2 the hostname `<subdomain>.<base>` and the alias label `<subdomain>`, with the word `add`. Confirmed by Job 2's own outcome, the route posted. Skipped on an adoption, whose route Deploy Twenty's first contact already added. On an adoption the adoption read confirms it, and the step is filed `complete` with `note: adopted`.
-3. **The workspace.** The install's server admin, signed in, creates it with the display name and the subdomain. Creating a workspace needs the server admin. Confirmed by the public read for `https://<subdomain>.<base>` answering that display name. Skipped on an adoption, filed `complete` with `note: adopted` and the read that confirmed it.
-4. **Admin, members, roles, invite link.** First the bootstrap, the server admin's only step after creation: in the server admin's own profile, the server admin invites the organisation's admin from Settings, Members. The organisation's admin accepts in their own profile, the server admin gives them the Admin role, and the organisation's admin's identity read (Browser Control) then shows their email in this workspace with the Admin role. That read is filed as `admin-signin: proved`. When question 4 filed that the server admin is the organisation's admin, the invitation and the role grant are skipped, and nothing else is: that person signs in through the `admin` profile, and the same identity read, showing their email in this workspace with the Admin role, is filed as `admin-signin: proved`. Then the organisation's admin invites the other members from Settings, Members. Invitations go out as team email, from the install's address. Roles are then assigned. The public invite link is turned off unless question 4's filed decision is to leave it on. Confirmed by Browser Control's read of the members screen and the settings screen: each filed email, each filed role, and the link's state. The connector is not used for members.
+3. **The workspace.** Is this an adoption? No: the install's server admin, signed in, creates it with the display name and the subdomain. Yes: skip creation. After the public read for `https://<subdomain>.<base>` answers the display name, run Twenty's sample data section in the server admin's own profile. Confirmed by the public read and that section's last `list`. On an adoption file `complete` with `note: adopted` only after that last `list` confirms it.
+4. **Admin, members, roles, invite link.** First the bootstrap: in the server admin's own profile, the server admin invites the organisation's admin from Settings, Members. The organisation's admin accepts in their own profile, the server admin gives them the Admin role, and the organisation's admin's identity read (Browser Control) then shows their email in this workspace with the Admin role. That read is filed as `admin-signin: proved`. When question 4 filed that the server admin is the organisation's admin, the invitation and the role grant are skipped, and nothing else is: that person signs in through the `admin` profile, and the same identity read, showing their email in this workspace with the Admin role, is filed as `admin-signin: proved`. Then the organisation's admin invites the other members from Settings, Members. Invitations go out as team email, from the install's address. Roles are then assigned. The public invite link is turned off unless question 4's filed decision is to leave it on. Confirmed by Browser Control's read of the members screen and the settings screen: each filed email, each filed role, and the link's state. The connector is not used for members.
 5. **API key and connect.** The workspace admin makes the key in Settings, APIs, and enters it only on hosted connect's page through `skills/Connect Account/` in `wiser`. Confirmed by both modules' `workspace` read answering this workspace's id and subdomain. A mismatch on either module stops every connector call.
 6. **Fields, objects, stages.** `twenty.metadata.create_object`, `twenty.metadata.create_field` and `twenty.metadata.add_field_options`, each confirmed, confirmation `always`. A rename or a retirement is done in the settings screen, in CRM Expert's clearing shape: add the new option, move the records, then retire the old one. Confirmed by `twenty.metadata.list_objects`.
 7. **Custom domain.** The custom domain section. Confirmed by the four reads that section names, the public read among them.
@@ -107,7 +107,7 @@ Take the steps in order. A rerun applies Each step's state before the step's mec
 
 ### The server admin and the organisation admin
 
-The install's server admin does two things: creates the workspace, and bootstraps the organisation's admin in step 4 (the invitation and the Admin role). Every later signed-in step is done by the organisation's admin, in that admin's own profile, and only after `admin-signin: proved` is filed, with one exception. In step 9 each member enters their own mailbox in their own `member-` profile, after the identity read shows that member's email in this workspace. A run on a scratch install is what proves a non-server-admin admin can do those later steps. Until that run has, the report says the proof is still open. A later step that the admin's sign-in cannot open stops that step. Do not hand it back to the server admin.
+The install's server admin does three things: creates the workspace, removes its sample data, and bootstraps the organisation's admin in step 4 (the invitation and the Admin role). Every later signed-in step is done by the organisation's admin, in that admin's own profile, and only after `admin-signin: proved` is filed, with one exception. In step 9 each member enters their own mailbox in their own `member-` profile, after the identity read shows that member's email in this workspace. A run on a scratch install is what proves a non-server-admin admin can do those later steps. Until that run has, the report says the proof is still open. A later step that the admin's sign-in cannot open stops that step. Do not hand it back to the server admin.
 
 Saving a custom domain spends the install operator's Cloudflare grant. Twenty creates the custom hostname with the install's own token. The save waits for the operator's approval by name. That holds even when the organisation's admin is the one who presses the button.
 
@@ -157,9 +157,77 @@ Adoption needs all of these.
 
 A route the read finds missing, or that is present and is not that generated object, is Deploy Twenty's to repair: its `routes-only` plan, gated again. It is not repaired here. Any other mismatch stops. A public read whose display name is not the name Deploy Twenty's report names stops. That workspace is not the first one the report named.
 
-File steps 2 and 3 `complete`, each with `note: adopted` and the read that confirmed it. Continue from step 4 with the organisation's admin. The server admin's membership is question 4.
+File step 2 `complete` with `note: adopted` and the read that confirmed it. Continue through step 3 without creating a workspace. The server admin's membership is question 4.
 
 When the organisation's display name differs from the name Deploy Twenty was given, the organisation's admin changes it in settings, after step 4's admin exists. Until then, the identity read compares against `current-name`, which is Deploy Twenty's name. The public read confirms the new name, and only then is `current-name` filed as the new name. That change is not the adoption read. The adoption read still had to match Deploy Twenty's name.
+
+### Twenty's sample data
+
+Twenty v2.45.6 seeds every workspace when it is activated. There is no setting to turn it off (`workspace.service.ts`, `prefillCreatedWorkspaceRecords`, at `6007ad5a`). It writes five companies, five people, six opportunities and one dashboard, `My First Dashboard`, each with `createdBy.source` `SYSTEM`. It writes two active workflows, `Quick Lead` and `Create company when adding a new person`, in the workspace and in core, each with an active version. The second has an automated database-event trigger on `person.upserted`. It creates a company for each person added with an email, an import included. The seed also writes Quick Lead's command-menu item and three logic functions the second workflow calls: `Extract domain from email`, `Find matching company by domain` and `Is this a personal email?`.
+
+Remove the seed before anyone else joins and before any import. In the server admin's own Browser Control profile, open a page of this workspace at the address it answers on: `https://<subdomain>.<base>` at step 3, or `https://<address>` once its custom domain is enabled. Load `tools/Browser Control/TOOL.md` in `wiser`, its `execute` command. Pass the program below as `--code`, with its first code line's `<mode>` set to `list` or `remove`. It runs on the page's own signed-in session, reads no token, and prints counts and the logic functions' names and ids.
+
+First run `list`. What kind of setup is this? Fresh: continue to `remove`. Adoption: show the `list` output to the person. A sample record they changed is still `SYSTEM`-created and would go. Do they say to remove it? Yes: continue to `remove`. No or unanswered: stop step 3 before `remove`.
+
+Run `remove`, then `list` again. That last `list` is the read the step files. The program deletes workflows first, then destroys them, through Twenty's own hooks. Those hooks deactivate the versions, soft-delete the automated trigger, runs and versions, remove the core versions and clean up the active versions' command-menu items. Destroy removes them for good, and with them the three logic functions the workflow's code steps call. The other seeded records follow. Then the program checks for those logic functions by the ids Twenty derives from this workspace's id and removes any that remain. Never remove these rows in the database, which would bypass those hooks. Twenty records its own timeline events for the removal. They are not sample data, and they stay.
+
+Did the program return an error? Yes: file step 3 `partial`, put the message in the report, and try nothing else. The message is a path and Twenty's message, or a path and an HTTP status. A page that is not signed in answers the program's first read that way. No: continue to the next run or judge the last `list`. A rerun after a partial removal starts again from `list`. The program acts only on what it finds, so the rerun finishes what remains.
+
+Does the last `list` show `seeded: 0` for workflows, opportunities, people, companies and dashboards, and an empty `logicFunctions.seeded`? Yes: the sample data is gone. No: file step 3 `partial`, report what remains and stop before step 4. Records with `other` above 0 are not the seed's and are never touched.
+
+```js
+// Run in a page of the workspace, signed in as its admin. MODE 'list' reads only; 'remove' deletes then destroys.
+// Touches only records whose createdBy.source is SYSTEM, and the three logic functions whose ids Twenty v2.45.6's
+// seed derives from this workspace's id. Uses the page's own signed-in session and reads no token.
+// Prints counts, ids of logic functions and messages.
+const MODE = '<mode>';
+const call = async (path, query, variables = {}) => {
+  const r = await fetch(location.origin + path, { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ query, variables }) });
+  const b = await r.json().catch(() => ({}));
+  if (b.errors?.length) throw new Error(path + ': ' + b.errors.map(e => e.message).join('; '));
+  if (!r.ok || !b.data) throw new Error(path + ': HTTP ' + r.status);
+  return b.data;
+};
+const gql = (q, v) => call('/graphql', q, v);
+const meta = (q, v) => call('/metadata', q, v);
+const uuidv5 = async (name, ns) => {
+  const nsb = ns.replace(/-/g, '').match(/../g).map(h => parseInt(h, 16));
+  const buf = new Uint8Array([...nsb, ...new TextEncoder().encode(name)]);
+  const h = new Uint8Array(await crypto.subtle.digest('SHA-1', buf)).slice(0, 16);
+  h[6] = (h[6] & 0x0f) | 0x50; h[8] = (h[8] & 0x3f) | 0x80;
+  const x = [...h].map(b => b.toString(16).padStart(2, '0')).join('');
+  return `${x.slice(0, 8)}-${x.slice(8, 12)}-${x.slice(12, 16)}-${x.slice(16, 20)}-${x.slice(20)}`;
+};
+const out = { mode: MODE };
+const ws = (await meta('query { currentWorkspace { id displayName } }')).currentWorkspace;
+out.workspace = ws.displayName;
+const objs = [['workflows', 'Workflow'], ['opportunities', 'Opportunity'], ['people', 'Person'], ['companies', 'Company'], ['dashboards', 'Dashboard']];
+for (const [plural, type] of objs) {
+  const d = await gql(`query { ${plural}(first: 200) { totalCount edges { node { id createdBy { source } } } } }`);
+  const nodes = d[plural].edges.map(e => e.node);
+  const seeded = nodes.filter(n => n.createdBy?.source === 'SYSTEM').map(n => n.id);
+  const row = { total: d[plural].totalCount, seeded: seeded.length, other: nodes.length - seeded.length };
+  if (MODE === 'remove' && seeded.length) {
+    const cap = plural.charAt(0).toUpperCase() + plural.slice(1);
+    row.deleted = (await gql(`mutation($f: ${type}FilterInput!) { delete${cap}(filter: $f) { id } }`, { f: { id: { in: seeded } } }))['delete' + cap].length;
+    row.destroyed = (await gql(`mutation($f: ${type}FilterInput!) { destroy${cap}(filter: $f) { id } }`, { f: { id: { in: seeded } } }))['destroy' + cap].length;
+    row.after = (await gql(`query { ${plural} { totalCount } }`))[plural].totalCount;
+  }
+  out[plural] = row;
+}
+const NS = 'd41b0a2d-aa97-44dc-ad5d-89774164af27';
+const lfIds = [];
+for (const k of ['extract-domain', 'find-matching-company-by-domain', 'is-personal-email']) lfIds.push(await uuidv5(`${ws.id}:create-company-when-adding-new-person:${k}`, NS));
+const lfs = (await meta('query { findManyLogicFunctions { id name } }')).findManyLogicFunctions;
+const seededLf = lfs.filter(f => lfIds.includes(f.id));
+out.logicFunctions = { total: lfs.length, seeded: seededLf.map(f => f.name), seededIds: lfIds };
+if (MODE === 'remove') {
+  out.logicFunctions.deleted = [];
+  for (const f of seededLf) { await meta('mutation($i: LogicFunctionIdInput!) { deleteOneLogicFunction(input: $i) { id } }', { i: { id: f.id } }); out.logicFunctions.deleted.push(f.name); }
+  out.logicFunctions.after = (await meta('query { findManyLogicFunctions { id } }')).findManyLogicFunctions.filter(f => lfIds.includes(f.id)).length;
+}
+JSON.stringify(out);
+```
 
 ### The custom domain
 
@@ -170,6 +238,7 @@ When the organisation's display name differs from the name Deploy Twenty was giv
 5. The two records go through `experts/IT Expert/` Job 1 and `skills/Zone Publisher/` in `wiser`, each approved by name. A DNS-only CNAME from the address to the fallback origin, read from the deployment record the person names: the proxied record pointing at the machine that Deploy Twenty's Cloudflare for SaaS question had them confirm. It is never the `app.<base>` target Twenty's screen suggests. A record pointed there is served past Cloudflare's edge. The deployment record names no origin: stop. Do not publish the suggested target. And a DNS-only CNAME at `_acme-challenge.<address>` to the target item 4 read. IT Expert checks that neither record is the domain's MX.
 6. `skills/Deploy Twenty/` Job 2 adds the address's route, under DevOps Expert's gate, with the word `add` and the filed alias label from item 1.
 7. Done when all four of these hold. The zone's own nameservers answer both CNAMEs. The settings status shows the hostname and its certificate active. `https://<address>/` through Cloudflare's edge serves the workspace: one curl on the person's machine, sent as a browser sends it, no `--resolve` and no `-k`, `curl -sS -o /dev/null -w '%{http_code}\n' --max-time 20 -H 'Accept: text/html' https://<address>/`, exit 0 and the code `200`. Twenty serves its app only to `Accept: text/html` and answers a bare `GET /` with `404`, on every address of an install. Any other result is not done. Do not pass it with `-k`. A lookup of the address that returns the machine's own address is the edge bypassed: stop, and do not call the domain done. The public read for `https://<address>` answers the display name.
+8. Once item 7 holds, each actor signs in again at `https://<address>` in their own profile. Twenty sends the subdomain there, and a session on the base's names does not carry. Every later signed-in step uses the address.
 
 A route Job 2 left partial, the alias attached and the route not posted, stops the run. Name Deploy Twenty's own recovery, a new gated plan. Do not repair it here. Do not remove the alias in this run.
 
@@ -207,6 +276,7 @@ The line is `step <n>: <state>`, then `read: <one line>` when a read confirmed i
 A rerun reads these lines first. It continues an `absent` step and re-reads an `unknown` one. It acts on a `partial` one only in the cases below.
 
 - Workspace, invitations, roles, and data-model writes: re-read, and do what is missing. Twenty refuses a duplicate name, and the read shows it. A create whose read already shows the object is not sent again.
+- The sample-data removal in step 3: its section's rerun.
 - A route that Deploy Twenty Job 2 left partial, the alias attached and the route not posted: stop and name Deploy Twenty's own recovery, a new gated plan. Do not repair it here.
 - The import. Its state is filed `unknown` before the admin submits it, with its source, its row count, and each object's `twenty.records.count` from before. Each submission is numbered from 1. The lines are `import <k>: unknown`, `source: <name>`, `rows: <count>`, and `count <object>: <number>` for each object. If those lines cannot be filed, nothing is submitted. After submission, the counts are read again and the step is filed `complete` or `partial` from the import's own result and those counts. A missing outcome after submission is filed `unknown`, never `absent`. An `unknown` or `partial` import is never submitted again automatically. It stops for the admin, who reads the import's own result in Twenty and reconciles it with CRM Expert Job 3. Only that reconciliation, filed as `import-reconciliation <k>: filed` for the latest submission `<k>`, admits submission `<k+1>`. A reconciliation of an earlier submission admits nothing.
 - DNS records: `skills/Zone Publisher/`'s own re-read decides. This skill does not publish a record again on its own say-so.
@@ -247,7 +317,7 @@ The body is not a confirming read when it is not JSON, when JSON has neither `da
 
 ## What does the report say?
 
-One report. What was set up. Each step's filed state. Each profile the run used, by its path, and that removing a profile signs that actor out on this machine. Each person's remaining steps, and no step filed `complete` listed as remaining.
+One report. What was set up. The sample-data removal and the last `list`'s counts. Each step's filed state. Each profile the run used, by its path, and that removing a profile signs that actor out on this machine. Each person's remaining steps, and no step filed `complete` listed as remaining.
 
 The remaining steps, when they were not done in the run:
 
@@ -269,6 +339,8 @@ A hand-off names its path. A route names Deploy Twenty Job 2 and DevOps Expert's
 - **The suggested custom-domain target followed.** The CNAME goes to the fallback origin from the deployment record. It does not go to `app.<base>`. No named origin: stop. Do not publish the suggestion.
 - **A custom-domain save without the operator's approval by name.** Do not save. The organisation's admin pressing the button is not that approval. The save spends the operator's Cloudflare grant.
 - **The public read answered something other than GraphQL.** Stop. Report it. Do not try another path, and do not treat an HTML page or a proxy error as a workspace that is absent.
+- **Counts read from a page.** A page's text is not a count. Twenty's not-found page draws a decorative table of made-up companies. Counts come from the program or the connector.
+- **An import while the seed remains.** Stop. The seeded workflow creates a company for each person imported. Run Twenty's sample data section first.
 - **A click filed as a completed step.** No click is evidence. The step stays at the state its read supports.
 - **The wrong actor or the wrong workspace in a profile.** The settings screen's email is not the actor's, the page's host is not this workspace's hostname, or the workspace's name is not the filed `current-name`. Stop that actor's steps. The person signs out and signs in as the actor, and the read is repeated.
 - **Steps 2 and 3 run on the install's first workspace.** That creates a second workspace and asks Job 2 for a route it will refuse as existing. Adopt when the reads agree. Otherwise stop as a conflict.
@@ -288,7 +360,8 @@ A hand-off names its path. A route names Deploy Twenty Job 2 and DevOps Expert's
 - The answers were filed at `<root>/programs/<program>/twenty-workspace.md` and nowhere in this plugin.
 - CRM Expert Job 2's verdict was in hand before anything was configured. Not as proposed stopped that part. Job 3's verdict was in hand before an import was submitted. Not as proposed stopped the import.
 - A fresh workspace's route was handed to Deploy Twenty Job 2, under DevOps Expert's gate, before the workspace was created. An adoption did not add that route and did not create a second workspace. Steps 2 and 3 were filed `complete` with `note: adopted` only after the state, the route and the public read agreed.
-- The server admin's signed-in steps were the workspace's creation and the organisation admin's bootstrap, and nothing later. Later signed-in steps were the organisation's admin's, after `admin-signin: proved`, each in that actor's profile. Before every change in the browser, the window showed that actor's email, this workspace's hostname and its filed `current-name`, except at step 3's creation, where the email alone was read. Each member's mailbox was entered in that member's own profile.
+- The seed was gone, by the last `list`, before step 4.
+- The server admin's signed-in steps were the workspace's creation, its sample-data removal and the organisation admin's bootstrap, and nothing later. Later signed-in steps were the organisation's admin's, after `admin-signin: proved`, each in that actor's profile. Before every change in the browser, the window showed that actor's email, this workspace's hostname and its filed `current-name`, except at step 3's creation, where the email alone was read. Each member's mailbox was entered in that member's own profile.
 - No step was filed `complete` from a click. Each completed step names its read.
 - Both `workspace` reads were taken before any connector write and before any count, and a mismatch stopped every connector call. `twenty.records.count` returned a number. No contact row was copied.
 - A custom-domain save waited for the operator's approval by name, and the report names the Cloudflare grant that save spends. The address CNAME points at the fallback origin from the deployment record, not at `app.<base>`.

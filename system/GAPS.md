@@ -70,7 +70,7 @@ Counted 2026-10-12: 48 gaps across 10 primitives. Bullet count: `grep -E '^- ' s
 ### Back Up Twenty
 
 - authenticating a set's origin, and object lock
-- alerting on an overdue backup
+- alerting on an overdue backup, a failed backup, or a failed restart after one
 - Redis's queued and delayed work
 - incremental backups
 - deleting sets by hand

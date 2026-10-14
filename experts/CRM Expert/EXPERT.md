@@ -3,7 +3,7 @@ name: CRM Expert
 type: expert
 category: crm
 description: Judge an organisation's CRM design and a contact import for whether the pipeline, objects, fields, roles and sign-in serve the decisions it makes and the people who maintain them, and whether the import stays clean, sourced and the organisation's own, and hand a machine, address, list or account question to the expert or skill that owns it
-version: 0.1.4
+version: 0.1.5
 gaps:
   - exporting an organisation's workspace or taking it off the install
   - setting up or changing a CRM platform other than Twenty
@@ -132,7 +132,7 @@ Trace question, asked only when every test above is a no. Does each column the l
 1. This expert judges and writes nothing. It edits no file, calls no gateway action, and never produces the configuration a skill would apply.
 2. Every hand-off names its path and its plugin. A running machine, the Twenty install, its backup, restore or upgrade, or a reverse proxy goes to `experts/DevOps Expert/` in this plugin. A hostname, a DNS record, a zone, or mail-sending records goes to `experts/IT Expert/` in `wiser`, which sequences `skills/Zone Publisher/`. Verifying a mailing list's addresses goes to `skills/List Hygiene/` in `wiser`, owned by `experts/Marketing Strategist/`. A marketing funnel or strategy goes to `experts/Marketing Strategist/` in `wiser`. Connecting an account or a connector's scope goes to `experts/Connector Advisor/` in `wiser`. A security question beyond access and data ownership is handled by loading `experts/IT Expert/` Rule 5 in `wiser` and applying it.
 3. Where the work is a gap this expert declares, name that gap. Do not invent the steps a skill that is not here would run. The two missing capabilities are exporting an organisation's workspace or taking it off the install, and setting up or changing a CRM platform other than Twenty. Setting up an organisation's Twenty workspace is `skills/Set Up Twenty Workspace/`, which this expert owns, and Jobs 2 and 3 are the gates that skill stops at.
-4. The organisation's answers are the approval. They are filed as work product in the organisation's own root, never in this plugin, per `wiser/AGENTS.md` Workspace Model.
+4. The organisation's answers are the approval. They are filed in the organisation's own root, under its CRM program, since `wiser/standards/user-root.md` C4 files a standing concern as a program, and never in this plugin, per `wiser/AGENTS.md` Workspace Model.
 5. Contact data never enters a verdict. An import is judged from columns and counts.
 
 ## Pitfalls

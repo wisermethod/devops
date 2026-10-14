@@ -3,10 +3,10 @@ name: Back Up Twenty
 type: skill
 category: operations
 description: Set up scheduled, age-encrypted backups of an install Deploy Twenty made to a Cloudflare R2 bucket, back one up now, check the key's recovery copy, recover after an interrupted backup, stop scheduled backups, or restore a backup onto an install made for a restore, and report what was done.
-version: 0.1.12
+version: 0.1.13
 gaps:
   - authenticating a set's origin, and object lock
-  - alerting on an overdue backup
+  - alerting on an overdue backup, a failed backup, or a failed restart after one
   - Redis's queued and delayed work
   - incremental backups
   - deleting sets by hand
@@ -24,13 +24,13 @@ gaps:
 
 Use when an install Deploy Twenty made should get scheduled age-encrypted backups to a Cloudflare R2 bucket, or one backup should be taken now, or the age key's recovery copy should be checked, or an interrupted backup should be recovered, or scheduled backups should be stopped, or a backup should be restored onto an install made for a restore, and the machine is one a person's router maps. One run is one machine and one install. The release is Twenty v2.45.6 and no other.
 
-Not for authenticating a set's origin, and not for object lock. That is missing. Not for alerting on an overdue backup. That is missing. Not for Redis's queued and delayed work. That is missing. Not for incremental backups. That is missing. Not for deleting sets by hand. That is missing. Not for making a restored install public, its routes and its custom domains. That is missing. Not for serving a restored workspace's custom domain from another install. That is missing. Not for a release other than v2.45.6. That is missing. Not for creating the buckets and the tokens. That is missing: creating the buckets and the tokens, which is the person's with the vendor.
+Not for authenticating a set's origin, and not for object lock. That is missing. Not for alerting on an overdue backup, a failed backup, or a failed restart after one. That is missing. Not for Redis's queued and delayed work. That is missing. Not for incremental backups. That is missing. Not for deleting sets by hand. That is missing. Not for making a restored install public, its routes and its custom domains. That is missing. Not for serving a restored workspace's custom domain from another install. That is missing. Not for a release other than v2.45.6. That is missing. Not for creating the buckets and the tokens. That is missing: creating the buckets and the tokens, which is the person's with the vendor.
 
 Not for a package. Hand that part to `skills/VM Configure/`. `age` absent is that hand-off, package name `age`, and this skill writes nothing until a later run sees `age` present. Not for a hostname, a DNS record, or a zone. Hand that part to `experts/IT Expert/` in `wiser`, which sequences `skills/Zone Publisher/`. Not for an install, a route, or a removal, and not for taking an install offline or bringing it back online. Hand that part to `skills/Deploy Twenty/`. Not for enrolling a machine or taking one out, which is `skills/Prepare VM/`. Not for enabling or disabling a unit that is not this skill's timer. `skills/VM Configure/` does not enable or disable a unit, and that gap is its own. This skill enables and disables only `vmjob-scheduled-twenty-backup.timer`.
 
 It acts only on an install whose marker is Deploy Twenty's. The lines Deploy Twenty's Job 2 marker question requires are the whole lines `skill=deploy-twenty`, `release=v2.45.6`, `compose-sha256=bacd817fcef85abbcb6a603a6c093375313460037fae67d73d45c16f6d85bc7d`, and `project=` followed by the install name, and `stat:` was read. A whole line `stage=created` or `stage=files-written` may be present. It does not replace a required line.
 
-The calls are `vm.inventory.list_hosts`, `vm.inventory.health`, and `vm.command.run`, and no other action. This skill never calls `vm.files.write_file` or `vm.files.read_file`. Every long step is a `vm-job` job started with `--stop-post`, except Job 4, which is one direct call for the reason that job names. The contract is `tools/vm-job/` 0.3.3. Earlier versions allocate the stop-post shim under `/run`, which Ubuntu mounts `noexec`, so every backup start and every scheduled firing there fails closed with `stop-post-setup-failed`. On 0.3.3 `start` takes `--stop-post` and `--stop-post-timeout` together, and `scheduled` prints the wrapper, the service, the timer, and the writers that install them. A tool answer that is not the JSON those commands print, a named refusal of either flag included, stops the run. Send no job. Do not start a job on a tool that does not print those flags.
+The calls are `vm.inventory.list_hosts`, `vm.inventory.health`, and `vm.command.run`, and no other action. This skill never calls `vm.files.write_file` or `vm.files.read_file`. Every long step is a `vm-job` job started with `--stop-post`, except Job 4, which is one direct call for the reason that job names. The contract is `tools/vm-job/` 0.3.3 or a later version. Earlier versions allocate the stop-post shim under `/run`, which Ubuntu mounts `noexec`, so every backup start and every scheduled firing there fails closed with `stop-post-setup-failed`. From 0.3.3 `start` takes `--stop-post` and `--stop-post-timeout` together, and `scheduled` prints the wrapper, the service, the timer, and the writers that install them. A tool answer that is not the JSON those commands print, a named refusal of either flag included, stops the run. Send no job. Do not start a job on a tool that does not print those flags.
 
 What the router does with a command is Deploy Twenty's (`skills/Deploy Twenty/`). The job script, each direct script, and each saved answer go in a temporary directory outside the plugin and outside any repository. The path passed to the tool is absolute. The tool writes nothing. Reaching the gateway is `skills/Set Up Connectors/` and `gateway/SETUP.md` in `wiser`. Connecting a module is `skills/Connect Account/` in `wiser`. The toolkit registration is `connectors/vm/auth.md` in `wiser`. Cite those files. Do not restate them.
 
@@ -1400,6 +1400,8 @@ A `checks:refused:disk` or `checks:refused:memory` line means the app was not st
 ### What enables the timer?
 
 Ask only after a Job 2 that counts, inside Job 1. One direct call. Then re-inspect.
+
+On a timer that has never fired, this call starts a backup at once. The timer is `Persistent=true`, and its first activation runs the calendar time that passed before it. That is a second stop of the app, about as long as Job 2's downtime, minutes after Job 2. Say so to the person before the call, and ask whether to enable now or at a time they name. A firing that the re-inspection shows, `LastTriggerUSec` at the enable and a `vm-job-twenty-backup-*` unit loaded, is read to its end and counted as Job 2's run is, then released by the loaded-job question.
 
 This script is 317 code points. `argv` is `/bin/sh`, `-c`, this script, `sh`, and the operands the question names.
 
@@ -3154,7 +3156,7 @@ For each job, also: its unit name, its invocation ID and its limit, the last pol
 - **A schedule that is not daily, called overdue.** Report `interval-not-derived`. Do not say overdue.
 - **Redis's queue expected to come back.** It is not in the set. That is missing. Say so.
 - **A second job started while one is loaded.** The loaded-job question is Deploy Twenty's. A running job stops the run. A finished one is released and the run starts over from its inspection, once.
-- **A start sent on `tools/vm-job/` 0.2.0, without `--stop-post`.** Stop. The backup needs 0.3.3. Send nothing.
+- **A start sent on `tools/vm-job/` 0.2.0, without `--stop-post`.** Stop. The backup needs 0.3.3 or later. Send nothing.
 - **A writer longer than 4096 code points, sent or split past the last check.** Do not send it. The last writer is the one that runs `sh -n` or `node --check` and sets the mode.
 - **The scheduled service read as a loaded job.** `vmjob-scheduled-twenty-backup.service` does not match `vm-job-*`. The units section is where it is read.
 - **A release of a successful backup read as the app being down.** `recover` then sees `restart-verified` and only removes helpers and the work directory.

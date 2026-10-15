@@ -20,6 +20,6 @@ Capabilities a user invokes by name for their output; `wiser/standards/primitive
 
 | Skill | Description | Owner |
 |-------|-------------|-------|
-| `Set Up Twenty Workspace/SKILL.md` | Set up one organisation's workspace on a Twenty install Deploy Twenty made, its address, admin, members and roles, pipeline, fields and objects, each member's mailbox, a shared inbox and branded email from the organisation's own domain, and a first import judged by CRM Expert, adopting the install's first workspace when it is the organisation's, and report what was set up and what each person still does. | CRM Expert |
+| `Set Up Twenty Workspace/SKILL.md` | Set up one organisation's workspace on a Twenty install Deploy Twenty made, its address, admin, members and roles, pipeline, fields and objects, each member's mailbox, a shared inbox and branded email from the organisation's own domain, and a first import judged by CRM Expert, adopting the install's first workspace when it is the organisation's, or take an organisation off the install after reading its workspace's emptiness, and report what was set up or removed and what each person still does. | CRM Expert |
 
 <!-- /generated:index -->

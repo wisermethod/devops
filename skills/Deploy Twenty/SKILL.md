@@ -3,7 +3,7 @@ name: Deploy Twenty
 type: skill
 category: operations
 description: Install Twenty CRM v2.45.6 on one machine a person's router maps, behind the Caddy that machine already runs, including that install's mail relay when one is named, or add or remove one hostname route for an install this skill made, or remove that install, or take that install offline or bring it back online, or add, rotate or remove one relay login, replace one relay upstream token, add or remove one relay upstream, or write the relay to send or hold, and report the URL, what answered, the relay, and what is not configured.
-version: 0.1.30
+version: 0.1.31
 gaps:
   - installing a Twenty release other than v2.45.6, or upgrading an install to another release
   - a machine with no Docker, or with no Caddy running in the shape `skills/Deploy Workload/` runs it
@@ -1151,7 +1151,7 @@ Ask only after the install job counted, and, when `<relay>` is present, only aft
 
 The helper refuses an empty value or a value that contains whitespace. It writes under umask 077, it never echoes, and it prints `saved:<key>:length:<n>` and then `helper-done`. The person reads those lines back. A value is not repeated into the conversation.
 
-Where the person saved a value to a file on their computer, and `pbcopy` is present, the session may load the clipboard with a command that prints only the length, and records that length against the key before the person pastes, since the length read compares with it: `n=$(tr -d '\r\n' < "$file" | wc -c | tr -d ' '); tr -d '\r\n' < "$file" | pbcopy; printf 'clipboard-length:%s\n' "$n"`. The person pastes into the helper. Then the session empties the clipboard with `printf '' | pbcopy`. When `pbcopy` is absent, do not invent another command and do not print the file. Ask the person to paste into the helper themselves.
+For a helper run through Cloud Shell, follow `skills/Prepare VM/providers/oracle.md`'s One-time SSH rule. Where the person saved a value to a file on their computer, and `pbcopy` is present, the session may load the clipboard with a command that prints only the length, and records that length against the key before the person pastes, since the length read compares with it: `n=$(tr -d '\r\n' < "$file" | wc -c | tr -d ' '); tr -d '\r\n' < "$file" | pbcopy; printf 'clipboard-length:%s\n' "$n"`. The person pastes into the helper. Then the session empties the clipboard with `printf '' | pbcopy`. When `pbcopy` is absent, do not invent another command and do not print the file. Ask the person to paste into the helper themselves.
 
 A vendor token is recovered by reissuing it at the vendor and typing it again through the helper. The admin password is recovered by a reset through team email, after team email has been shown to authenticate. The encryption key and the database password have no other copy until a backup holds them. That is why no real contact goes onto the install until a backup has been restored with the same key.
 

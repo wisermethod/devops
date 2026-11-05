@@ -3,7 +3,7 @@ name: Back Up Twenty
 type: skill
 category: operations
 description: Set up scheduled, age-encrypted backups of an install Deploy Twenty made to a Cloudflare R2 bucket, back one up now, check the key's recovery copy, recover after an interrupted backup, stop scheduled backups, or restore a backup onto an install made for a restore, and report what was done.
-version: 0.1.14
+version: 0.1.15
 gaps:
   - authenticating a set's origin, and object lock
   - alerting on an overdue backup, a failed backup, or a failed restart after one
@@ -496,7 +496,7 @@ printf '%s\n' 'keycheck:written'
 
 What does the person run?
 
-The pattern is Deploy Twenty's "What does the person run?" (`skills/Deploy Twenty/`). The helper is run with sudo, over the shell the person holds. It is not a router call. A value is not repeated into the conversation. Where Deploy Twenty loads a clipboard, this skill may do the same for the two token values, and it empties the clipboard after the paste. It does not print the file.
+The pattern is Deploy Twenty's "What does the person run?" (`skills/Deploy Twenty/`). The helper is run with sudo, over the shell the person holds. It is not a router call. A value is not repeated into the conversation. For a helper run through Cloud Shell, follow `skills/Prepare VM/providers/oracle.md`'s One-time SSH rule. Where Deploy Twenty loads a clipboard, this skill may do the same for the two token values, and it empties the clipboard after the paste. It does not print the file.
 
 `keygen-helper` runs `age-keygen`. The identity line, the line that begins `AGE-SECRET-KEY-`, is written only to `/dev/tty`. The recipient, the `age1` text from the public-key line, is saved at `/opt/<install>/backup/recipient`, root-owned, mode 644. The helper prints that file's sha256 and `helper-done`. A second run, when the recipient is already there, prints `keygen:kept` and writes nothing. The boundary: the identity appears on that terminal, in its scrollback, and in that process's memory on the machine. After it, only the person's copy remains.
 

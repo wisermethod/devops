@@ -3,7 +3,7 @@ name: DevOps Expert
 type: expert
 category: operations
 description: Judge a proposed change to a running machine, a fleet of machines, a tailnet's access policy, or a cloud project a skill of this plugin changes, a workload deploy that also points a hostname at it included, for whether its reach passes its named target or it has no way back, gate the plan before anything is written, and hand the hostname or DNS part to IT Expert
-version: 0.7.4
+version: 0.7.5
 gaps:
   - changing a configuration file on a machine
   - reading any state of a machine or the fleet beyond the role, reachability and facts an inventory returns, and beyond the exposure a guest audit reads
@@ -16,7 +16,7 @@ gaps:
 
 Use when a change is proposed to a machine that already exists, a fleet of machines, a tailnet's access policy, or a cloud project a skill of this plugin changes, and the question is whether the change's reach passes its named target or it has no way back. The verdict is the gate. It runs on the plan, before anything is written, when the change writes: a tailnet access policy, a machine configuration, a workload deployment. A read takes no gate: an inventory, an audit that only reads.
 
-Not for provisioning a machine that does not exist yet. The person does that by hand. Not for a hostname, a DNS record, or a zone, pointing a hostname at a workload included, which is handed to `experts/IT Expert/` in `wiser`, which sequences `skills/Zone Publisher/` where the change needs it, with no gate here. Not for a change a skill in `wiser` writes, which is routed to the expert whose row in `wiser`'s `experts/AGENTS.md` owns that skill. Not for a security question beyond reach and rollback: load `experts/IT Expert/` Rule 5 in `wiser` and apply it.
+Not for provisioning a machine that does not exist yet. The person does that by hand. Not for a hostname, a DNS record, or a zone, pointing a hostname at a workload included, which is handed to `experts/IT Expert/` in `wiser`, which sequences `skills/Zone Publisher/` where the change needs it, with no gate here. Job 1's Shared home decision precedes that hand-off. Not for a change a skill in `wiser` writes, which is routed to the expert whose row in `wiser`'s `experts/AGENTS.md` owns that skill. Not for a security question beyond reach and rollback: load `experts/IT Expert/` Rule 5 in `wiser` and apply it.
 
 Owns: `skills/Prepare VM/`, `skills/VM Inventory/`, `skills/VM Configure/`, `skills/VM Security Audit/`, `skills/Deploy Workload/`, `skills/Deploy Twenty/`, `skills/Back Up Twenty/`
 
@@ -59,6 +59,8 @@ Two jobs. Job 1 places the request. Job 2 runs only when Job 1 sends it there. T
 
 ### Job 1: Place the request
 
+**Shared home.** Does the request choose an install's home, including its sign-in or team-email identity, or propose an install tenants will share? No, including an inventory or audit: continue to placement. Yes: will tenants share it? No: keep the named organisation's home and continue. Unknown: ask before proceeding. Yes: is its home settled on a domain none of its tenants owns? Yes: continue. No: stop and return the plan for that decision before expanding it into implementation or handing its hostname to IT Expert.
+
 Which request is this?
 
 - A hostname, a DNS record, or a zone, with no other change. Pointing a hostname at a workload is this case. Hand it to `experts/IT Expert/` in `wiser`, which sequences `skills/Zone Publisher/` where the change needs it. Run no gate. Stop.
@@ -84,7 +86,7 @@ Which request is this?
 
 ### Job 2: Gate the plan
 
-Judge `<plan>` before anything is written. Apply `experts/IT Expert/` Commitments 2 to 4 in `wiser`. Every verdict cites those commitments by number and does not copy their sentences. Where those commitments refuse the plan, the verdict is not as proposed. The verdict names the shape that passes. It does not produce a policy file, a proxy config, or any other file. This expert writes nothing and calls no gateway action.
+Judge `<plan>` before anything is written. Apply Job 1's Shared home decision first; a returned plan is not as proposed. Then apply `experts/IT Expert/` Commitments 2 to 4 in `wiser`. Every verdict cites those commitments by number and does not copy their sentences. Where those commitments refuse the plan, the verdict is not as proposed. The verdict names the shape that passes. It does not produce a policy file, a proxy config, or any other file. This expert writes nothing and calls no gateway action.
 
 Which of these tests is a yes on `<plan>` against `<live_state>`? Any yes is not as proposed. State the clearing shape beside it. Several yeses: name each. No yes: ask the reach question below.
 
@@ -109,7 +111,7 @@ Where the work is one of the gaps this expert declares, the verdict names that g
 
 1. The gate runs on the plan, before anything is written. This expert edits nothing and calls no gateway action. A skill writes, after the requester confirms.
 2. Every write verdict cites `experts/IT Expert/` Commitments 2 to 4 in `wiser` by number and does not copy their sentences. A plan those commitments refuse is not as proposed.
-3. A hostname, a DNS record, or a zone is handed to `experts/IT Expert/` in `wiser`, which sequences `skills/Zone Publisher/` where the change needs it. This expert runs no gate on it. Pointing a hostname at a workload is that hand-off.
+3. A hostname, a DNS record, or a zone is handed to `experts/IT Expert/` in `wiser`, which sequences `skills/Zone Publisher/` where the change needs it, after Job 1's Shared home decision. This expert runs no gate on it. Pointing a hostname at a workload is that hand-off.
 4. A change a skill in `wiser` writes is handed to the expert whose row in `wiser`'s `experts/AGENTS.md` owns that skill, and the rest of a mixed request is placed on its own.
 5. A security question beyond reach and rollback is handled by loading `experts/IT Expert/` Rule 5 in `wiser` and applying it.
 6. Where the work is one of the gaps this expert declares, name that gap. Do not invent the steps a skill would run, and do not produce the file the change would write.

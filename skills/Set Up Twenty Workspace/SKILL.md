@@ -3,7 +3,7 @@ name: Set Up Twenty Workspace
 type: skill
 category: crm
 description: Set up one organisation's workspace on a Twenty install Deploy Twenty made, its address, admin, members and roles, pipeline, fields and objects, each member's mailbox, a shared inbox and branded email from the organisation's own domain, and a first import judged by CRM Expert, adopting the install's first workspace when it is the organisation's, or take an organisation off the install after reading its workspace's emptiness, and report what was set up or removed and what each person still does.
-version: 0.1.8
+version: 0.1.9
 gaps:
   - connecting Google or Microsoft mailboxes, which needs an OAuth client and the provider's approval
   - taking an organisation off the install while its workspace holds records, which needs an export first
@@ -136,7 +136,13 @@ Take the steps in order. A rerun applies Each step's state before the step's mec
 7. **Custom domain.** The custom domain section. Confirmed by the six reads that section names, the public read among them.
 8. **Shared inbox and branded email.** That section. `complete` only when all four hold: Twenty shows the domain verified, the person says the forward is in place, and both proofs in that section's last item were made. Anything less is `partial`, and the report lists what remains.
 9. **Mailboxes.** Each member enters their own details in Settings, Accounts, in their own `member-` profile, after the identity read shows that member's email in this workspace. Confirmed by Browser Control's read of that member's Accounts screen showing the intended handle and its sync status, then one message sent from that mailbox that arrives. The password is typed by the member, on that screen, and nowhere else.
-10. **CRM Expert Job 3, then the import.** Step 10's counts are the connector's. Without step 5 `complete`, step 10 does not run. Job 3 first. Not as proposed stops the import. Sound with named changes: file the organisation's answers to the listed questions and ask Job 3 again. Do not import on that verdict. Submit only on sound as proposed. The admin runs the workspace's CSV import only after the import is filed `unknown`. Confirmed by `twenty.records.count` per object, before and after. The count is a number, never a row. Counts are not a certificate of mapping or deduplication. Job 3's verdict is.
+10. **CRM Expert Job 3, then the import.** Read Imports and one-way copies below before Job 3. Step 10's counts are the connector's. Without step 5 `complete`, step 10 does not run. Not as proposed stops the import. Sound with named changes: file the organisation's answers to the listed questions and ask Job 3 again. Do not import on that verdict. Submit only on sound as proposed. The admin runs the workspace's CSV import only after the import is filed `unknown`. Confirmed by `twenty.records.count` per object, before and after. The count is a number, never a row. Counts are not a certificate of mapping or deduplication. Job 3's verdict is.
+
+### Imports and one-way copies
+
+Twenty v2.45.6 upserts match on any unique field, a person's `emails` included, even when a one-way copy keys by its own id. A copied member with a hand-made person's email can take over that person; a later account deletion that destroys the copied person destroys it and its links. A key's role limits access per object; per-row limits require the enterprise plan.
+
+Which unique fields can this import or copy match? File those fields and the collision and deletion policy for Job 3 before loading; an email match alone is not permission to take over a person. Matching fields unknown: stop until named. Resolved: continue to Job 3. Is this the hosted service's one-way member copy? Yes: do not run this skill's CSV submission for it. No: step 10's CSV submission follows Job 3's verdict.
 
 ### The server admin and the organisation admin
 

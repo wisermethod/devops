@@ -19,7 +19,9 @@ Unverified: Oracle Linux, and the Minimal images. A Minimal image is the one to 
 
 ## One-time SSH
 
-The one-time path is Cloud Shell's ephemeral private network, into the machine's subnet. The person signs in. The person runs what follows. Public SSH is not opened. Where public SSH is already open, the person closes it so the only SSH ingress is the VCN.
+The one-time path is Cloud Shell's ephemeral private network, into the machine's subnet. The person signs in and runs the SSH steps below whether or not a helper will run. Public SSH is not opened. Where public SSH is already open, the person closes it so the only SSH ingress is the VCN.
+
+Will a helper run through Cloud Shell? Yes: plan and run it in one sitting; the idle timeout can silently end a hidden prompt. Give the commands first. Has the helper's prompt appeared? Yes: only now load the value onto the clipboard, so copying the command cannot replace it. No: load nothing and return to the prompt. The person presses Return on typed `ssh` or `sudo` commands; leave that press to them when the harness refuses it. No helper: no helper prompt or clipboard step applies.
 
 Measured 2026-09-28: Cloud Shell runs in FIPS mode and refuses Ed25519 (`ED25519 keys are not allowed in FIPS mode`). The key is generated inside Cloud Shell as ECDSA P-384. Its public half is restricted with `from="<VCN CIDR>"` in `authorized_keys`. The person matches the host key fingerprint on screen before answering `yes`. The fingerprint is not copied into the conversation.
 

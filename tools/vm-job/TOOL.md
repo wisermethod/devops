@@ -4,6 +4,7 @@ type: tool
 category: operations
 description: Build the argument vectors that start, poll, read back and release a tracked background job on one machine a router maps, build the texts for a scheduled job, and classify each answer, as one JSON object
 version: 0.3.5
+runs: local
 ---
 
 # vm-job

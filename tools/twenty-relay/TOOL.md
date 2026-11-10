@@ -5,6 +5,7 @@ category: operations
 description: Build the writers that install the mail relay, the login helper a person runs, and the argv that sets the relay to send or hold, as one JSON object
 version: 0.1.2
 runs: local
+local-only: needs nothing on the member's machine but its own payload files, read from disk; not yet split into a core
 ---
 
 # twenty-relay

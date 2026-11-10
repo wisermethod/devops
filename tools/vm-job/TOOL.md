@@ -5,6 +5,7 @@ category: operations
 description: Build the argument vectors that start, poll, read back and release a tracked background job on one machine a router maps, build the texts for a scheduled job, and classify each answer, as one JSON object
 version: 0.3.5
 runs: local
+local-only: needs nothing on the member's machine but the text and answer files it is given, read from disk; not yet split into a core
 ---
 
 # vm-job

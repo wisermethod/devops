@@ -14,7 +14,9 @@ apps:
 
 A WISER domain plugin. This file is this root's constitution. The chain starts here: load it before the first read or write under this root.
 
-A WISER plugin for people who run their own servers and self-hosted applications: virtual machines, Docker workloads, light security, and setting up each organisation's use of applications such as Twenty CRM. It ships two experts, DevOps Expert and CRM Expert, eight skills, Prepare VM, VM Inventory, VM Configure, VM Security Audit, Deploy Workload, Deploy Twenty, Back Up Twenty and Set Up Twenty Workspace, and two tools, vm-job and twenty-relay.
+A WISER plugin for people who run their own servers, self-hosted applications and websites: virtual machines, Docker workloads, light security, application setup, and building and publishing sites.
+
+It ships three experts, DevOps Expert, CRM Expert and Site Publisher; eleven skills, Prepare VM, VM Inventory, VM Configure, VM Security Audit, Deploy Workload, Deploy Twenty, Back Up Twenty, Set Up Twenty Workspace, Site Author, Cloudflare Pages and Vercel Deploy; and three tools, vm-job, twenty-relay and pages-functions.
 
 ## What this root is
 

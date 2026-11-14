@@ -1,0 +1,28 @@
+{
+  "format": 1,
+  "purpose": "cloudflare.pages.deploy",
+  "publisher": "wiser",
+  "release": "0.1.0",
+  "layout": {
+    "root_name": "site",
+    "assets": "dist",
+    "identity": {
+      "path": "kit.json",
+      "version": "kitVersion"
+    },
+    "build": {
+      "path": ".astro/kit-build.json",
+      "time": "buildTime"
+    },
+    "function": {
+      "directory": "dist-function",
+      "worker": "_worker.js",
+      "routes": "_routes.json",
+      "data": "schedule.bin",
+      "record": "function.json"
+    }
+  },
+  "worker": null,
+  "data": null,
+  "record": null
+}

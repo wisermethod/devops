@@ -4,7 +4,7 @@ What this plugin does not do, declared by the primitive that names it.
 
 A gap is a capability this root does not provide that a primitive's own body names as missing (`wiser/standards/primitives.md`). This file collects every declared `gaps` entry, by hand, and is corrected whenever a primitive's gaps change. It carries capability gaps only, and names what is missing, never where it went.
 
-Counted 2026-10-15: 48 gaps across 10 primitives. Bullet count: `grep -E '^- ' system/GAPS.md | wc -l` returns 48, and the same count derived from the primitives' own `gaps:` frontmatter returns 48.
+Counted 2026-11-13: 61 gaps across 13 primitives. Bullet count: `grep -E '^- ' system/GAPS.md | wc -l` returns 61, and the same count derived from the primitives' own `gaps:` frontmatter returns 61. On 2026-11-13, three skills joined this plugin with their thirteen gaps. Counted 2026-10-15: 48 gaps across 10 primitives.
 
 ## Experts
 
@@ -87,3 +87,25 @@ Counted 2026-10-15: 48 gaps across 10 primitives. Bullet count: `grep -E '^- ' s
 - taking an organisation off the install while its workspace holds records, which needs an export first
 - exporting an organisation's workspace
 - a mail host on a private network, which needs the install's allow-list
+
+### Site Author
+
+- a site whose engine is not the shipped kit
+- application, authenticated, or database-backed sites
+- creating a nested git repository for the site
+- a scheduled article in the site's own search before the first build after its instant
+- a scheduled article that goes live at its instant on a host other than Cloudflare Pages, or through a Wrangler deploy
+- every scheduled article carried at once when their pages exceed the kit Function's 1.5 MiB budget
+
+### Cloudflare Pages
+
+- bindings other than D1 on a Pages project, such as KV, R2, environment variables and secrets
+- removing a D1 binding from a Pages project
+- a foreign site whose Functions are one advanced-mode _worker.js file rather than a functions/ folder
+- switching a Pages project's Web Analytics to another site, or off
+
+### Vercel Deploy
+
+- read or modify environment variables
+- delete a Vercel project
+- add a domain to a Vercel project

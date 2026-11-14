@@ -1,0 +1,47 @@
+{
+  "format": 1,
+  "purpose": "cloudflare.pages.deploy",
+  "publisher": "wiser",
+  "release": "0.5.0",
+  "layout": {
+    "root_name": "site",
+    "assets": "dist",
+    "identity": {
+      "path": "kit.json",
+      "version": "kitVersion"
+    },
+    "build": {
+      "path": ".astro/kit-build.json",
+      "time": "buildTime"
+    },
+    "function": {
+      "directory": "dist-function",
+      "worker": "_worker.js",
+      "routes": "_routes.json",
+      "data": "schedule.bin",
+      "record": "function.json"
+    }
+  },
+  "worker": {
+    "sha256": "93f432539b4a6a30f2ad5061e7081ee33f0ecd935049dc2b6e236fa3ff121f06",
+    "module_name": "_worker.js"
+  },
+  "data": {
+    "magic": "V0tTMQ==",
+    "container": "u32be-json",
+    "version_field": "v",
+    "version": 1
+  },
+  "record": {
+    "version": "kitVersion",
+    "time": "buildTime",
+    "hashes": {
+      "worker": "worker",
+      "routes": "routes",
+      "data": "schedule"
+    },
+    "carried": "carried",
+    "not_carried": "notCarried",
+    "paths": "paths"
+  }
+}

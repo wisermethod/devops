@@ -1,0 +1,11 @@
+{
+  "format": 1,
+  "purpose": "cloudflare.pages.layouts",
+  "publisher": "wiser",
+  "layouts": [
+    {
+      "root_name": "site",
+      "assets": "dist"
+    }
+  ]
+}

@@ -22,4 +22,12 @@ Capabilities a user invokes by name for their output; `wiser/standards/primitive
 |-------|-------------|-------|
 | `Set Up Twenty Workspace/SKILL.md` | Set up one organisation's workspace on a Twenty install Deploy Twenty made, its address, admin, members and roles, pipeline, fields and objects, each member's mailbox, a shared inbox and branded email from the organisation's own domain, and a first import judged by CRM Expert, adopting the install's first workspace when it is the organisation's, or take an organisation off the install after reading its workspace's emptiness, and report what was set up or removed and what each person still does. | CRM Expert |
 
+### Web
+
+| Skill | Description | Owner |
+|-------|-------------|-------|
+| `Site Author/SKILL.md` | Stand up, content-edit, file site code, check, wrap, and upgrade a website, as a kit site envelope in sites/, in a folder named for its domain, or in the sites/ of a work folder when the site dies with that work, with the kit in site/, in an owning root that declares sites/ | Site Publisher |
+| `Cloudflare Pages/SKILL.md` | List and get a Cloudflare Pages project, list its deployments, create a project, add or remove a domain, read a custom domain's activation and retry its validation, delete a project, deploy the kit site/dist/ payload, carrying the kit's Function from site/dist-function/ when an article is scheduled, a foreign site's build output with its Pages Functions, or a plain static build output, switch on Cloudflare Web Analytics for a project by attaching an existing site or creating one, list and delete the account's Web Analytics sites, and create, migrate, query, bind and delete the D1 database such a site uses, with confirmation on every write | Site Publisher |
+| `Vercel Deploy/SKILL.md` | List and get a Vercel project, list its domains and deployments, remove a domain, and create a deployment from the isolated site/ payload, uploaded by reference, with confirmation always | Site Publisher |
+
 <!-- /generated:index -->

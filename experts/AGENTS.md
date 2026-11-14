@@ -15,3 +15,9 @@ Personas that carry a perspective, judge work through it, and sequence the skill
 | Expert | Description | Owns |
 |--------|-------------|------|
 | `CRM Expert/EXPERT.md` | Judge an organisation's CRM design and a contact import for whether the pipeline, objects, fields, roles and sign-in serve the decisions it makes and the people who maintain them, and whether the import stays clean, sourced and the organisation's own, and hand a machine, address, list or account question to the expert or skill that owns it | `skills/Set Up Twenty Workspace/`; this expert's Jobs 2 and 3 are the gates that skill stops at, before configuration and before an import |
+
+### Web
+
+| Expert | Description | Owns |
+|--------|-------------|------|
+| `Site Publisher/EXPERT.md` | Judge a site's build and publish safety, sequence site authoring and hosting work, and gate a change before it goes live. | `skills/Site Author/`, `skills/Cloudflare Pages/`, `skills/Vercel Deploy/`; Job 2 in a second context gates Stand-up, Wrap, Upgrade, a Cloudflare Pages deploy, with or without Pages Functions (and a create, add-domain or D1 binding that is part of it), and Vercel Deploy deployment creation before publish, not after every file write; content-only edits take Job 2 for a new URL, slug change, or redirect; Check and host list/get operations, including deployment lists and database reads, have no gate |

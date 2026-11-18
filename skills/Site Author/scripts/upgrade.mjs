@@ -17,6 +17,7 @@ function fail(msg) {
   process.exit(1);
 }
 
+import { refreshRouter } from "./router.mjs";
 import { currentKit, safeTree, versionLine } from "./envelope.mjs";
 console.log(versionLine());
 const envelope = values.site && path.resolve(values.site);
@@ -138,6 +139,10 @@ if (fs.existsSync(siteTokensPathEarly)) {
   }
 }
 
+// Refuse an ambiguous router before replacing any kit file. Recognized stale
+// policy is archived and refreshed through the standalone path first.
+try { refreshRouter(envelope, originalKit.kitVersion); } catch (error) { fail(error.message); }
+
 const siteRedirects = path.join(site, "public", "_redirects");
 if (fs.existsSync(siteRedirects) && !fs.lstatSync(siteRedirects).isFile()) fail("site public/_redirects is not a file; nothing was replaced");
 
@@ -231,12 +236,5 @@ if (fs.readFileSync(configPath, "utf8") !== updated) {
 console.log(`upgrade: applied kit ${template.kitVersion} onto ${site}`);
 console.log("upgrade: left src/content, src/custom, public/images, public/files and public/fonts untouched");
 
-// The envelope router is outside Upgrade; say so when its frontmatter still names another kitVersion.
-const routerPath = path.join(envelope, "AGENTS.md");
-if (fs.existsSync(routerPath) && fs.statSync(routerPath).isFile()) {
-  const front = /^---\r?\n([\s\S]*?)\r?\n---/.exec(fs.readFileSync(routerPath, "utf8"));
-  const routerVersion = front && /^kitVersion:[ \t]*["']?([^"'\s]+)["']?[ \t]*$/m.exec(front[1]);
-  if (!routerVersion || routerVersion[1] !== template.kitVersion) {
-    console.log(`upgrade: the envelope AGENTS.md was not touched; set its kitVersion to ${template.kitVersion} and refresh its Content vs code section from site-AGENTS.md`);
-  }
-}
+// Synchronize the version after kit replacement through the same safe refresh.
+try { refreshRouter(envelope, template.kitVersion); } catch (error) { fail(error.message); }

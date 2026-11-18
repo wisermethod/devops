@@ -8,6 +8,7 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { gunzipSync } from "node:zlib";
 
+import { assessRouter, refreshCommand } from "./router.mjs";
 import { currentKit, versionLine } from "./envelope.mjs";
 console.log(versionLine());
 
@@ -251,9 +252,14 @@ else {
   // The kit reads a missing articles key as on, so a site without one has articles nobody chose.
   if (!Object.hasOwn(kit.collections, "articles")) fail("kit.json collections.articles is missing: set it to true or false, because whether the site has an articles or blog section is the requester's choice");
 }
-const envelopeRouter = fs.existsSync(path.join(envelope, "AGENTS.md")) ? fs.readFileSync(path.join(envelope, "AGENTS.md"), "utf8") : "";
-if (Object.hasOwn(kit, "layout") && !envelopeRouter.includes("`layout`")) fail("kit.json sets layout, but the envelope AGENTS.md does not mention it: refresh its Content vs code section from site-AGENTS.md");
-if (Object.hasOwn(kit, "blog") && !envelopeRouter.includes("`blog`")) fail("kit.json sets blog, but the envelope AGENTS.md does not mention it: refresh its Content vs code section from site-AGENTS.md");
+let envelopeRouter = null;
+try {
+  const router = assessRouter(envelope, kit.kitVersion);
+  envelopeRouter = router.text;
+  if (router.stale) fail(`envelope AGENTS.md has stale managed instructions: run Site Author Refresh router: ${refreshCommand(envelope)}`);
+} catch (error) { fail(`envelope AGENTS.md: ${error.message}; repair command: ${refreshCommand(envelope)}`); }
+if (Object.hasOwn(kit, "layout") && envelopeRouter !== null && !envelopeRouter.includes("`layout`")) fail("kit.json sets layout, but the envelope AGENTS.md does not mention it: refresh its Content vs code section from site-AGENTS.md");
+if (Object.hasOwn(kit, "blog") && envelopeRouter !== null && !envelopeRouter.includes("`blog`")) fail("kit.json sets blog, but the envelope AGENTS.md does not mention it: refresh its Content vs code section from site-AGENTS.md");
 // The person a profile site declares. Only what is declared is emitted, so every field is checked here, and an unknown key fails rather than being dropped.
 const isObject = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
 const isText = (v) => typeof v === "string" && v.trim() !== "";
@@ -314,7 +320,7 @@ const FILES_REFUSED = new Set([".html", ".htm", ".xhtml", ".xht", ".shtml", ".mh
 }
 if (Object.hasOwn(kit, "person")) {
   tooOld("person", "kit.json person");
-  if (!envelopeRouter.includes("`person`")) fail("kit.json sets person, but the envelope AGENTS.md does not mention it: refresh its Content vs code section from site-AGENTS.md");
+  if (envelopeRouter !== null && !envelopeRouter.includes("`person`")) fail("kit.json sets person, but the envelope AGENTS.md does not mention it: refresh its Content vs code section from site-AGENTS.md");
   const p = kit.person;
   const W = "kit.json person";
   if (!isObject(p)) fail(`${W} must be an object`);
@@ -374,15 +380,13 @@ if (Object.hasOwn(kit, "person")) {
 checkCustom();
 if (kit.collections && kit.collections.articles === false) {
   tooOld("collections.articles false", "kit.json collections.articles");
-  if (!envelopeRouter.includes("`collections.articles`")) fail("kit.json sets collections.articles to false, but the envelope AGENTS.md does not mention it: refresh its Content vs code section from site-AGENTS.md");
+  if (envelopeRouter !== null && !envelopeRouter.includes("`collections.articles`")) fail("kit.json sets collections.articles to false, but the envelope AGENTS.md does not mention it: refresh its Content vs code section from site-AGENTS.md");
 }
 if (Object.hasOwn(kit, "nav") || Object.hasOwn(kit, "footer")) {
   const layoutPath = path.join(site, "src", "layouts", "SiteLayout.astro");
   const layout = fs.existsSync(layoutPath) ? fs.readFileSync(layoutPath, "utf8") : "";
   if (!layout.includes("site.nav.map(") || !layout.includes("site.footer.map(")) fail("kit.json sets nav or footer, but src/layouts/SiteLayout.astro does not render them: run Upgrade");
-  const routerPath = path.join(envelope, "AGENTS.md");
-  const router = fs.existsSync(routerPath) ? fs.readFileSync(routerPath, "utf8") : "";
-  if (!router.includes("`nav`") || !router.includes("`footer`")) fail("kit.json sets nav or footer, but the envelope AGENTS.md predates them and still refuses every kit.json edit: refresh its Content vs code section from site-AGENTS.md");
+  if (envelopeRouter !== null && (!envelopeRouter.includes("`nav`") || !envelopeRouter.includes("`footer`"))) fail("kit.json sets nav or footer, but the envelope AGENTS.md predates them and still refuses every kit.json edit: refresh its Content vs code section from site-AGENTS.md");
 }
 if (!kit.siteUrl) fail("kit.json siteUrl missing");
 else if (typeof kit.siteUrl !== "string") fail("kit.json siteUrl is not a string");
@@ -1440,7 +1444,7 @@ function checkCustom() {
   let st;
   try { st = fs.lstatSync(root); } catch { return; }
   tooOld("src/custom/", "src/custom");
-  if (!envelopeRouter.includes("src/custom/")) fail("src/custom/ exists, but the envelope AGENTS.md does not mention it: refresh its Content vs code section from site-AGENTS.md");
+  if (envelopeRouter !== null && !envelopeRouter.includes("src/custom/")) fail("src/custom/ exists, but the envelope AGENTS.md does not mention it: refresh its Content vs code section from site-AGENTS.md");
   if (st.isSymbolicLink()) { fail("src/custom is a symbolic link"); return; }
   if (!st.isDirectory()) { fail("src/custom is not a directory"); return; }
   const allowedTop = new Set(["Header.astro", "Footer.astro", "custom.css", "components"]);

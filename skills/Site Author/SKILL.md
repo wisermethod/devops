@@ -2,8 +2,8 @@
 name: Site Author
 type: skill
 category: web
-description: Stand up, content-edit, file site code, check, wrap, and upgrade a website, as a kit site envelope in sites/, in a folder named for its domain, or in the sites/ of a work folder when the site dies with that work, with the kit in site/, in an owning root that declares sites/
-version: 0.10.0
+description: Stand up, content-edit, file site code, check, wrap, upgrade a website, and refresh its envelope router, as a kit site envelope in sites/, in a folder named for its domain, or in the sites/ of a work folder when the site dies with that work, with the kit in site/, in an owning root that declares sites/
+version: 0.11.0
 memory:
   - about
   - design
@@ -19,7 +19,7 @@ gaps:
 
 # Site Author
 
-This is Site Author 0.10.0, and it ships site kit 0.5.0 in `kit/`. Stand up, `check` and Upgrade each print both versions as their first line, so a run says which copy it came from before it does anything.
+This is Site Author 0.11.0, and it ships site kit 0.5.0 in `kit/`. Stand up, `check` and Upgrade each print both versions as their first line, so a run says which copy it came from before it does anything.
 
 ## Context
 
@@ -61,11 +61,14 @@ Load these only after Shape's check continues, at the point listed.
 |------|----------------|
 | `SETUP.md` | Before `npm install`, `npm run dev`, Upgrade, or any live-host question |
 | `kit/KIT.md` | Before stand-up, file site code, check, wrap, or upgrade; `check` walks it |
-| `site-AGENTS.md` | The envelope `AGENTS.md` template; stand-up and wrap use it |
+| `site-AGENTS.md` | The envelope `AGENTS.md` template; stand-up, wrap and Refresh router use it |
 | `scripts/stand-up.mjs` | Stand up |
 | `scripts/check.mjs` | Check |
 | `scripts/wrap.mjs` | Wrap |
 | `scripts/upgrade.mjs` | Upgrade |
+| `scripts/refresh-router.mjs` | Refresh router, the reusable envelope-policy repair |
+| `scripts/router.mjs` | Shared read-only assessment and archived refresh used by Check and Upgrade |
+| `scripts/router-passages.json` | Exact recognized historical managed passages; edited passages require reconciliation |
 | `scripts/starter.mjs` | File site code, to copy a starter |
 | `starters/` | The starter components `scripts/starter.mjs` copies; never edited in a site |
 
@@ -87,6 +90,8 @@ Read the named domain folder before selecting a write:
 - Only domain-folder `kit.json` exists: Milestone 1 to 3 shape. Name Wrap, or let the requester declare it foreign; no silent current-kit write.
 - Neither exists in an existing folder: foreign. Leave it untouched and route an audit to Webmaster Job 1 in `wiser`.
 - Folder absent: Stand up may proceed under the declared parent.
+
+For every existing envelope job, including a return for edit, File site code, Upgrade, preview/build or publish hand-off, run **Refresh router** below before editing or building. Check remains read-only: run it directly to diagnose a router, then follow its exact repair command before continuing. A failed refresh stops the dependent job with the envelope untouched. Any unrecognized paragraph inside a managed section requires the manual reconciliation below before rerunning; the script does not move custom prose or judge its meaning.
 
 Before Stand up or Wrap, compare the owning root's resolved Provides for `about`, `voice`, and `design` with the conventional `memory/<key>.md` sources the scripts copy. If a conventional file exists but is unbound or bound elsewhere, or an available bound source uses another path, stop before the script and name the unsupported key/path configuration. Do not copy stale conventional files or silently substitute a source. Missing conventional sources with no available binding stay unbound and follow Inputs' fallback.
 
@@ -171,7 +176,7 @@ Which file is it? `Header.astro`, `Footer.astro`, `custom.css`, or `components/<
 
 `Header.astro` receives `nav` (the `kit.json` `nav` array, or the kit's default links when `nav` is absent), `siteName`, `brand` (`layout.header.brand`, or absent), and `path`. `Footer.astro` receives `footer` (the `kit.json` `footer` array, or an empty array), `siteName`, and `path`. The skip link, the `<head>` and everything in it, `<main id="content">` and the layout's own `<h1>` stay the kit's.
 
-Does the envelope `AGENTS.md` mention `src/custom/`? Yes: leave the router. No: refresh its Content vs code section from `site-AGENTS.md`, archiving the old router first. Upgrade never writes the router, and `check` fails a folder whose router does not mention `src/custom/`.
+Run Refresh router before File site code, even when `src/custom/` is already mentioned; that mention alone does not establish a current publish gate or release-staging boundary.
 
 Then in `site/`: `npm run build`, then `check --built`. File site code is not done until that check passes. Gate: Site Publisher Job 2 before the requester publishes.
 
@@ -182,7 +187,7 @@ node "<this-skill-dir>/scripts/check.mjs" "<envelope-folder>"
 node "<this-skill-dir>/scripts/check.mjs" --built "<envelope-folder>"
 ```
 
-`check` takes the envelope and walks `site/KIT.md` inside `site/`. It is not a tool. It refuses old-shape and foreign folders per Shape. It fails a nested `.git` in the envelope or `site/`, a `kitVersion` other than 0.1.0, 0.2.0, 0.2.1, 0.2.2, 0.3.0, 0.4.0, 0.4.1, 0.4.2, 0.4.3 or 0.5.0, a `siteUrl` with a trailing path or slash, a missing `trailingSlash: 'never'`, missing collection names, missing required frontmatter, a missing required file, a `kit.json` without `collections.articles`, a `layout` key or value it does not know, a page that writes its own headline without exactly one `<h1>`, a kit component whose data file is missing, a published article while articles are off, an entry in `site/src/custom/` the folder may not hold, an import, script, link or stylesheet address that folder may not use, an `icon`, `lang` or page `image` of the wrong shape, and, when `site/src/custom/` exists, an envelope `AGENTS.md` that does not mention `src/custom/`. Report PASS or FAIL as the script printed it. Do not treat a successful `astro build` as a passed check.
+`check` takes the envelope and walks `site/KIT.md` inside `site/`. It is not a tool. It refuses old-shape and foreign folders per Shape. It fails a nested `.git` in the envelope or `site/`, a `kitVersion` other than 0.1.0, 0.2.0, 0.2.1, 0.2.2, 0.3.0, 0.4.0, 0.4.1, 0.4.2, 0.4.3 or 0.5.0, a `siteUrl` with a trailing path or slash, a missing `trailingSlash: 'never'`, missing collection names, missing required frontmatter, a missing required file, a `kit.json` without `collections.articles`, a `layout` key or value it does not know, a page that writes its own headline without exactly one `<h1>`, a kit component whose data file is missing, a published article while articles are off, an entry in `site/src/custom/` the folder may not hold, an import, script, link or stylesheet address that folder may not use, an `icon`, `lang` or page `image` of the wrong shape, and, when `site/src/custom/` exists, an envelope `AGENTS.md` that does not mention `src/custom/`. A stale router also fails with the exact Refresh router repair command; Check never writes the router or an archive. Report PASS or FAIL as the script printed it. Do not treat a successful `astro build` as a passed check.
 
 `--built` is accepted before or after the envelope. Run it after `npm run build` in `site/`, and before Site Publisher Job 2. It reads `site/dist/` and fails when that folder is missing or holds no HTML, when a file or folder under `site/src/` or `site/public/`, or `site/kit.json` or `site/astro.config.mjs`, changed after the build, including a page added or removed, and when an anchor contains another anchor. It also fails a kit-built `.html` file, which is every `.html` in `dist/` except one copied from `public/` and except anything under `dist/pagefind/`, that lacks a non-empty `<title>`, a `meta name="description"`, a `link rel="canonical"`, `og:title`, `og:url`, a `script type="application/ld+json"`, or exactly one `<h1>` outside comments, scripts and templates, and it names the page. Build again before a publish rather than rely on it alone: a file copied in with its old time kept looks older than the build. On a 0.5.0 site, `--built` also fails unless `dist-function/` is present when a scheduled article was carried, or is absent because every scheduled instant is recorded as not carried in `.astro/kit-schedule.json` for this build, holds only the four kit Function files when it is present, and those files match the contract and the sha256 `site/KIT.md` states, and at every kit version it fails when `dist/` holds `_worker.js`, `_worker.bundle`, `_routes.json` or a `functions` folder.
 
@@ -208,11 +213,21 @@ Foreign, already wrapped, or colliding `site/` folders are refused. Content and 
 node "<this-skill-dir>/scripts/upgrade.mjs" --site "<envelope-folder>" --kit "<this-skill-dir>/kit"
 ```
 
-The script archives each replaced kit-owned file first, per `wiser/standards/conventions.md`, then copies kit code. It requires `site/kit.json`, names Wrap for the old shape, and refuses foreign folders or a nested `.git`. Envelope `AGENTS.md`, memory, `builds.md`, and Playbooks are outside Upgrade. It does not merge `site/src/content/`, `site/src/custom/`, `site/public/images/`, `site/public/files/` or `site/public/fonts/`, and it keeps `site/public/_redirects`, whose rows are the site's, writing the kit's file only where a site has none. `site/src/custom/**` is site-owned: Upgrade never copies over it and never archives it, and it stays byte-identical. It does not copy `kit.json` wholesale; `domain`, `siteUrl`, `collections`, `nav`, `footer`, `siteName`, `layout`, `icon` and `lang` stay the site's. It takes a site at `kitVersion` 0.1.0, 0.2.0, 0.2.1, 0.2.2, 0.3.0, 0.4.0, 0.4.1, 0.4.2, 0.4.3 or 0.5.0 to 0.5.0, and stops before replacing anything when a site's own component in `src/custom/components/` shares a name with a kit component and changes none of its pages until the site sets an option. It keeps `site/src/styles/tokens.css` up to the first `@layer base`, the font slots and `@theme` block, and replaces the kit layers after it; where that file has no `@layer base` it replaces the whole file and says so, and the site reapplies its token update. `src/function/_worker.js` is kit code: Upgrade copies it, and archives the site's copy first when one exists and differs. On a 0.5.0 site, `check --built` requires `dist-function/` when a scheduled article was carried, accepts its absence when `.astro/kit-schedule.json` records every scheduled instant as not carried for this build, and requires its four files to match the contract when it is present.
+The script archives each replaced kit-owned file first, per `wiser/standards/conventions.md`, then copies kit code. It requires `site/kit.json`, names Wrap for the old shape, and refuses foreign folders or a nested `.git`. Envelope memory, `builds.md`, and Playbooks are outside Upgrade; its router uses Refresh router as stated below. It does not merge `site/src/content/`, `site/src/custom/`, `site/public/images/`, `site/public/files/` or `site/public/fonts/`, and it keeps `site/public/_redirects`, whose rows are the site's, writing the kit's file only where a site has none. `site/src/custom/**` is site-owned: Upgrade never copies over it and never archives it, and it stays byte-identical. It does not copy `kit.json` wholesale; `domain`, `siteUrl`, `collections`, `nav`, `footer`, `siteName`, `layout`, `icon` and `lang` stay the site's. It takes a site at `kitVersion` 0.1.0, 0.2.0, 0.2.1, 0.2.2, 0.3.0, 0.4.0, 0.4.1, 0.4.2, 0.4.3 or 0.5.0 to 0.5.0, and stops before replacing anything when a site's own component in `src/custom/components/` shares a name with a kit component and changes none of its pages until the site sets an option. It keeps `site/src/styles/tokens.css` up to the first `@layer base`, the font slots and `@theme` block, and replaces the kit layers after it; where that file has no `@layer base` it replaces the whole file and says so, and the site reapplies its token update. `src/function/_worker.js` is kit code: Upgrade copies it, and archives the site's copy first when one exists and differs. On a 0.5.0 site, `check --built` requires `dist-function/` when a scheduled article was carried, accepts its absence when `.astro/kit-schedule.json` records every scheduled instant as not carried for this build, and requires its four files to match the contract when it is present.
 
-An envelope `AGENTS.md` written before `kit.json` gained `nav` and `footer`, or before 0.2.0 gained `layout` and `collections.articles`, refuses keys a content job may now change. Refresh its Content vs code section from `site-AGENTS.md`, archiving the old router first. Upgrade never writes the router; it says so when the router's frontmatter names another `kitVersion`, and the refresh sets that line to the new version too. Check fails a site whose `kit.json` sets `nav` or `footer` while its layout predates them, sets `layout` while its router does not name it, or turns articles off while its router does not name `collections.articles`.
+Upgrade first runs the same Refresh router path against the installed version, before replacing kit code, and refreshes its `kitVersion` after the upgrade. An ambiguous or unsafe router stops before kit replacement; it never merely prints an unfulfilled refresh note. Check remains read-only and reports the exact Refresh router command for stale Content vs code, Check and preview, or Publish boundary instructions, including an old Webmaster gate or a missing release-staging boundary.
 
 Run `npm run build` in `site/`, then `check --built`, after Upgrade. Gate: Site Publisher Job 2 before the requester publishes.
+
+### Refresh router
+
+```sh
+node "<this-skill-dir>/scripts/refresh-router.mjs" --site "<envelope-folder>"
+```
+
+This repair assesses all three managed sections against `site-AGENTS.md`, not just whether `src/custom/` appears. It migrates only exact recognized canonical paragraphs and the frontmatter `kitVersion`, validates the complete result, then archives the original `AGENTS.md` beside it under envelope `zArchive/` before mutation. Owning identity, Provides, origin and local material outside the managed sections stay byte-identical. Any unrecognized paragraph inside a managed section stops untouched for reconciliation, including a custom restriction or a paragraph beginning Never or Do not. Inactive Markdown cannot supply policy. Unsupported frontmatter, duplicated or ambiguous managed headings, unreadable/symlink routers and unsafe archive paths also stop untouched with a next action. The script neither moves custom paragraphs automatically nor judges arbitrary prose.
+
+For **Site Author Refresh router: reconcile**, review the named text with the requester. Before an approved manual rewrite, archive the complete original in envelope `zArchive/` per `wiser/standards/conventions.md`. Restore the canonical managed policy from `site-AGENTS.md`; preserve local facts and restrictions unchanged in their own site-local section when they do not waive a mandatory gate. Ask about ambiguous text rather than deleting or relaxing it. Do not move a waiver elsewhere merely to make the check pass; an unresolved waiver leaves the job stopped. Then rerun Refresh router and Check. A current router is byte-identical and creates no archive on repeat. Refresh does not change kit code, content or release proofs.
 
 ## Rules
 

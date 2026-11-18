@@ -7,11 +7,8 @@
 //
 // release/pages-contract.json is the static contract source for kit 0.5.0 and
 // release/pages-layouts.json is the publisher's layout catalog source. Both are
-// UNSIGNED and UNPUBLISHED: no signature ships beside them, the kit tree carries
-// neither, and nothing here publishes them. Signing the contract and installing
-// it into envelopes, and signing and publishing the catalog at the URL the base
-// connector's pages-trust.json names, are later, separately approved release
-// steps. Every signature below is made with a FIXTURE Ed25519 key generated in
+// unsigned repository sources: signatures are separately published, the kit
+// tree carries neither, and nothing here publishes or stages them. Every signature below is made with a FIXTURE Ed25519 key generated in
 // memory for this process, trusted only by a temporary copy of the connector; it
 // is never written or printed, and a pass here proves nothing about a production
 // signature. Every publisher download below is served by a fake.
@@ -73,7 +70,7 @@ function fixtureIdentity() {
   };
 }
 
-function connectorCopy(source, trustKeys) {
+function connectorCopy(source, trustKeys, catalogBytes = CATALOG_BYTES) {
   const base = realpathSync(mkdtempSync(join(tmpdir(), 'kit-contract-connector-')));
   scratches.push(base);
   const dir = join(base, 'cloudflare');
@@ -85,7 +82,7 @@ function connectorCopy(source, trustKeys) {
   writeFileSync(join(dir, 'pages-trust.json'), `${JSON.stringify({
     format: 1,
     purpose: 'cloudflare.pages.deploy',
-    publishers: { [CONTRACT.publisher]: { keys: trustKeys, ...trustedUrls() } },
+    publishers: { [CONTRACT.publisher]: { keys: trustKeys, ...trustedUrls(), catalog_sha256: sha(catalogBytes) } },
   }, null, 2)}\n`);
   return { dir };
 }
@@ -256,7 +253,7 @@ test('the layout catalog source is closed, passes the connector\'s own check, an
   assert.equal(/sha256|worker|[0-9a-f]{64}/.test(CATALOG_BYTES.toString('utf8')), false);
 });
 
-test('the production contract and catalog are unsigned, unpublished and not installed in the kit', () => {
+test('the repository contract and catalog sources are unsigned and not installed in the kit', () => {
   assert.deepEqual(readdirSync(RELEASE_DIR).filter((name) => statSync(join(RELEASE_DIR, name)).isFile()).sort(),
     ['README.md', 'pages-contract-0.1.0.json', 'pages-contract.json', 'pages-layouts.json']);
   const stack = [KIT];
@@ -302,9 +299,9 @@ test('FIXTURE-signed real-layout contract reaches the fake provider with the kit
 
 test('the real-layout contract is refused when its publisher\'s catalog omits its layout', async () => {
   const identity = fixtureIdentity();
-  const copy = connectorCopy(requireConnector(), [identity.key]);
   const tree = envelope(identity);
   const omitted = Buffer.from(`${JSON.stringify({ ...CATALOG, layouts: [{ root_name: 'other-root', assets: 'public' }] }, null, 2)}\n`);
+  const copy = connectorCopy(requireConnector(), [identity.key], omitted);
   const { modules } = await load(copy.dir);
   const calls = [];
   const result = await modules.pages.deploy(tree.input, fakeProvider(calls, publisher(identity, { bytes: omitted })));

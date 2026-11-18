@@ -35,7 +35,7 @@ Content jobs may not change `site/src/custom/**`, `site/src/components/**`, `sit
 
 ## Check and preview
 
-Invoke Site Author Check on this envelope; it walks `site/` against `site/KIT.md`. Run `npm install` and `npm run dev` in `site/`. After a build, run `check --built`. Report the check result and served-HTML verification before stand-up is done.
+Before editing, building or publishing, invoke Site Author Refresh router on this envelope; a refusal stops that job until its named reconciliation is complete. Invoke Site Author Check on this envelope; it walks `site/` against `site/KIT.md`. Run `npm install` and `npm run dev` in `site/`. After a build, run `check --built`. Report the check result and served-HTML verification before stand-up is done.
 
 ## Publish boundary
 

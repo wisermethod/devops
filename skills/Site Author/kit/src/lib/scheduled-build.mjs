@@ -9,6 +9,7 @@ import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync,
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { gzipSync } from 'node:zlib';
+import kit from '../../kit.json' with { type: 'json' };
 
 export const STATE_ENV = 'KIT_STATE_BUILD';
 export const isStateBuild = () => process.env[STATE_ENV] === '1';
@@ -23,7 +24,7 @@ export function hiddenBuiltFile(page, fromUrl) {
 }
 
 const BUDGET = 1572864;
-const KIT_VERSION = '0.5.0';
+const KIT_VERSION = kit.kitVersion;
 const TYPES = {
   '.html': 'text/html; charset=utf-8',
   '.xml': 'application/xml',

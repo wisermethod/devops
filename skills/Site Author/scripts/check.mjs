@@ -8,12 +8,14 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { gunzipSync } from "node:zlib";
 
+import { leadFormActionProblem, leadFormPrivacyRoute } from "../kit/src/lib/lead-form.mjs";
 import { assessRouter, refreshCommand } from "./router.mjs";
 import { currentKit, versionLine } from "./envelope.mjs";
 console.log(versionLine());
 
-const CHECK_VERSION = "0.5.0";
-const KNOWN_VERSIONS = ["0.1.0", "0.2.0", "0.2.1", "0.2.2", "0.3.0", "0.4.0", "0.4.1", "0.4.2", "0.4.3", "0.5.0"];
+const CHECK_VERSION = "0.6.0";
+const FUNCTION_VERSION = "0.5.0";
+const KNOWN_VERSIONS = ["0.1.0", "0.2.0", "0.2.1", "0.2.2", "0.3.0", "0.4.0", "0.4.1", "0.4.2", "0.4.3", FUNCTION_VERSION, CHECK_VERSION];
 // feature, version introduced. A later release adds a row.
 const introduced = [
   { feature: "layout", version: "0.2.0" },
@@ -37,6 +39,7 @@ const introduced = [
   { feature: "noindex", version: "0.4.2" },
   { feature: "public/files/", version: "0.4.2" },
   { feature: "a future pubDate", version: "0.4.3" },
+  { feature: "LeadForm", version: "0.6.0" },
 ];
 
 const args = process.argv.slice(2);
@@ -89,11 +92,12 @@ function statedFunctionSha() {
     return stated ? stated[1] : null;
   } catch { return null; }
 }
+const hasKitFunction = KNOWN_VERSIONS.indexOf(kit.kitVersion) >= KNOWN_VERSIONS.indexOf(FUNCTION_VERSION);
 if (KNOWN_VERSIONS.includes(kit.kitVersion)) {
   const functionDir = path.join(site, "src", "function");
   let functionPresent = false;
   try { functionPresent = fs.existsSync(functionDir); } catch { functionPresent = false; }
-  if (kit.kitVersion === "0.5.0") {
+  if (hasKitFunction) {
     const workerFile = path.join(functionDir, "_worker.js");
     let workerStat = null;
     try { workerStat = fs.lstatSync(workerFile); } catch { workerStat = null; }
@@ -690,6 +694,7 @@ const requiredArticle = ["title", "description", "pubDate", "author", "tags", "d
 const requiredPage = ["title", "description"];
 const publishedArticles = [];
 const contentPages = [];
+const publishedPageRoutes = new Set();
 walkMd(path.join(site, "src/content/articles"), (file) => {
   const fm = frontmatter(file);
   if (!fm) return fail(`${file}: no frontmatter`);
@@ -815,7 +820,9 @@ walkMd(path.join(site, "src/content/pages"), (file) => {
     if (quoted) imagePath = quoted[1] === "'" ? quoted[2].replace(/''/g, "'") : quoted[2];
     checkImagePath(imagePath, `${file}: image`);
   }
-  contentPages.push({ file, id: pageIdOf(file, top), listArticles: yamlBoolean(top.listArticles ?? "") === "true" });
+  const id = pageIdOf(file, top);
+  contentPages.push({ file, id, listArticles: yamlBoolean(top.listArticles ?? "") === "true" });
+  if (yamlBoolean(top.draft ?? "") !== "true") publishedPageRoutes.add(id === "index" ? "/" : `/${id}`);
 });
 checkBlogPages();
 checkArticleTags();
@@ -883,11 +890,23 @@ function elementTags(text, component) {
   }
   return tags;
 }
+function checkLeadForm(file, attrs) {
+  tooOld("LeadForm", file);
+  const where = `${relToSite(file)}: LeadForm`;
+  if (attrs["{...}"]) fail(`${where} uses a spread; write action and privacy as literals`);
+  const actionProblem = leadFormActionProblem(attrs.action);
+  if (actionProblem) fail(`${where} action ${actionProblem}`);
+  const privacy = leadFormPrivacyRoute(attrs.privacy);
+  if (!privacy) fail(`${where} privacy must be a literal site path such as /privacy, with no query, fragment or trailing slash`);
+  else if (!publishedPageRoutes.has(privacy)) fail(`${where} privacy ${attrs.privacy} has no published page. Add or publish it in src/content/pages/ or use its existing path`);
+  else if (built && !distHasPage(privacy)) fail(`${where} privacy ${attrs.privacy} is missing from dist/. Rebuild the site and run check --built`);
+}
 function playerTags(text) {
   return elementTags(text, "ConversationPlayer");
 }
 walkFiles(path.join(site, "src/content"), /\.mdx$/, (file) => {
-  const text = renderedSource(fs.readFileSync(file, "utf8"));
+  const body = fs.readFileSync(file, "utf8").replace(/^\uFEFF/, "").replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/, "");
+  const text = renderedSource(body);
   for (const attrs of playerTags(text)) {
     tooOld("ConversationPlayer", file);
     const id = typeof attrs.id === "string" ? attrs.id : "";
@@ -909,6 +928,7 @@ walkFiles(path.join(site, "src/content"), /\.mdx$/, (file) => {
   }
   for (const attrs of elementTags(text, "Video")) checkVideo(file, attrs);
   for (const _attrs of elementTags(text, "Faq")) tooOld("Faq", file);
+  for (const attrs of elementTags(text, "LeadForm")) checkLeadForm(file, attrs);
 });
 checkEvents();
 
@@ -1840,7 +1860,7 @@ if (built) {
   if (functionsHeld) fail("dist/ holds a functions folder");
 }
 
-// Scheduled articles. A published article whose pubDate is after the build instant has no route in dist/ until a build at or after that instant. On kit 0.5.0 the kit Function serves the later version at the instant when dist-function/ carries it.
+// Scheduled articles. A published article whose pubDate is after the build instant has no route in dist/ until a build at or after that instant. From kit 0.5.0 the kit Function serves the later version at the instant when dist-function/ carries it.
 function articleIdOf(file, top) {
   if (slugOf(file, top) !== null) return slugOf(file, top);
   const root = path.join(site, "src/content/articles");
@@ -2084,7 +2104,7 @@ function sha256(bytes) {
   return createHash("sha256").update(bytes).digest("hex");
 }
 function checkDistFunction(scheduled, builtAt) {
-  if (!built || kit.kitVersion !== "0.5.0" || !builtAt) return;
+  if (!built || !hasKitFunction || !builtAt) return;
   const fnDir = path.join(site, "dist-function");
   let fnStat = null;
   try { fnStat = fs.lstatSync(fnDir); } catch { fnStat = null; }
@@ -2127,7 +2147,7 @@ function checkDistFunction(scheduled, builtAt) {
   const shape = Boolean(record && typeof record === "object" && !Array.isArray(record) && functionBytes
     && functionBytes.toString("utf8") === `${JSON.stringify(record, null, 2)}\n`
     && shapeKeys.every((key, index) => Object.keys(record)[index] === key) && Object.keys(record).length === shapeKeys.length
-    && record.kitVersion === "0.5.0" && typeof record.buildTime === "string"
+    && record.kitVersion === kit.kitVersion && typeof record.buildTime === "string"
     && hex64(record.worker) && hex64(record.routes) && hex64(record.schedule)
     && isoList(record.carried) && isoList(record.notCarried)
     && Number.isInteger(record.paths) && record.paths >= 0);
@@ -2172,7 +2192,7 @@ function checkDistFunction(scheduled, builtAt) {
       if (8 + length > scheduleBytes.length) throw new Error("length");
       const head = JSON.parse(scheduleBytes.subarray(8, 8 + length).toString("utf8"));
       const blobs = scheduleBytes.subarray(8 + length);
-      if (!head || head.v !== 1 || head.kitVersion !== "0.5.0" || typeof head.buildTime !== "string" || !head.paths || typeof head.paths !== "object" || Array.isArray(head.paths)) throw new Error("head");
+      if (!head || head.v !== 1 || head.kitVersion !== kit.kitVersion || typeof head.buildTime !== "string" || !head.paths || typeof head.paths !== "object" || Array.isArray(head.paths)) throw new Error("head");
       if (record && head.buildTime !== record.buildTime) throw new Error("buildTime");
       if (record && shape && record.paths !== Object.keys(head.paths).length) throw new Error("paths");
       const ats = new Set();
@@ -2237,7 +2257,7 @@ if (kit.collections.articles !== false) {
   const nowAt = envInstant ?? Date.now();
   const builtAt = distInstant();
   let fnRecord = null;
-  if (kit.kitVersion === "0.5.0") {
+  if (hasKitFunction) {
     try { fnRecord = JSON.parse(fs.readFileSync(path.join(site, "dist-function", "function.json"), "utf8")); } catch { fnRecord = null; }
     if (!fnRecord) {
       const note = readScheduleNote();
@@ -2247,7 +2267,6 @@ if (kit.collections.articles !== false) {
     }
   }
   const instantListed = (key, at) => Array.isArray(fnRecord?.[key]) && fnRecord[key].some((value) => Date.parse(value) === at);
-  const belowFunction = KNOWN_VERSIONS.indexOf(kit.kitVersion) < KNOWN_VERSIONS.indexOf("0.5.0");
   let stylesheetJudge = null;
   if (scheduled.some((item) => item.at > nowAt)) stylesheetJudge = await loadStylesheetJudge(site);
   for (const item of scheduled) {
@@ -2264,11 +2283,11 @@ if (kit.collections.articles !== false) {
         fail(`${shown}: ${token} would publish the text in the stylesheet before the article goes live; move the styling to src/custom/custom.css or drop it until the article is live.${unasked}`);
       }
       const note = item.dateOnly ? "; a date alone goes live at 00:00 UTC, which is the evening before in the Americas, so give a time and offset, such as 2026-10-09T09:00:00-06:00, for an exact moment" : "";
-      if (kit.kitVersion === "0.5.0" && instantListed("carried", item.at)) console.log(`scheduled: ${shown} goes live ${instantText(item.at)} through the kit Function`);
-      else if (kit.kitVersion === "0.5.0" && instantListed("notCarried", item.at)) console.log(`scheduled: ${shown} goes live ${instantText(item.at)}, not carried (over the size budget): it goes live at the first build and deploy after that instant`);
-      else console.log(`scheduled: ${shown} goes live ${instantText(item.at)}${note}${belowFunction ? ". Upgrade to 0.5.0 and it goes live at its instant on Cloudflare Pages" : ""}`);
+      if (hasKitFunction && instantListed("carried", item.at)) console.log(`scheduled: ${shown} goes live ${instantText(item.at)} through the kit Function`);
+      else if (hasKitFunction && instantListed("notCarried", item.at)) console.log(`scheduled: ${shown} goes live ${instantText(item.at)}, not carried (over the size budget): it goes live at the first build and deploy after that instant`);
+      else console.log(`scheduled: ${shown} goes live ${instantText(item.at)}${note}${!hasKitFunction ? `. Run Upgrade for the kit Function (introduced in ${FUNCTION_VERSION}) so it goes live at its instant on Cloudflare Pages` : ""}`);
     } else if (builtAt && item.at > builtAt.at) {
-      if (kit.kitVersion === "0.5.0" && instantListed("carried", item.at)) console.log(`live: ${shown} went live ${instantText(item.at)} through the kit Function; a rebuild and deploy adds it to the site's search`);
+      if (hasKitFunction && instantListed("carried", item.at)) console.log(`live: ${shown} went live ${instantText(item.at)} through the kit Function; a rebuild and deploy adds it to the site's search`);
       else console.log(`due: ${shown} went live ${instantText(item.at)}, after dist/ was built (${instantText(builtAt.at)}): rebuild, run check --built and Site Publisher Job 2, and deploy`);
     }
   }

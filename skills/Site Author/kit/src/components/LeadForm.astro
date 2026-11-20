@@ -1,0 +1,138 @@
+---
+import { leadFormActionProblem, leadFormPrivacyRoute } from '../lib/lead-form.mjs';
+
+interface Props {
+  action: string;
+  privacy: string;
+}
+const { action, privacy } = Astro.props;
+const actionProblem = leadFormActionProblem(action);
+if (actionProblem) throw new Error(`LeadForm action ${actionProblem}.`);
+if (!leadFormPrivacyRoute(privacy)) throw new Error('LeadForm privacy must be a literal site path such as /privacy.');
+
+// The count belongs to this render, so IDs are unique on the page and stable across builds.
+const locals = Astro.locals as typeof Astro.locals & { kitLeadFormCount?: number };
+locals.kitLeadFormCount = (locals.kitLeadFormCount ?? 0) + 1;
+const prefix = `kit-lead-${locals.kitLeadFormCount}`;
+---
+<form class="lead-form not-prose" action={action} method="post" enctype="application/x-www-form-urlencoded">
+  <div class="pair">
+    <div class="field">
+      <label for={`${prefix}-first-name`}>First name</label>
+      <input id={`${prefix}-first-name`} name="first_name" type="text" autocomplete="given-name" required />
+    </div>
+    <div class="field">
+      <label for={`${prefix}-last-name`}>Last name</label>
+      <input id={`${prefix}-last-name`} name="last_name" type="text" autocomplete="family-name" />
+    </div>
+  </div>
+  <div class="pair">
+    <div class="field">
+      <label for={`${prefix}-email`}>Work email</label>
+      <input id={`${prefix}-email`} name="email" type="email" autocomplete="email" required />
+    </div>
+    <div class="field">
+      <label for={`${prefix}-company`}>Company</label>
+      <input id={`${prefix}-company`} name="company" type="text" autocomplete="organization" />
+    </div>
+  </div>
+  <div class="field">
+    <label for={`${prefix}-phone`}>Phone <span>(optional)</span></label>
+    <input id={`${prefix}-phone`} name="phone" type="tel" autocomplete="tel" />
+  </div>
+  <div class="field">
+    <label for={`${prefix}-message`}>How can we help?</label>
+    <textarea id={`${prefix}-message`} name="message" required></textarea>
+  </div>
+  <div class="trap" hidden inert>
+    <label for={`${prefix}-website`}>Website</label>
+    <input id={`${prefix}-website`} name="website" type="text" autocomplete="off" tabindex="-1" />
+  </div>
+  <div class="actions">
+    <button type="submit">Send</button>
+    <a href={privacy}>Privacy</a>
+  </div>
+</form>
+
+<style>
+  .lead-form {
+    --form-space: var(--spacing, 0.25rem);
+    --form-gap: calc(var(--form-space) * 5);
+    display: grid;
+    gap: var(--form-gap);
+  }
+
+  .pair {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, calc(var(--form-space) * 52)), 1fr));
+    gap: var(--form-gap);
+  }
+
+  .field {
+    display: grid;
+    gap: var(--form-space);
+    min-inline-size: 0;
+  }
+
+  label {
+    font-weight: var(--font-weight-semibold, 600);
+  }
+
+  label span {
+    font-weight: var(--font-weight-normal, normal);
+  }
+
+  input,
+  textarea,
+  button {
+    font: inherit;
+    padding: calc(var(--form-space) * 3) calc(var(--form-space) * 4);
+    border-radius: var(--radius-md, calc(var(--form-space) * 1.5));
+  }
+
+  input,
+  textarea {
+    inline-size: 100%;
+    color: inherit;
+    background: transparent;
+    border: 1px solid currentColor;
+  }
+
+  textarea {
+    min-block-size: calc(var(--form-space) * 42);
+    resize: vertical;
+  }
+
+  .trap {
+    display: none;
+  }
+
+  .actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--form-gap);
+  }
+
+  button {
+    color: var(--color-paper);
+    background: var(--color-ink);
+    font-weight: var(--font-weight-semibold, 600);
+    padding-inline: calc(var(--form-space) * 8);
+    cursor: pointer;
+  }
+
+  button:hover {
+    text-decoration: underline;
+  }
+
+  a {
+    color: inherit;
+    text-decoration: underline;
+  }
+
+  :is(input, textarea, button, a):focus-visible {
+    outline: solid var(--color-link);
+    outline-offset: var(--form-space);
+  }
+</style>

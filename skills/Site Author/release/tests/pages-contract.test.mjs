@@ -5,7 +5,7 @@
 //   WISER_CLOUDFLARE_CONNECTOR=/abs/path/to/wiser/connectors/cloudflare \
 //     node --test "skills/Site Author/release/tests/pages-contract.test.mjs"
 //
-// release/pages-contract.json is the static contract source for kit 0.5.0 and
+// release/pages-contract.json is the static contract source for the current kit and
 // release/pages-layouts.json is the publisher's layout catalog source. Both are
 // unsigned repository sources: signatures are separately published, the kit
 // tree carries neither, and nothing here publishes or stages them. Every signature below is made with a FIXTURE Ed25519 key generated in

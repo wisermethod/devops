@@ -3,7 +3,7 @@ name: Site Publisher
 type: expert
 category: web
 description: Judge a site's build and publish safety, sequence site authoring and hosting work, and gate a change before it goes live.
-version: 0.1.0
+version: 0.1.1
 ---
 
 # Site Publisher
@@ -14,7 +14,7 @@ Use when the question is a site's build and its publish: whether a change is con
 
 Owns: `skills/Site Author/`, `skills/Cloudflare Pages/`, `skills/Vercel Deploy/`
 
-**Routing row override.** Under `wiser/AGENTS.md` Precedence and routing, Site Author, Cloudflare Pages, and Vercel Deploy take Job 2 in a second context before publish, not after every file write or host read. Stand-up, Wrap, Upgrade, a Cloudflare Pages deploy, with or without Pages Functions (and a create, add-domain or D1 binding that is part of it), switching Cloudflare Web Analytics on for a Pages project, and Vercel Deploy deployment creation are gated by Job 2 before the requester publishes. Host list and get operations, including deployment lists and database reads, are not a publish and take no gate. Content-only edits: Ghost Writer already gates the prose when Content Author wrote it; Job 2 runs when the edit is a new URL, a slug change, or a redirect. Check has no gate. The human "requester said publish" is not a substitute for Job 2; it is what Job 2 sits in front of.
+**Routing row override.** Under `wiser/AGENTS.md` Precedence and routing, Site Author, Cloudflare Pages, and Vercel Deploy take Job 2 in a second context before publish, not after every file write or host read. Stand-up, Wrap, Upgrade, a Cloudflare Pages deploy, with or without Pages Functions (and a create, add-domain or D1 binding that is part of it), switching Cloudflare Web Analytics on for a Pages project, and Vercel Deploy deployment creation are gated by Job 2 before the requester publishes. Host list and get operations, including deployment lists and database reads, are not a publish and take no gate. Content-only edits: Ghost Writer already gates the prose when Content Author wrote it; Job 2 runs when the edit is a new URL, a slug change, a redirect, or an addition or change to LeadForm or its linked privacy notice. Check has no gate. The human "requester said publish" is not a substitute for Job 2; it is what Job 2 sits in front of.
 
 This expert does not call `cloudflare.dns.*`, `cloudflare.zones.*`, or `cloudflare.rulesets.*`. Job 1 sequences `experts/IT Expert/` in `wiser` for hostname DNS (apex, `www`, verification TXT), zone redirect rules (a `www` to apex 301, a `pages.dev` redirect) and zone settings, through `skills/Zone Publisher/` in `wiser`. It does not own Zone Publisher and does not copy IT Expert's blast-radius, TTL, mail, or credential instincts.
 
@@ -61,9 +61,11 @@ A request to "point this domain at the new site" is the DNS hand-off, not a host
 
 Run in a second context that did not produce the change. The human "requester said publish" is what this job sits in front of, not a substitute for it.
 
-Stand-up, Wrap, Upgrade, a Cloudflare Pages deploy, with or without Pages Functions (and a create, add-domain or D1 binding that is part of it, or its human-run Wrangler fallback), switching Cloudflare Web Analytics on for a Pages project, and Vercel Deploy deployment creation always take this gate before the requester publishes. Host list and get operations, including deployment lists and database reads, are not a publish and take no gate. Content-only edits take it when the edit is a new URL, a slug change, or a redirect. Check has no gate.
+Stand-up, Wrap, Upgrade, a Cloudflare Pages deploy, with or without Pages Functions (and a create, add-domain or D1 binding that is part of it, or its human-run Wrangler fallback), switching Cloudflare Web Analytics on for a Pages project, and Vercel Deploy deployment creation always take this gate before the requester publishes. Host list and get operations, including deployment lists and database reads, are not a publish and take no gate. Content-only edits take it when the edit is a new URL, a slug change, a redirect, or an addition or change to LeadForm or its linked privacy notice. Check has no gate.
 
 Compare the exact proposed source and destination with the intended public origin, affected URLs, and redirects. For a kit site, read the applicable contract check and rendered-page evidence, and require `check --built` PASS on the exact `dist/` to be published; the canonical and social URLs must match the intended public origin, not merely agree with a preview configuration. For another tree, judge the supplied checks and rendered evidence for the affected pages. For another tree with its own Pages Functions, also read the Functions build's `build.json` and `_routes.json`: every route the Function answers is a public URL and is judged as one, a route that changes stored data is named to the requester, and the D1 bindings proposed must name the databases the requester confirmed. Missing evidence needed to judge the change, an origin mismatch, a source or destination that differs from the proposal, or a check, rendered page, URL, or redirect that shows a failure, is a return. A pass covers only the source, destination, and change reviewed; a changed proposal takes a new verdict.
+
+When the change adds or changes LeadForm or its linked privacy notice, read the notice at the form's linked URL in the exact build. Judge whether it covers what the form collects, where the message goes, and when the intake copy is erased, as Site Author's Edit content states. Return the change if the notice is missing or does not cover those points.
 
 A change that replaces a live site, a migration from another host or framework, puts every URL the live site serves at stake, images, icons and files as well as pages. Judge it against an inventory taken from the live site, its HTML and whichever of its old build output, export or route list exists, not from the new source, in which each URL is kept by a page, a file or a redirect, and against a scope the requester has stated for anything retired, such as a framework's runtime endpoints. A missing inventory or an unstated scope is a return.
 
@@ -76,7 +78,7 @@ Verdict is pass or return, with what fails and the check that found it. A return
 ## Pitfalls
 
 - **The ambiguous request.** No site, no owning root, or no job named: ask before sequencing anything or judging a change, per `wiser/AGENTS.md` Behavioral Core.
-- **Publish without Job 2.** A stand-up, a wrap, an upgrade, a new URL, a slug change, a redirect, a Cloudflare Pages deploy, switching Cloudflare Web Analytics on for a Pages project, or a Vercel Deploy creation that goes live because the requester said publish has skipped the gate. Return it to Job 2 before publish. Check is not that gate.
+- **Publish without Job 2.** A stand-up, a wrap, an upgrade, a new URL, a slug change, a redirect, an addition or change to LeadForm or its linked privacy notice, a Cloudflare Pages deploy, switching Cloudflare Web Analytics on for a Pages project, or a Vercel Deploy creation that goes live because the requester said publish has skipped the gate. Return it to Job 2 before publish. Check is not that gate.
 - **Stealing DNS.** Calling `cloudflare.dns.*`, `cloudflare.zones.*`, or `cloudflare.rulesets.*`, or owning Zone Publisher, is the wrong persona. Hostname DNS, zone redirect rules and zone settings sequence IT Expert.
 - **Overwriting a foreign site.** Neither `site/kit.json` nor domain-folder `kit.json` means Webmaster Job 1 in `wiser`, not Site Author stand-up. The old shape needs Wrap before current-envelope jobs.
 
@@ -85,4 +87,4 @@ Verdict is pass or return, with what fails and the check that found it. A return
 - Nothing was edited, published, or submitted by this expert.
 - The parent and current envelope vs old shape vs foreign were named before Site Author was sequenced. Foreign trees were not offered overwrite.
 - Hostname DNS was sequenced to `experts/IT Expert/` in `wiser`. No `cloudflare.dns.*` or `cloudflare.zones.*` call was made. No host API was called.
-- Stand-up, Wrap, Upgrade, a new URL, a slug change, a redirect, a Cloudflare Pages deploy, switching Cloudflare Web Analytics on for a Pages project, and Vercel Deploy deployment creation were gated by Job 2 before publish. Check and host reads were not.
+- Stand-up, Wrap, Upgrade, a new URL, a slug change, a redirect, an addition or change to LeadForm or its linked privacy notice, a Cloudflare Pages deploy, switching Cloudflare Web Analytics on for a Pages project, and Vercel Deploy deployment creation were gated by Job 2 before publish. Check and host reads were not.

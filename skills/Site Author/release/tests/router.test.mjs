@@ -180,9 +180,9 @@ test('Upgrade refreshes through the shared path before kit replacement and updat
   const before = read(dir);
   const out = command('upgrade.mjs', ['--site', dir, '--kit', KIT]);
   assert.equal(out.status, 0, out.stderr+out.stdout);
-  assert.equal(assessRouter(dir, '0.5.0').stale, false);
+  assert.equal(assessRouter(dir, '0.6.0').stale, false);
   assert.ok(archives(dir).some((name) => fs.readFileSync(path.join(dir, 'zArchive', name), 'utf8') === before));
-  assert.match(read(dir), /kitVersion: 0\.5\.0/);
+  assert.match(read(dir), /kitVersion: 0\.6\.0/);
   assert.ok(!out.stdout.includes('was not touched'));
   const check = command('check.mjs', [dir]);
   assert.equal(check.status, 0, check.stderr+check.stdout);

@@ -2,7 +2,7 @@
   "format": 1,
   "purpose": "cloudflare.pages.deploy",
   "publisher": "wiser",
-  "release": "0.5.0",
+  "release": "0.6.0",
   "layout": {
     "root_name": "site",
     "assets": "dist",

@@ -7,6 +7,7 @@ The static records the publisher signs for a kit release, and the tests that hol
 | `pages-contract.json` | Current kit Pages contract source: the release, layout, approved worker fingerprint and record field names. Unsigned and not installed in any envelope |
 | `pages-contract-0.1.0.json` | Legacy 0.1.0 static-only contract source: exact identity and layout, with worker/data/record all null and the reserved Function directory forbidden. Unsigned and not installed in any envelope |
 | `pages-layouts.json` | The publisher's layout catalog source: every release layout this publisher has published, which the base connector's foreign Pages routes refuse and whose listing `cloudflare.pages.deploy` requires. Unsigned repository source; the signed catalog is published separately |
+| `tests/lead-form.test.mjs` | Local Astro builds and source and built Check runs for LeadForm |
 | `tests/router.test.mjs` | Synthetic-envelope refresh, refusal, read-only Check and Upgrade sequencing regressions |
 | `tests/fixtures/pre-split-AGENTS.md` | The prior published router template, instantiated only into temporary synthetic envelopes |
 | `tests/pages-contract.test.mjs` | The real-layout checks: contract against the kit, the catalog against the connector's own schema, the unmarked legacy layout refused on both foreign routes, and the real-layout deploy reaching a fake provider |
@@ -17,7 +18,7 @@ Each entry protects one published layout from the base connector's static and Fu
 
 ## Release pairs and member staging
 
-The publisher distributes the approved public pair for version `<version>` at `https://releases.wisermemory.com/pages/wiser/<version>/pages-contract.json` and `https://releases.wisermemory.com/pages/wiser/<version>/pages-contract.sig`. The current supported versions are `0.5.0` and the static-only legacy `0.1.0`. Use the exact installed kit version; an absent or invalid pair is unavailable, never a reason to borrow another version. `https://releases.wisermemory.com/pages/wiser/layouts.json` and `layouts.sig` are the independent catalog addresses in the base connector's publisher trust, not caller-selected locations.
+The publisher distributes the approved public pair for version `<version>` at `https://releases.wisermemory.com/pages/wiser/<version>/pages-contract.json` and `https://releases.wisermemory.com/pages/wiser/<version>/pages-contract.sig`. The published versions are `0.5.0` and the static-only legacy `0.1.0`. The unsigned source for 0.6.0 still needs the publisher signing and publication step before a member can stage its pair. Use the exact installed kit version; an absent or invalid pair is unavailable, never a reason to borrow another version. `https://releases.wisermemory.com/pages/wiser/layouts.json` and `layouts.sig` are the independent catalog addresses in the base connector's publisher trust, not caller-selected locations.
 
 Only the approved publisher signing step produces release proofs. The current contract is paired with `pages-contract.sig`; the legacy static contract is paired with `pages-contract-0.1.0.sig`. The public pairs for `0.5.0` and `0.1.0` were signed, published and verified on 2026-11-14. For a member publish, Cloudflare Pages selects the pair matching the site's exact `kitVersion` and stages its unchanged bytes as `site/pages-contract.json` and `site/pages-contract.sig`, outside the upload directories and before the exact-build gate. The base connector verifies its independent publisher trust and every publisher's online catalog before any Cloudflare call. Neither an unsigned source nor a different version's pair can substitute. Static-only approval never admits a Function. The current Function-capable source still permits a static build with no optional Function.
 
@@ -25,7 +26,7 @@ The repository-source unsigned/uninstalled guard remains true: signatures are pu
 
 ## Running the tests
 
-The tests need the base connector's directory, named explicitly. No path to it is written in this tree. From this repository's root:
+Install the pinned kit dependencies in `kit/` before running the Astro build tests. The Pages tests need the base connector's directory, named explicitly. No path to it is written in this tree. From this repository's root:
 
 ```sh
 WISER_CLOUDFLARE_CONNECTOR=/absolute/path/to/wiser/connectors/cloudflare \

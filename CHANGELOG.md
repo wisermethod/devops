@@ -1,5 +1,11 @@
 # What changed in DevOps
 
+## v2026.11.20, November 20, 2026
+
+- Site Author 0.13.0 and site kit 0.6.0 add `LeadForm`, a contact form a kit site places with one line. It has six fields, a Send button and a Privacy link, runs no script, and posts to the intake address of your Wiser CRM install. Check refuses a form whose address does not end in `/submit`, whose privacy page is missing or unpublished, or whose privacy path a redirect takes a visitor away from, and tells an older site to Upgrade. The form's words are fixed, and it has no file upload or captcha.
+- Site Author says what a site's privacy page must state before a form is published, and that the form works only from the site's own public address. Site Publisher 0.1.1 reads that page before publish, including when a form is added to a page that already exists.
+- A site at kit 0.6.0 publishes to Cloudflare Pages with the 0.6.0 release pair.
+
 ## v2026.11.18, November 18, 2026
 
 - Site Author 0.12.0 files Animated Explainer pictures whose motion follows scroll, pointer or entering view, checking the producer's placement facts, the built responses and finished still, and the page's script budget before filing.

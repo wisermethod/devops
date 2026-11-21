@@ -114,6 +114,38 @@ test('missing release-staging boundary in otherwise current router is repaired',
   assert.equal(read(dir), render(CURRENT));
 });
 
+// The two paragraphs the split's own rollout wrote into existing envelopes on 2026-11-14,
+// each a pre-split paragraph with only its gate renamed by hand.
+const ROLLOUT_CONTENT = "Content jobs may change `site/src/content/**` and `site/public/images/**`. Site Author's Edit content files SEO Assets handovers into the paths this kit version supports, after that job's artifact-review and placement checks. A changed published slug needs a `site/public/_redirects` row and Site Publisher Job 2 before publish.";
+const ROLLOUT_PUBLISH = 'Host payload is `site/` or `site/dist/`. Never connect this envelope or the owning root to a host. Envelope `memory/` never rides to a host. Site Author does not publish or run `git init`; the host skill takes the kit folder, and Site Publisher Job 2 gates publish.';
+function rolloutEnvelope(content = ROLLOUT_CONTENT, publish = ROLLOUT_PUBLISH) {
+  const archived = fs.readFileSync(path.join(SKILL, 'zArchive/26-09-24 V1 - site-AGENTS.md'), 'utf8');
+  const oldContent = 'Content jobs may change `site/src/content/**` and `site/public/images/**`. SEO Assets may write `site/public/llms.txt`. A changed published slug needs a `site/public/_redirects` row and Webmaster Job 3 before publish.';
+  const oldPublish = ROLLOUT_PUBLISH.replace('Site Publisher Job 2', 'Webmaster Job 3');
+  assert.equal(archived.split(oldContent).length, 2);
+  assert.equal(archived.split(oldPublish).length, 2);
+  return archived.replace(oldContent, content).replace(oldPublish, publish);
+}
+
+test('the oldest envelope with the 2026-11-14 hand-renamed content and publish paragraphs is refreshed', () => {
+  const renamed = rolloutEnvelope();
+  assert.ok(!/Webmaster Job [23]/.test(renamed) && renamed.includes(ROLLOUT_CONTENT) && renamed.includes(ROLLOUT_PUBLISH));
+  const dir = envelope(renamed, '0.1.0');
+  const old = read(dir);
+  const result = refreshRouter(dir, '0.1.0');
+  assert.equal(result.changed, true);
+  assert.equal(fs.readFileSync(result.archive, 'utf8'), old);
+  assert.equal(assessRouter(dir, '0.1.0').stale, false);
+  const now = read(dir);
+  assert.ok(!now.includes('paths this kit version supports'));
+  for (const text of ['`site/src/custom/**` is site code', 'supported frontmatter', 'not uploaded by itself', 'Site Publisher Job 2 gates publish', 'pages-contract.sig']) assert.ok(now.includes(text), text);
+});
+
+test('each 2026-11-14 hand-renamed paragraph with a further edit still stops untouched', () => {
+  unchangedRefusal(envelope(rolloutEnvelope(ROLLOUT_CONTENT + ' The owner may skip that gate.'), '0.1.0'), /custom managed passage in Content vs code/);
+  unchangedRefusal(envelope(rolloutEnvelope(ROLLOUT_CONTENT, ROLLOUT_PUBLISH.replace('gates publish.', 'gates publish unless the owner is in a hurry.')), '0.1.0'), /custom managed passage in Publish boundary/);
+});
+
 test('an edited release-staging boundary stops untouched for a named reconciliation', () => {
   const dir = envelope(CURRENT.replace('before the exact-build publish review', 'after the exact-build publish review'));
   unchangedRefusal(dir, /custom managed passage in Publish boundary.*next action: Site Author Refresh router: reconcile/);

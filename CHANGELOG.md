@@ -1,5 +1,9 @@
 # What changed in DevOps
 
+## v2026.11.21, November 21, 2026
+
+- Site Author 0.13.1 refreshes the instructions of a site set up before November 14. Check and Refresh router stopped on two paragraphs the move to DevOps had written into those sites' instructions. Both are now recognized, and a paragraph edited further still stops for reconciliation.
+
 ## v2026.11.20, November 20, 2026
 
 - Site Author 0.13.0 and site kit 0.6.0 add `LeadForm`, a contact form a kit site places with one line. It has six fields, a Send button and a Privacy link, runs no script, and posts to the intake address of your Wiser CRM install. Check refuses a form whose address does not end in `/submit`, whose privacy page is missing or unpublished, or whose privacy path a redirect takes a visitor away from, and tells an older site to Upgrade. The form's words are fixed, and it has no file upload or captcha.

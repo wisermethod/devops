@@ -890,22 +890,59 @@ function elementTags(text, component) {
   }
   return tags;
 }
-function readPublicRedirectSources() {
-  const sources = new Set();
+// Pages matching, as kit/src/lib/scheduled-build.mjs states it: a * splat matches any remainder,
+// including slashes, and a :name placeholder, whose name begins with a letter, matches one segment.
+function redirectSourceMatches(source, name) {
+  let pattern = "^";
+  for (let i = 0; i < source.length; i++) {
+    const c = source[i];
+    if (c === "*") { pattern += ".*"; continue; }
+    if (c === ":") {
+      const ident = /^[A-Za-z][A-Za-z0-9_]*/.exec(source.slice(i + 1));
+      if (ident) { pattern += "[^/]+"; i += ident[0].length; continue; }
+    }
+    pattern += /[.*+?^${}()|[\]\\]/.test(c) ? `\\${c}` : c;
+  }
+  return new RegExp(`${pattern}$`).test(name);
+}
+// The path a redirect source names, percent-decoded, with its splats and placeholders kept as written.
+// A source on another origin never matches a request to this site.
+function redirectSourcePath(source, origin) {
+  let pathname = source;
+  if (/^[A-Za-z][A-Za-z0-9+.-]*:\/\//.test(source)) {
+    if (!source.startsWith(`${origin}/`) && source !== origin) return null;
+    pathname = source.slice(origin.length) || "/";
+  }
+  pathname = pathname.split(/[?#]/)[0];
+  try { pathname = decodeURIComponent(pathname); }
+  catch { /* the path as written stands */ }
+  return pathname;
+}
+function readPublicRedirectRules() {
+  const rules = [];
   const redirectsFile = path.join(site, "public/_redirects");
-  if (!fs.existsSync(redirectsFile) || !fs.statSync(redirectsFile).isFile()) return sources;
+  if (!fs.existsSync(redirectsFile) || !fs.statSync(redirectsFile).isFile()) return rules;
   let origin;
-  try { origin = new URL(kit.siteUrl).origin; } catch { return sources; }
+  try { origin = new URL(kit.siteUrl).origin; } catch { return rules; }
   try {
-    for (const { source } of redirectEndpoints(fs.readFileSync(redirectsFile, "utf8"), origin)) {
-      sources.add(reducedRedirectPath(source, origin));
+    for (const { source, destination } of redirectEndpoints(fs.readFileSync(redirectsFile, "utf8"), origin)) {
+      const sourcePath = redirectSourcePath(source, origin);
+      if (sourcePath !== null) rules.push({ sourcePath, destination });
     }
   } catch (error) {
     fail(`cannot read public/_redirects: ${error.message}`);
   }
-  return sources;
+  return rules;
 }
-let publicRedirectSources;
+// A rule hides the page when its source matches the path a visitor asks for, in any spelling Pages
+// serves it under, and it sends that request anywhere but the page itself.
+function redirectedAway(route) {
+  publicRedirectRules ??= readPublicRedirectRules();
+  const spellings = route === "/" ? ["/"] : [route, `${route}/`, `${route}.html`];
+  return publicRedirectRules.some(({ sourcePath, destination }) =>
+    destination !== route && spellings.some((spelling) => redirectSourceMatches(sourcePath, spelling)));
+}
+let publicRedirectRules;
 function checkLeadForm(file, attrs) {
   tooOld("LeadForm", file);
   const where = `${relToSite(file)}: LeadForm`;
@@ -915,7 +952,7 @@ function checkLeadForm(file, attrs) {
   const privacy = leadFormPrivacyRoute(attrs.privacy);
   if (!privacy) fail(`${where} privacy must be a literal site path such as /privacy, with no query, fragment or trailing slash`);
   else if (!publishedPageRoutes.has(privacy)) fail(`${where} privacy ${attrs.privacy} has no published page. Add or publish it in src/content/pages/ or use its existing path`);
-  else if ((publicRedirectSources ??= readPublicRedirectSources()).has(privacy)) fail(`${where} privacy ${attrs.privacy} is redirected by public/_redirects. Remove the rule for that path or link to a published privacy page that is served directly`);
+  else if (redirectedAway(privacy)) fail(`${where} privacy ${attrs.privacy} is redirected by public/_redirects. Remove the rule for that path or link to a published privacy page that is served directly`);
   else if (built && !distHasPage(privacy)) fail(`${where} privacy ${attrs.privacy} is missing from dist/. Rebuild the site and run check --built`);
 }
 function playerTags(text) {

@@ -225,6 +225,21 @@ test('check accepts comments and redirects whose source is a different path', ()
   assert.equal(result.status, 0, output(result));
 });
 
+for (const rule of ['/privacy/ /privacy 301', '/privacy.html /privacy 301', '/blog/* /articles/:splat 301', '/team/:name /about 301']) {
+  test(`check accepts a redirect that does not take a visitor away from the privacy page: ${rule}`, () => {
+    const result = check(fixture(FORM, { redirects: `${rule}\n` }));
+    assert.equal(result.status, 0, output(result));
+  });
+}
+
+for (const rule of ['/* /index.html 200', '/:slug /elsewhere 301', '/priv* /elsewhere 302', 'https://example.com/privacy /elsewhere 301']) {
+  test(`check refuses a LeadForm privacy page hidden by the rule ${rule}`, () => {
+    const result = check(fixture(FORM, { redirects: `${rule}\n` }));
+    assert.equal(result.status, 1, output(result));
+    assert.match(output(result), /LeadForm privacy.*\/privacy.*public\/_redirects/);
+  });
+}
+
 for (const source of ['/privacy', '/privacy/', '/pr%69vacy.html']) {
   test(`check refuses a LeadForm privacy page redirected from ${source}`, () => {
     const result = check(fixture(FORM, { redirects: `${source} /elsewhere 301\n` }));

@@ -11,6 +11,7 @@ export function leadFormActionProblem(value) {
   try {
     const url = new URL(value);
     if (url.username || url.password) return 'must have no credentials. Use the public intake address from your Wiser CRM install';
+    if (url.pathname !== '/submit') return 'must use the intake address that ends in /submit';
     return null;
   } catch {
     return instruction;

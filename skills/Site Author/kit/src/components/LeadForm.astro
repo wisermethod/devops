@@ -1,5 +1,6 @@
 ---
 import { leadFormActionProblem, leadFormPrivacyRoute } from '../lib/lead-form.mjs';
+import { publicPagePath } from '../lib/site-path.mjs';
 
 interface Props {
   action: string;
@@ -16,6 +17,7 @@ locals.kitLeadFormCount = (locals.kitLeadFormCount ?? 0) + 1;
 const prefix = `kit-lead-${locals.kitLeadFormCount}`;
 ---
 <form class="lead-form not-prose" action={action} method="post" enctype="application/x-www-form-urlencoded">
+  <input type="hidden" name="page" value={publicPagePath(Astro.url.pathname)} />
   <div class="pair">
     <div class="field">
       <label for={`${prefix}-first-name`}>First name</label>

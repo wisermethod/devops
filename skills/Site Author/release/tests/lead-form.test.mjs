@@ -14,6 +14,7 @@ const ACTION = 'https://intake.example.com/submit';
 const PRIVACY = '/privacy';
 const FORM = `<LeadForm action="${ACTION}" privacy="${PRIVACY}" />`;
 const FRONTMATTER = '---\ntitle: Contact\ndescription: Contact the organisation.\n---\n\n';
+const OLDER_VERSIONS = ['0.1.0', '0.2.0', '0.2.1', '0.2.2', '0.3.0', '0.4.0', '0.4.1', '0.4.2', '0.4.3', '0.5.0'];
 const dirs = [];
 after(() => { for (const dir of dirs) rmSync(dir, { recursive: true, force: true }); });
 
@@ -21,7 +22,7 @@ function script(name, ...args) {
   return spawnSync(process.execPath, [join(SKILL, 'scripts', name), ...args], { encoding: 'utf8' });
 }
 
-function fixture(markup, { privacy = true, older = false } = {}) {
+function fixture(markup, { privacy = true, redirects, older } = {}) {
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'kit-lead-form-')));
   dirs.push(root);
   writeFileSync(join(root, 'AGENTS.md'), '# Fixture\n\n| Directory | Holds |\n| --- | --- |\n| `sites/` | Sites |\n');
@@ -37,12 +38,13 @@ function fixture(markup, { privacy = true, older = false } = {}) {
     writeFileSync(join(pages, 'data-policy.md'), '---\ntitle: Privacy\ndescription: Privacy information.\nslug: privacy\nnoindex: true\n'
       + (privacy === 'draft' ? 'draft: true\n' : '') + '---\n\nPrivacy information.\n');
   }
+  if (redirects !== undefined) writeFileSync(join(site, 'public', '_redirects'), redirects);
   if (older) {
     const kitPath = join(site, 'kit.json');
     const kit = JSON.parse(readFileSync(kitPath, 'utf8'));
-    writeFileSync(kitPath, JSON.stringify({ ...kit, kitVersion: '0.5.0' }));
+    writeFileSync(kitPath, JSON.stringify({ ...kit, kitVersion: older }));
     const router = join(envelope, 'AGENTS.md');
-    writeFileSync(router, readFileSync(router, 'utf8').replace(/^kitVersion: .*$/m, 'kitVersion: 0.5.0'));
+    writeFileSync(router, readFileSync(router, 'utf8').replace(/^kitVersion: .*$/m, `kitVersion: ${older}`));
   }
   return { envelope, site };
 }
@@ -100,7 +102,7 @@ test('LeadForm renders the six visitor fields in order with associated labels an
   const markup = forms(builtFixture().html);
   assert.equal(markup.length, 2, 'each placement renders one form');
   for (const form of markup) {
-    const fields = controls(form).filter(({ name }) => name !== 'website');
+    const fields = controls(form).filter(({ name, type }) => name !== 'website' && type !== 'hidden');
     assert.deepEqual(fields.map((field) => [field.name, field.element, field.type, field.required ?? false,
       field.autocomplete, labelFor(form, field.id)]), [
       ['first_name', 'input', 'text', true, 'given-name', 'First name'],
@@ -111,7 +113,7 @@ test('LeadForm renders the six visitor fields in order with associated labels an
       ['message', 'textarea', undefined, true, undefined, 'How can we help?'],
     ]);
   }
-  const ids = markup.flatMap((form) => controls(form).map(({ id }) => id));
+  const ids = markup.flatMap((form) => controls(form).flatMap(({ id }) => id ? [id] : []));
   assert.equal(new Set(ids).size, ids.length, 'each form instance has its own label targets');
 });
 
@@ -132,6 +134,22 @@ test('LeadForm submits the labelled website trap as text while hiding it from si
   assert.equal(attributes(wrapper[1]).inert, true);
 });
 
+test('LeadForm carries the built page path in an unlabelled hidden input that passes check --built', () => {
+  const tree = builtFixture();
+  for (const form of forms(tree.html)) {
+    const fields = controls(form).filter(({ name }) => name === 'page');
+    assert.equal(fields.length, 1);
+    const [field] = fields;
+    assert.equal(field.element, 'input');
+    assert.equal(field.type, 'hidden');
+    assert.equal(field.value, '/contact');
+    assert.equal(field.id, undefined);
+    assert.equal(field.disabled, undefined);
+  }
+  const result = check(tree, '--built');
+  assert.equal(result.status, 0, output(result));
+});
+
 test('LeadForm has a plain POST, approved actions, no script and no return address', () => {
   const { html } = builtFixture();
   for (const form of forms(html)) {
@@ -141,7 +159,7 @@ test('LeadForm has a plain POST, approved actions, no script and no return addre
     assert.equal(attrs.enctype, 'application/x-www-form-urlencoded');
     assert.deepEqual(Object.keys(attrs).filter((name) => !name.startsWith('data-')).sort(),
       ['action', 'class', 'enctype', 'method']);
-    assert.deepEqual(controls(form).map(({ name }) => name),
+    assert.deepEqual(controls(form).filter(({ name, type }) => name !== 'page' || type !== 'hidden').map(({ name }) => name),
       ['first_name', 'last_name', 'email', 'company', 'phone', 'message', 'website']);
     assert.match(form, /<button\b[^>]*type="submit"[^>]*>Send<\/button>\s*<a\b[^>]*href="\/privacy"[^>]*>Privacy<\/a>/);
     assert.doesNotMatch(form, /\b(?:on\w+|formaction|formtarget|data-[\w-]*(?:return|redirect)[\w-]*)\s*=/i);
@@ -169,6 +187,20 @@ test('check refuses a return query or fragment in the LeadForm action', () => {
   }
 });
 
+for (const action of ['https://intake.example.com', 'https://intake.example.com/', `${ACTION}/`]) {
+  test(`check refuses LeadForm action ${action} and names /submit`, () => {
+    const result = check(fixture(`<LeadForm action="${action}" privacy="${PRIVACY}" />`));
+    assert.equal(result.status, 1, output(result));
+    assert.match(output(result), /LeadForm action.*ends in \/submit/);
+  });
+}
+
+test('check refuses credentials in the LeadForm action', () => {
+  const result = check(fixture(`<LeadForm action="https://user:pass@intake.example.com/submit" privacy="${PRIVACY}" />`));
+  assert.equal(result.status, 1, output(result));
+  assert.match(output(result), /LeadForm action.*no credentials/);
+});
+
 test('check refuses a missing or non-literal LeadForm privacy prop', () => {
   for (const prop of ['', 'privacy={route}', '{...props}']) {
     const result = check(fixture(`<LeadForm action="${ACTION}" ${prop} />`));
@@ -188,11 +220,26 @@ test('check refuses a LeadForm privacy path that is external, missing or draft-o
   }
 });
 
-test('check tells kit 0.5.0 to Upgrade when it places LeadForm', () => {
-  const result = check(fixture(FORM, { older: true }));
-  assert.equal(result.status, 1, output(result));
-  assert.match(output(result), /uses LeadForm, which kitVersion 0\.6\.0 introduced: run Upgrade/);
+test('check accepts comments and redirects whose source is a different path', () => {
+  const result = check(fixture(FORM, { redirects: '# /privacy /elsewhere 301\n/old-policy /privacy 301\n' }));
+  assert.equal(result.status, 0, output(result));
 });
+
+for (const source of ['/privacy', '/privacy/', '/pr%69vacy.html']) {
+  test(`check refuses a LeadForm privacy page redirected from ${source}`, () => {
+    const result = check(fixture(FORM, { redirects: `${source} /elsewhere 301\n` }));
+    assert.equal(result.status, 1, output(result));
+    assert.match(output(result), /LeadForm privacy.*\/privacy.*public\/_redirects/);
+  });
+}
+
+for (const older of OLDER_VERSIONS) {
+  test(`check tells kit ${older} to Upgrade when it places LeadForm`, () => {
+    const result = check(fixture(FORM, { older }));
+    assert.equal(result.status, 1, output(result));
+    assert.match(output(result), /uses LeadForm, which kitVersion 0\.6\.0 introduced: run Upgrade/);
+  });
+}
 
 test('check --built accepts the LeadForm labels, including the hidden trap, and the published privacy page', () => {
   const tree = builtFixture();

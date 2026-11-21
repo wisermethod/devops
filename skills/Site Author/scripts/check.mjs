@@ -890,6 +890,22 @@ function elementTags(text, component) {
   }
   return tags;
 }
+function readPublicRedirectSources() {
+  const sources = new Set();
+  const redirectsFile = path.join(site, "public/_redirects");
+  if (!fs.existsSync(redirectsFile) || !fs.statSync(redirectsFile).isFile()) return sources;
+  let origin;
+  try { origin = new URL(kit.siteUrl).origin; } catch { return sources; }
+  try {
+    for (const { source } of redirectEndpoints(fs.readFileSync(redirectsFile, "utf8"), origin)) {
+      sources.add(reducedRedirectPath(source, origin));
+    }
+  } catch (error) {
+    fail(`cannot read public/_redirects: ${error.message}`);
+  }
+  return sources;
+}
+let publicRedirectSources;
 function checkLeadForm(file, attrs) {
   tooOld("LeadForm", file);
   const where = `${relToSite(file)}: LeadForm`;
@@ -899,6 +915,7 @@ function checkLeadForm(file, attrs) {
   const privacy = leadFormPrivacyRoute(attrs.privacy);
   if (!privacy) fail(`${where} privacy must be a literal site path such as /privacy, with no query, fragment or trailing slash`);
   else if (!publishedPageRoutes.has(privacy)) fail(`${where} privacy ${attrs.privacy} has no published page. Add or publish it in src/content/pages/ or use its existing path`);
+  else if ((publicRedirectSources ??= readPublicRedirectSources()).has(privacy)) fail(`${where} privacy ${attrs.privacy} is redirected by public/_redirects. Remove the rule for that path or link to a published privacy page that is served directly`);
   else if (built && !distHasPage(privacy)) fail(`${where} privacy ${attrs.privacy} is missing from dist/. Rebuild the site and run check --built`);
 }
 function playerTags(text) {

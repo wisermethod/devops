@@ -1,6 +1,7 @@
 ---
 import { getCollection, getEntry, type CollectionEntry } from 'astro:content';
 import kit from '../../kit.json';
+import { publicPagePath } from '../lib/site-path.mjs';
 import '../styles/tokens.css';
 // A site's own folder, src/custom/. Each file is optional; with none, the page is the kit's alone.
 const customCss = import.meta.glob('../custom/custom.css', { eager: true });
@@ -41,8 +42,7 @@ if (!title?.trim() || !description?.trim()) {
   throw new Error('Every page requires a title and description.');
 }
 const SITE_URL = kit.siteUrl;
-// With build.format 'file' the build-time pathname ends in .html (/index.html, /articles/x.html); the public URL does not.
-const path = Astro.url.pathname.replace(/\.html$/, '').replace(/\/index$/, '').replace(/\/+$/, '') || '/';
+const path = publicPagePath(Astro.url.pathname);
 const canonical = SITE_URL + path;
 const image = new URL(article?.data.hero ?? pageImage ?? '/images/og-default.png', SITE_URL).href;
 const home = await getEntry('pages', 'index');

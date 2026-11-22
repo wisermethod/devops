@@ -4,6 +4,8 @@ What this plugin does not do, declared by the primitive that names it.
 
 A gap is a capability this root does not provide that a primitive's own body names as missing (`wiser/standards/primitives.md`). This file collects every declared `gaps` entry, by hand, and is corrected whenever a primitive's gaps change. It carries capability gaps only, and names what is missing, never where it went.
 
+Counted 2026-11-22: 74 gaps across 14 primitives.
+
 Counted 2026-11-20: 66 gaps across 13 primitives.
 
 Counted 2026-11-13: 61 gaps across 13 primitives. Bullet count: `grep -E '^- ' system/GAPS.md | wc -l` returned 61 at that count, matching the primitives' own `gaps:` frontmatter. On 2026-11-13, three skills joined this plugin with their thirteen gaps. Counted 2026-10-15: 48 gaps across 10 primitives.
@@ -82,6 +84,17 @@ Counted 2026-11-13: 61 gaps across 13 primitives. Bullet count: `grep -E '^- ' s
 - creating the buckets and the tokens, which is the person's with the vendor
 - scheduled backups of a second install on the same machine
 - a backup or restore whose archive the machine's available memory cannot hold, since the helper holds it whole
+
+### App People
+
+- admitting a person to sign-in from inside a Wiser app's People screen
+- giving or changing a person's role in a Wiser app
+- reading a Wiser app's People list without a connection to that app
+- changing a sign-in list without a Cloudflare connection able to edit Access
+- a sign-in list that admits people by anything other than explicit email rules
+- more than 50 emails on one sign-in list
+- changing a Wiser app's first owner
+- changing a sign-in list whose application links or covered hostnames cannot be established
 
 ### Set Up Twenty Workspace
 

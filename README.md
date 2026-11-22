@@ -2,7 +2,7 @@
 
 A WISER plugin for people who run their own servers, self-hosted applications and websites: virtual machines, Docker workloads, light security, application setup, and building and publishing sites.
 
-It ships three experts, DevOps Expert, CRM Expert and Site Publisher; eleven skills, Prepare VM, VM Inventory, VM Configure, VM Security Audit, Deploy Workload, Deploy Twenty, Back Up Twenty, Set Up Twenty Workspace, Site Author, Cloudflare Pages and Vercel Deploy; and three tools, vm-job, twenty-relay and pages-functions.
+It ships three experts, DevOps Expert, CRM Expert and Site Publisher; twelve skills, Prepare VM, VM Inventory, VM Configure, VM Security Audit, Deploy Workload, Deploy Twenty, Back Up Twenty, App People, Set Up Twenty Workspace, Site Author, Cloudflare Pages and Vercel Deploy; and three tools, vm-job, twenty-relay and pages-functions.
 
 ## Install
 

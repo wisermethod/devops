@@ -35,7 +35,7 @@ Wrap the ask in `<request>`, the owning root's applicable install record in `<in
 
 ### 1. Identify the app and action
 
-Which job did the member request? Add one email, remove one email, or compare the lists. A request that is none of these is not this skill's job. An add or a removal that names no email: use **Email to add** or **Email to remove** and wait. Use the app address and Cloudflare account id from the request or the applicable install record, such as an install sheet in the owning root. Does the request name an app address? Yes: use it, and use only a record that matches it. No: the root records exactly one app, use that app; it records more than one, or none, use **Which app** and wait. The account id is missing, or the request and the record give different ones: use **Which account** and wait. An account id is 32 lowercase hexadecimal characters. Use the hostname without scheme, port, path, or trailing dot, lowercased, in the calls below.
+Which job did the member request? Add one email, remove one email, or compare the lists. A request that is none of these is not this skill's job. An add or a removal that names no email: use **Email to add** or **Email to remove** and wait. Use the app address and Cloudflare account id from the request or the applicable install record, such as an install sheet in the owning root. Does the request name an app address? Yes: use it, and use only a record that matches it. No: the root records exactly one app, use that app; it records more than one, or none, use **Which app** and wait. The account id is missing, is not 32 lowercase hexadecimal characters, or the request and the record give different ones: use **Which account** and wait. Use the hostname without scheme, port, path, or trailing dot, lowercased, in the calls below.
 
 Load the action contracts in `wiser/connectors/cloudflare/CONNECTOR.md`, **Access applications and staff** and `zones.list_access_apps`, and the permissions in its `auth.md`. The gateway takes the resolved label for each module, when one is selected.
 
@@ -48,9 +48,9 @@ Load the action contracts in `wiser/connectors/cloudflare/CONNECTOR.md`, **Acces
 
 ### 2. Resolve the sign-in list
 
-Call `cloudflare.zones.list_access_apps` with the hostname. Which applications may apply? The rows in `result` whose ids are absent from `unresolved` match the hostname. `unresolved` names applications whose reach the hostname filter could not establish. No match, more than one match, or any unresolved row: use **No sign-in setup** and stop. An `access_enabled: false` result is disabled Access with no match. For one match and no unresolved row, call `cloudflare.access.get_app` with the row's `id`. Require `success: true`, matching `id` and `hostname`, and a nonempty array of valid policy ids in `policy_ids`. A result that fails those checks: use **No sign-in setup** and stop.
+A gateway status that Stops hands off, from any call in this step or Step 4, goes to Stops before any sentence below. Call `cloudflare.zones.list_access_apps` with the hostname. Which applications may apply? The rows in `result` whose ids are absent from `unresolved` match the hostname. `unresolved` names applications whose reach the hostname filter could not establish. No match, more than one match, or any unresolved row: use **No sign-in setup** and stop. An `access_enabled: false` result is disabled Access with no match. For one match and no unresolved row, call `cloudflare.access.get_app` with the row's `id`. Require `success: true`, matching `id` and `hostname`, and a nonempty array of valid policy ids in `policy_ids`. A result that fails those checks: use **No sign-in setup** and stop.
 
-For every distinct `policy_id` in `get_app.policy_ids`, call `cloudflare.access.list_staff`. What did each call establish? `success: true` with the matching `policy_id` and a valid `emails` array establishes a sign-in list unless the listing identifies that id as Service Auth. Exclude a Service Auth policy only when the matched listing row identifies that id as `decision: non_identity` in `policies` and `list_staff` returns `invalid_arguments` on `policy_id` with reason `Staff changes require a reusable Allow policy containing only 1 to 50 explicit email includes.`. The reason alone also covers unsupported Allow policies. Any other refusal, missing policy evidence or contradictory decision: use **List unclear** and stop. Exactly one supported policy and every other id accounted for as Service Auth: keep its id and emails. Zero supported policies or more than one: use **List unclear** and stop. The supported policy is a reusable Allow list of 1 to 50 explicit emails, per the connector contract.
+For every distinct `policy_id` in `get_app.policy_ids`, call `cloudflare.access.list_staff`. What did each call establish? `success: true` with the matching `policy_id` and a valid `emails` array establishes a sign-in list. A successful `get_app` has already read every attached policy and refused any that is not an Allow policy of 1 to 50 explicit emails or a Service Auth policy of one service token (`CONNECTOR.md`, `access.get_app`). So a policy `get_app` passed, for which `list_staff` returns `invalid_arguments` on `policy_id` with reason `Staff changes require a reusable Allow policy containing only 1 to 50 explicit email includes.`, is the Service Auth policy: exclude it. Where the matched listing row carries a `decision` for that id that is not `non_identity`, the two reads disagree: use **List unclear** and stop. Any other refusal: use **List unclear** and stop. Exactly one supported policy and every other id accounted for as Service Auth: keep its id and emails. Zero supported policies or more than one: use **List unclear** and stop. The supported policy is a reusable Allow list of 1 to 50 explicit emails, per the connector contract.
 
 Comparison goes to Step 3. A change goes to Step 4.
 
@@ -60,21 +60,27 @@ Comparison goes to Step 3. A change goes to Step 4.
 
 **Is the snapshot usable?** Require readable email and role data for every row, a complete list for the selected app and one identifiable first owner. Treat the first owner's role as Owner. Collapse duplicate rows only if their role and first-owner flag agree after lowercasing emails. An incomplete or contradictory snapshot gets **Paste People** if no paste has been requested. If the requested paste remains unusable, use **List unreadable** and stop. After waiting for a paste for a comparison, run Step 2 again before comparing.
 
+**Who can sign in?** First use **Who can sign in** once, its slot every email on the sign-in list in email order, the first owner included where listed.
+
 **What differs?** Lowercase both email sets for matching and keep the source email spelling for output. In email order, use the applicable sentence from **Differences** once per email with sign-in and no role, including emails absent from People, then once per People email with a role and no sign-in. Omit the first owner from both difference sets. If there are no differences and the first owner can sign in, use **All matching**.
 
 **Can the first owner sign in?** If yes, the comparison ends there. If no, after the ordinary differences: no other owner is on the sign-in list, use **First owner missing**; another owner is on it, use **First owner off list**, since nobody being able to manage the app would then be untrue. A yes to either begins a new add request for the first owner's email, through Step 2 and Steps 4 to 6, including a fresh gate and gateway confirmation. A no or no answer leaves the comparison complete and makes no change.
 
 ### 4. Establish the reach and gate the change
 
-For a removal, check the already known first owner and the requester's own email where available from the request, install record or app identity. The removal names the first owner: use **First owner protected** and stop. It names the requester: use **Own email** and stop. Use the connector's last-email refusal in Step 6. A refusal is never a reason to remove the first owner.
+For a removal, first know the first owner: from the install record where it names one, otherwise from the app's People list read as Step 3 reads it, connection first and then **Paste People**, taking the row marked as first owner. No first owner can be read: use **List unreadable** and stop. Compare without case. The removal names the first owner: use **First owner protected** and stop. It names the requester's own email, from the request or the install record: use **Own email** and stop. The sign-in list holds only the email being removed: use **Last email** and stop, with no gate and no call, since the connector refuses that removal. A refusal is never a reason to remove the first owner.
 
 Call `cloudflare.zones.list_access_apps` with `{ account_id }` and no hostname. In each raw `result` row, read the link ids from `policies`: an entry is a policy id string or an object with `id`. `policy_ids` is the output of `get_app`. Require the selected application to occur once and still carry the selected policy. For every row carrying that policy, take the hostname from `domain`, every `self_hosted_domains` entry and each `destinations[].uri`. Use the connector's host extraction in `CONNECTOR.md`, including the code's stripping of scheme and port. Deduplicate hostnames, sort them and omit the primary hostname from the other-hostname list.
 
 **Is the reach established?** Yes if every row has readable policy ids and every linked app has at least one explicit hostname with no unresolved or wildcard destination. A malformed link, a missing or changed selected app link, a linked app with any unresolvable destination, or a failed listing does not establish reach: use **Reach unknown** and stop before the gate or confirmation.
 
-Give `experts/DevOps Expert/`, in a second context, `<change_request>`, `<plan>` and `<live_state>` per its Inputs and Rules. Record the current sign-in email list and every covered hostname in the gate's `<live_state>`. Name the exact action, input and how to reverse a successful change with a separately gated and confirmed inverse where the policy permits it. A last-email removal has no executable write under the connector contract. The reach question is whether the named target includes every hostname the policy covers.
+Give `experts/DevOps Expert/`, in a second context, `<change_request>`, `<plan>` and `<live_state>` per its Inputs and Rules. Record the current sign-in email list and every covered hostname in the gate's `<live_state>`. Name the exact action, input and the way back: an add is undone by removing the same email, and a removal by adding it again, each a separately gated and confirmed call. The target is every hostname the policy covers.
 
-**What was the gate's verdict?** Safe as planned: continue. Safe with named conditions: use **Gate condition** once for each condition, its slot the condition in one plain clause, and continue only once the member says yes to each and each is met. A condition that changes the plan returns to the gate. A blocked, missing or not-as-proposed verdict: use **Gate stopped**, its slot the verdict's reason in one plain clause, and stop. A write with a no-op preflight still follows Steps 4 to 6 because the action reads the live policy again.
+**What was the gate's verdict?** Read it as one of the expert's four outcomes, by its whole phrase.
+- Safe as planned: continue.
+- Safe with named conditions: use **Gate condition** once for each condition, its slot the condition in one plain clause, and continue only once the member says yes to each and each is met. A condition that changes the plan returns to the gate.
+- Not as proposed, whatever clearing shape it names: use **Gate stopped**, its slot the verdict's reason in one plain clause, and stop.
+- A declared gap, a question instead of a verdict, or no verdict: use **Gate stopped** and stop. A write with a no-op preflight still follows Steps 4 to 6 because the action reads the live policy again.
 
 ### 5. Present the gateway stop
 
@@ -89,7 +95,7 @@ Which result came back?
 - `success: true` for the selected `policy_id` with valid `before` and `after` and a Boolean `changed`: check that `after` contains the added email or lacks the removed email, without case. Also check that the target's presence changed when `changed` is true, and the before and after sets match when false. If these checks fail, treat the result as unverified.
 - A verified `changed: false`: use **Already admitted** or **Already absent**, according to the action.
 - A verified removal with `changed: true`: use **After removing**.
-- A verified add with `changed: true`: use Step 3's People read or paste path for the selected app, without running the comparison. If a usable People list shows a role, use **After adding, role set** with that role's display label (Owner, Member, Viewer in Wiser CRM). If the email is absent or has a null role, use **After adding, no role**. If the list remains unreadable, use **Role unknown**. Do not infer a blank role from an unavailable list.
+- A verified add with `changed: true`: read the app's People list through the connection where the app has one, or use a People list the member already pasted for this request; never ask for a paste here. A usable list shows a role: use **After adding, role set** with that role's display label (Owner, Member, Viewer in Wiser CRM). It shows the email absent or with no role: use **After adding, no role**. No usable list: use **Role unknown**. Do not infer a blank role from an unavailable list.
 - `invalid_arguments` on `remove` with reason `The last staff email cannot be removed.`: use **Last email**. Claim no change and stop.
 - Any other refusal, unexpected result or unverified read-back: a hand-off in Stops applies, take it. Otherwise read `list_staff` once to establish whether the target can sign in now, without automatically retrying the write, and use **Not confirmed** with the ending that read shows. A confirmed call has the connector's concurrent-edit limit in `CONNECTOR.md`.
 
@@ -99,7 +105,7 @@ Does the gateway return `needs_connect`, or is the selected Cloudflare module un
 
 ## Member wording
 
-Use only these quoted lines for App People prose. The member's own data fills the slots. Put the requested or observed email in email slots. For `<object>`, `<subject>` and `<possessive>` use the member's name or pronoun exactly as typed where it fits the sentence as written. Otherwise repeat the email, with possessive `'s` only in `<possessive>`. `<other_hostnames>` is a comma-separated list. For **Differences**, use each sentence independently and only for emails in its set. `<condition>` and `<reason>` are one plain clause each, in the member's terms, with no ids or codes.
+Use only these quoted lines for App People prose. The member's own data fills the slots. Put the requested or observed email in email slots. For `<object>`, `<subject>` and `<possessive>` use the member's name or pronoun exactly as typed where it fits the sentence as written. Otherwise repeat the email, with possessive `'s` only in `<possessive>`. `<other_hostnames>` and `<sign_in_emails>` are comma-separated lists. For **Differences**, use each sentence independently and only for emails in its set. `<condition>` and `<reason>` are one plain clause each, in the member's terms, with no ids or codes.
 
 **Which app**
 
@@ -172,6 +178,10 @@ Use only these quoted lines for App People prose. The member's own data fills th
 **Last email**
 
 > Cloudflare won't remove the last person on a sign-in list. Add someone else first.
+
+**Who can sign in**
+
+> These people can sign in to <hostname>: <sign_in_emails>.
 
 **All matching**
 

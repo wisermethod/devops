@@ -3,7 +3,7 @@ name: App People
 type: skill
 category: operations
 description: Add or remove one email on a Wiser app's Cloudflare Access sign-in list, or report where that list and the app's People list differ
-version: 0.1.0
+version: 0.2.0
 gaps:
   - admitting a person to sign-in from inside a Wiser app's People screen
   - giving or changing a person's role in a Wiser app
@@ -13,7 +13,7 @@ gaps:
   - more than 50 emails on one sign-in list
   - changing a Wiser app's first owner
   - changing a sign-in list whose application links or covered hostnames cannot be established
-  - telling an app's Service Auth policy from an Allow policy whose name the connector refuses, where the app carries no Service Auth policy and Cloudflare's listing gives no decision
+  - a sign-in list on a policy that is not reusable, carries settings the connector does not support, or has a name the connector refuses
 ---
 
 # App People
@@ -51,9 +51,9 @@ Load the action contracts in `wiser/connectors/cloudflare/CONNECTOR.md`, **Acces
 
 ### 2. Resolve the sign-in list
 
-Call `cloudflare.zones.list_access_apps` with the hostname. Which applications may apply? The rows in `result` whose ids are absent from `unresolved` match the hostname. `unresolved` names applications whose reach the hostname filter could not establish. No match, more than one match, or any unresolved row: use **No sign-in setup** and stop. An `access_enabled: false` result is disabled Access with no match. For one match and no unresolved row, call `cloudflare.access.get_app` with the row's `id`. Require `success: true`, matching `id` and `hostname`, and a nonempty array of valid policy ids in `policy_ids`. A result that fails those checks: use **No sign-in setup** and stop.
+Call `cloudflare.zones.list_access_apps` with the hostname. Which applications may apply? The rows in `result` whose ids are absent from `unresolved` match the hostname. `unresolved` names applications whose reach the hostname filter could not establish. No match, more than one match, or any unresolved row: use **No sign-in setup** and stop. An `access_enabled: false` result is disabled Access with no match. For one match and no unresolved row, call `cloudflare.access.get_app` with the row's `id`. Require `success: true`, matching `id` and `hostname`, and a nonempty array of valid policy ids in `policy_ids`. A result that fails those checks: use **No sign-in setup** and stop. Also require `policies` to give each `policy_ids` entry, in the same order, as its `id` with a `decision` of `allow` or `non_identity`, taken from the live policy read (`CONNECTOR.md`, `access.get_app`). `policies` missing, or not matching `policy_ids` that way: use **List unclear** and stop.
 
-For every distinct `policy_id` in `get_app.policy_ids`, call `cloudflare.access.list_staff`. What did each call establish? `success: true` with the matching `policy_id` and a valid `emails` array establishes a sign-in list. A successful `get_app` has already read every attached policy and refused any that is not an Allow policy of 1 to 50 explicit emails or a Service Auth policy of one service token (`CONNECTOR.md`, `access.get_app`). So a policy `get_app` passed, for which `list_staff` returns `invalid_arguments` on `policy_id` with reason `Staff changes require a reusable Allow policy containing only 1 to 50 explicit email includes.`, is the Service Auth policy, or an Allow policy whose name the connector's name check refuses, which draws the same reason. Which is it? The matched listing row carries a `decision` for that id: `non_identity` is Service Auth, exclude it; any other decision is an Allow policy this skill cannot read, use **List unclear** and stop. The row carries no decision, and exactly one attached policy drew that reason: treat it as the app's one Service Auth policy and exclude it. More than one drew it: use **List unclear** and stop. Any other refusal: use **List unclear** and stop. Exactly one supported policy and every other id accounted for as Service Auth: keep its id and emails. Zero supported policies or more than one: use **List unclear** and stop. The supported policy is a reusable Allow list of 1 to 50 explicit emails, per the connector contract.
+How many distinct ids does `policies` mark `allow`? Each `non_identity` entry is the app's Service Auth policy, never a sign-in list: leave it out. Exactly one `allow` id: call `cloudflare.access.list_staff` with it. Zero, or more than one: use **List unclear** and stop. Did that call establish the sign-in list? `success: true` with the matching `policy_id` and a valid `emails` array: keep its id and emails. Any refusal or other result: use **List unclear** and stop. The supported policy is a reusable Allow list of 1 to 50 explicit emails, per the connector contract.
 
 Comparison goes to Step 3. A change goes to Step 4.
 
@@ -104,7 +104,7 @@ Which result came back?
 
 ## Stops
 
-Does the gateway return `needs_connect`, or is the selected Cloudflare module unconnected? Hand off to `wiser/skills/Connect Account/` with `<connect_request>` for `cloudflare` and that module and `<auth_guide>` for `wiser/connectors/cloudflare/auth.md`. A `vendor_error` with `http_status: 403` on either module goes first to `wiser/connectors/cloudflare/CONNECTOR.md` **Troubleshooting**, then to `wiser/skills/Connection Troubleshooter/` with `<status_object>`. Does the gateway answer `needs_connector`, or a status naming a connection label it cannot choose? Hand off to `wiser/skills/Connection Troubleshooter/` with `<status_object>`. The skill needs a release of the Cloudflare connector that declares `access.list_staff`. Restart the original step after the hand-off resolves. Every other connector refusal stops: from a read in Step 2, as that step says; from the account listing in Step 4 or Step 5, with **Reach unknown**; from a write, as Step 6 says.
+Does the gateway return `needs_connect`, or is the selected Cloudflare module unconnected? Hand off to `wiser/skills/Connect Account/` with `<connect_request>` for `cloudflare` and that module and `<auth_guide>` for `wiser/connectors/cloudflare/auth.md`. A `vendor_error` with `http_status: 403` on either module goes first to `wiser/connectors/cloudflare/CONNECTOR.md` **Troubleshooting**, then to `wiser/skills/Connection Troubleshooter/` with `<status_object>`. Does the gateway answer `needs_connector`, or a status naming a connection label it cannot choose? Hand off to `wiser/skills/Connection Troubleshooter/` with `<status_object>`. The skill needs a release of the Cloudflare connector that declares `access.list_staff` and whose `access.get_app` returns `policies`. Restart the original step after the hand-off resolves. Every other connector refusal stops: from a read in Step 2, as that step says; from the account listing in Step 4 or Step 5, with **Reach unknown**; from a write, as Step 6 says.
 
 ## Member wording
 

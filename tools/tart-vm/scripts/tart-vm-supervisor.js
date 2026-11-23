@@ -2,17 +2,161 @@
 
 import { spawn } from 'node:child_process';
 import * as fs from 'node:fs';
-import { createServer } from 'node:net';
+import { createConnection, createServer } from 'node:net';
 import { createInterface } from 'node:readline';
+import { setTimeout as sleep } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
+import { deflateSync } from 'node:zlib';
 import {
-  classifyTartError, makeRunRecord, parseSupervisorCommand, parseVncLine, redact, redactJson, SUPERVISOR_HELP, tartArgv
+  NO_DESKTOP_SESSION, RFB_DROPPED, RfbClient, SUPERVISOR_HELP, checkPoint, classifyTartError, desktopInput, framebufferRequest, isDesktopCommand, keyEvent, makeRunRecord, pointerEvent,
+  parseSupervisorCommand, parseVncLine, pngFromBgrx, redact, redactJson, tartArgv
 } from './tart-vm-core.js';
 import {
   checkSocketLength, checkState, invokedDirectly, openPrivateFile, requireRecord, runPaths, statePaths, writeJson
 } from './tart-vm.js';
 
 const ENTRY = fileURLToPath(import.meta.url);
+const MAX_REQUEST = 1024 * 1024;
+const FRAME_TIMEOUT = 15_000;
+const KEEPALIVE_MS = 10_000;
+const CALLER_GONE = 'The caller stopped waiting, so the command stopped partway; part of it may have reached the guest. Take a screenshot.';
+
+class DesktopSession {
+  constructor({ port, passphrase }, onReady, onStartupFailure) {
+    this.rfb = new RfbClient(passphrase);
+    this.connected = false;
+    this.socket = createConnection({ host: '127.0.0.1', port });
+    this.socket.setNoDelay(true);
+    this.socket.on('data', (bytes) => {
+      try {
+        const { send, events } = this.rfb.feed(bytes);
+        for (const message of send) this.socket.write(message);
+        for (const event of events) {
+          if (event.type === 'server-init') {
+            this.connected = true;
+            onReady();
+          }
+          if (event.type === 'framebuffer-update') this.update?.receive(event);
+        }
+      } catch (error) {
+        this.close(error.message);
+      }
+    });
+    this.socket.on('error', () => this.close(RFB_DROPPED));
+    this.socket.on('close', () => this.close(RFB_DROPPED));
+    this.onStartupFailure = onStartupFailure;
+  }
+
+  close(reason) {
+    if (this.closed) return;
+    this.closed = true;
+    this.socket.destroy();
+    if (reason && !this.connected) this.onStartupFailure(reason);
+    this.connected = false;
+    this.update?.reject(new Error(RFB_DROPPED));
+  }
+
+  status() {
+    const { width, height } = this.rfb.framebuffer ?? {};
+    return { connected: this.connected, framebuffer: width === undefined ? null : { width, height } };
+  }
+
+  send(bytes) {
+    if (!this.connected) throw new Error(RFB_DROPPED);
+    return new Promise((done, reject) => {
+      this.socket.write(bytes, (error) => error ? reject(new Error(RFB_DROPPED)) : done());
+    });
+  }
+
+  async screenshot() {
+    if (!this.connected) throw new Error(RFB_DROPPED);
+    const request = () => {
+      const { width, height } = this.rfb.framebuffer;
+      return this.send(framebufferRequest(width, height));
+    };
+    let timer;
+    let frame;
+    try {
+      frame = await new Promise((done, reject) => {
+        timer = setTimeout(() => {
+          reject(new Error('RFB did not deliver a full framebuffer update within 15 seconds. Restart with start --desktop.'));
+          this.close();
+        }, FRAME_TIMEOUT);
+        // A shot is taken only once Raw rectangles since the request cover every pixel of one frame, and from a copy
+        // of that frame, since a DesktopSize later in the same bytes replaces the framebuffer.
+        let target;
+        let covered;
+        let remaining;
+        const reset = () => {
+          target = this.rfb.framebuffer;
+          covered = new Uint8Array(target.width * target.height);
+          remaining = covered.length;
+        };
+        reset();
+        this.update = {
+          reject,
+          receive: (event) => {
+            if (event.resized || event.framebuffer !== target) {
+              reset();
+              request().catch(reject);
+              return;
+            }
+            for (const { x, y, width, height } of event.raw) {
+              for (let row = y; row < y + height; row += 1) {
+                for (let column = x, at = row * target.width + x; column < x + width; column += 1, at += 1) {
+                  if (!covered[at]) { covered[at] = 1; remaining -= 1; }
+                }
+              }
+            }
+            if (remaining === 0) done({ width: target.width, height: target.height, pixels: Buffer.from(target.pixels) });
+            else request().catch(reject);
+          }
+        };
+        request().catch(reject);
+      });
+    } finally {
+      clearTimeout(timer);
+      this.update = null;
+    }
+    const { width, height } = frame;
+    const png = pngFromBgrx(frame, deflateSync);
+    return { result: { width, height, bytes: png.length }, png };
+  }
+
+  async input(message, callerGone = () => false) {
+    if (!this.connected) throw new Error(RFB_DROPPED);
+    const { events, result } = desktopInput(message, this.rfb.framebuffer);
+    const held = new Set();
+    let pressed = null;
+    try {
+      for (const { bytes, delay } of events) {
+        if (callerGone()) throw new Error(CALLER_GONE);
+        // Each pointer write is checked against the framebuffer as it is now, since a DesktopSize can arrive mid-command.
+        if (bytes[0] === 5) checkPoint({ x: bytes.readUInt16BE(2), y: bytes.readUInt16BE(4) }, this.rfb.framebuffer);
+        await this.send(bytes);
+        if (bytes[0] === 5) pressed = bytes[1] ? bytes : null;
+        if (bytes[0] === 4) {
+          if (bytes[1]) held.add(bytes.readUInt32BE(4));
+          else held.delete(bytes.readUInt32BE(4));
+        }
+        if (delay) await sleep(delay);
+      }
+    } catch (error) {
+      // Leave no key or button down in the guest: release what this command pressed, where the connection allows.
+      if (this.connected) {
+        for (const keysym of held) await this.send(keyEvent(false, keysym)).catch(() => {});
+        if (pressed) {
+          const { width, height } = this.rfb.framebuffer;
+          const x = Math.min(pressed.readUInt16BE(2), width - 1);
+          const y = Math.min(pressed.readUInt16BE(4), height - 1);
+          await this.send(pointerEvent(0, x, y)).catch(() => {});
+        }
+      }
+      throw error;
+    }
+    return { result };
+  }
+}
 
 function listen(server, socketPath) {
   return new Promise((done, reject) => {
@@ -36,6 +180,9 @@ async function serve({ name, launchId, desktop }) {
   const clients = new Set();
   let run = null;
   let vnc = null;
+  let session;
+  let startupError;
+  let desktopQueue = Promise.resolve();
   let log;
   let child;
   let ownsSocket = false;
@@ -70,23 +217,58 @@ async function serve({ name, launchId, desktop }) {
     socket.setTimeout(2000, () => socket.destroy());
     socket.on('error', () => socket.destroy());
     socket.on('close', () => clients.delete(socket));
+    function reply(value, png) {
+      if (socket.destroyed) return;
+      const header = redactJson(value, vnc?.passphrase) + '\n';
+      if (png) {
+        socket.write(header);
+        socket.end(png);
+      } else socket.end(header);
+    }
+
     let request = '';
     socket.on('data', (chunk) => {
       request += chunk;
-      if (request.length > 4096) {
-        socket.destroy();
+      if (request.length > MAX_REQUEST) {
+        socket.removeAllListeners('data');
+        reply({ ok: false, error: 'The desktop request is too long. Send less text at once.' });
         return;
       }
       const newline = request.indexOf('\n');
       if (newline < 0) return;
-      socket.pause();
+      socket.removeAllListeners('data');
+      socket.setTimeout(0);
       let message;
       try { message = JSON.parse(request.slice(0, newline)); }
       catch { /* Return a fixed error without echoing the request. */ }
-      const reply = message?.cmd === 'status'
-        ? { ok: true, launch_id: launchId, run }
-        : { ok: false, error: 'Send a JSON object with cmd set to status.' };
-      socket.end(redactJson(reply, vnc?.passphrase) + '\n');
+      if (message?.cmd === 'status') {
+        reply({ ok: true, launch_id: launchId, run, ...(desktop ? {
+          rfb: session?.status() ?? { connected: false, framebuffer: null }
+        } : {}) });
+        return;
+      }
+      if (!isDesktopCommand(message?.cmd)) {
+        reply({ ok: false, error: 'Send a JSON object with cmd set to status or a tart-vm desktop command.' });
+        return;
+      }
+      // A newline every few seconds keeps the caller's idle timer alive while this request waits its turn and runs;
+      // the caller skips newlines before the reply's header.
+      const keepalive = setInterval(() => { if (!socket.destroyed) socket.write('\n'); }, KEEPALIVE_MS);
+      desktopQueue = desktopQueue.then(async () => {
+        let outcome;
+        try {
+          if (socket.destroyed) return;
+          if (!session) throw new Error(NO_DESKTOP_SESSION);
+          const { result, png } = message.cmd === 'screenshot'
+            ? await session.screenshot() : await session.input(message, () => socket.destroyed);
+          outcome = [{ ok: true, result }, png];
+        } catch (error) {
+          outcome = [{ ok: false, error: error.message }];
+        } finally {
+          clearInterval(keepalive);
+        }
+        reply(...outcome);
+      }).catch(() => { /* A reply to a client that has gone must not stop the commands queued after it. */ });
     });
   });
 
@@ -116,12 +298,24 @@ async function serve({ name, launchId, desktop }) {
       if (line.trim()) lastStderr = line;
     });
     createInterface({ input: child.stdout }).on('line', (line) => {
-      if (!desktop || vnc) return;
+      if (!desktop || vnc || stopRequested) return;
       vnc = parseVncLine(line);
       if (!vnc) return;
       try {
-        publish();
         event('desktop-url-read', { port: vnc.port });
+        session = new DesktopSession(vnc, () => {
+          if (stopRequested) return;
+          try {
+            publish();
+            event('desktop-ready', session.status());
+          } catch {
+            writeFailure = true;
+            stopChild();
+          }
+        }, (reason) => {
+          startupError = reason;
+          stopChild();
+        });
       } catch {
         writeFailure = true;
         stopChild();
@@ -140,11 +334,13 @@ async function serve({ name, launchId, desktop }) {
     const safe = !desktop || vnc !== null;
     event('exit', {
       ...exit, tart_error: classifyTartError(lastStderr), ...(safe ? { stderr: lastStderr } : { stderr_withheld: true }),
-      ...(writeFailure ? { state_write_failed: true } : {})
+      ...(writeFailure ? { state_write_failed: true } : {}),
+      ...(startupError ? { rfb_startup_error: startupError } : {})
     });
-    if (writeFailure || exit.code !== 0) process.exitCode = 1;
+    if (writeFailure || startupError || exit.code !== 0) process.exitCode = 1;
   } finally {
     clearTimeout(stopTimer);
+    session?.close();
     try {
       if (ownsSocket) {
         try { fs.rmSync(files.record, { force: true }); }

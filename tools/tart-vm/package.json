@@ -1,7 +1,7 @@
 {
   "name": "tart-vm",
   "version": "0.1.0",
-  "description": "Create, clone, start, inspect, stop and delete local Tart VMs under a detached supervisor, as one JSON object",
+  "description": "Manage local Tart VMs, capture their screens and send guest input through a detached supervisor, as one JSON object",
   "private": true,
   "type": "module",
   "scripts": {

@@ -7,11 +7,13 @@ import { join } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
+import { inflateSync } from 'node:zlib';
 import { classifyTartError, diskDecision, parseGet, parseList, parseVncLine, redact, tartArgv } from '../scripts/tart-vm-core.js';
 
 const TOOL = fileURLToPath(new URL('..', import.meta.url));
 const CLI = join(TOOL, 'scripts', 'tart-vm.js');
 const SUPERVISOR = join(TOOL, 'scripts', 'tart-vm-supervisor.js');
+const RFB_FIXTURE = fileURLToPath(new URL('fixtures/rfb-server.bin', import.meta.url));
 const STUB = fs.readFileSync(new URL('fixtures/stub.cjs', import.meta.url), 'utf8');
 const IMAGE = 'ghcr.io/cirruslabs/macos-tahoe-base:latest';
 const VM = 'wiser-tart-test';
@@ -49,7 +51,8 @@ function fixture(t, config = {}, initial = {}, homeName = 'h') {
   const state = join(configDir, 'tart-vm');
   const records = join(state, 'vms');
   const run = join(state, 'run');
-  const env = { ...process.env, TART_TEST_DIR: dir, PATH: bin, HOME: home, XDG_CONFIG_HOME: '', TART_HOME: join(home, 'tart') };
+  const env = { ...process.env, TART_TEST_DIR: dir, TART_TEST_RFB_FIXTURE: RFB_FIXTURE,
+    PATH: bin, HOME: home, XDG_CONFIG_HOME: '', TART_HOME: join(home, 'tart') };
   fs.mkdirSync(home);
   fs.mkdirSync(bin);
   fs.writeFileSync(join(bin, 'tart'), '#!' + process.execPath + '\n' + STUB, { mode: 0o700 });
@@ -57,11 +60,12 @@ function fixture(t, config = {}, initial = {}, homeName = 'h') {
   fs.symlinkSync('tart', join(bin, 'sw_vers'));
   const conf = {
     image: BASE_VM, version: '2.42.0', macosVersion: '26.3', cached: [IMAGE], accessed: ACCESS_TIME,
-    passphrase: SECRET, port: PORT, listener: '*', ...config
+    passphrase: SECRET, listener: '*', ...config
   };
   fs.writeFileSync(join(dir, 'config.json'), JSON.stringify(conf));
   fs.writeFileSync(join(dir, 'vms.json'), JSON.stringify(initial));
   fs.writeFileSync(join(dir, 'calls.jsonl'), '');
+  fs.writeFileSync(join(dir, 'rfb.jsonl'), '');
   const outputs = [];
   const vms = () => JSON.parse(fs.readFileSync(join(dir, 'vms.json'), 'utf8'));
   t.after(async () => {
@@ -88,6 +92,8 @@ function fixture(t, config = {}, initial = {}, homeName = 'h') {
   const calls = () => fs.readFileSync(join(dir, 'calls.jsonl'), 'utf8').trim().split('\n').filter(Boolean).map(JSON.parse);
   return {
     dir, env, configDir, state, records, run, vms, outputs, calls, sync, command, asyncCommand,
+    port: () => Number(fs.readFileSync(join(dir, 'vnc-port'), 'utf8')),
+    rfb: () => fs.readFileSync(join(dir, 'rfb.jsonl'), 'utf8').trim().split('\n').filter(Boolean).map(JSON.parse),
     ok: (...args) => successful(command(...args)),
     refused: (args, message) => refusal(command(...args), message),
     tart: () => calls().filter(({ program }) => program === 'tart').map(({ args }) => args),
@@ -143,12 +149,14 @@ test('help is available without Tart, and every command refuses unknown flags be
     assert.equal(result.status, 0);
     assert.equal(result.stderr, '');
     for (const word of ['help', 'preflight', 'list', 'create', 'clone', 'start', 'status', 'stop',
-      'delete', '--help', '--image', '--image-gb', '--desktop', '--graceful', '--timeout', '--gate-approved']) {
+      'delete', '--help', '--image', '--image-gb', '--desktop', '--graceful', '--timeout', '--gate-approved',
+      'screenshot', '--out', 'move', 'click', 'double-click', 'drag', 'scroll', 'type', 'key', '--x', '--y', '--button',
+      '--from-x', '--from-y', '--to-x', '--to-y', '--direction', '--steps', '--text', '--keys']) {
       assert.ok(result.stdout.includes(word));
     }
   }
   for (const args of [['help'], ['--help'], ['preflight'], ['list'], ['create', VM], ['clone', 'source', VM],
-    ['start', VM], ['status', VM], ['stop', VM], ['delete', VM]]) {
+    ['start', VM], ['status', VM], ['stop', VM], ['delete', VM], ...desktopCommands(f).map(([cmd]) => [cmd, VM])]) {
     f.refused([...args, '--fixture-unknown'], /Unknown option "--fixture-unknown".*help/);
   }
   const supervisorHelp = f.sync(process.execPath, [SUPERVISOR, '--help'], noTart);
@@ -348,13 +356,15 @@ test('the desktop supervisor and Tart survive the caller shell and clean run sta
   assert.equal(mode(runPath), 0o600);
   assert.equal(mode(f.runFile(VM, 'log')), 0o600);
   assert.equal(started.desktop, true);
-  assert.equal(started.listener, '*:49158');
+  assert.equal(started.listener, '*:' + f.port());
+  assert.deepEqual(started.rfb, { connected: true, framebuffer: { width: 1024, height: 768 } });
   assert.match(started.listener_reach, /every network this Mac joins.*only guard/);
   assert.deepEqual(f.tart().filter(([cmd]) => cmd === 'run'), [['run', VM, ...FLAGS, '--vnc-experimental']]);
   const status = successful(f.sync(process.execPath, [CLI, 'status', VM], { ...f.env, TMPDIR: tmpB }));
   assert.equal(status.supervised, true);
   assert.equal(status.desktop, true);
-  assert.equal(status.listener, '*:49158');
+  assert.equal(status.listener, '*:' + f.port());
+  assert.deepEqual(status.rfb, started.rfb);
   assert.deepEqual(f.calls().filter(({ program, args }) => program === 'lsof' && args[0] === '-nP').map(({ args }) => args),
     Array(2).fill(['-nP', '-a', '-p', String(started.pid), '-iTCP', '-sTCP:LISTEN']));
   const [listed] = f.ok('list').vms;
@@ -381,10 +391,17 @@ test('every command, socket replies, VM records and the supervisor log keep the 
   const socket = f.runFile(VM, 'sock');
   const reply = await querySocket(socket);
   const badReply = await querySocket(socket, JSON.stringify({ cmd: SECRET }) + '\n');
+  const malformed = await querySocket(socket, '{"cmd":{"toString":1}}\n');
   const record = JSON.parse(fs.readFileSync(f.runFile(VM, 'json')));
   assert.equal(record.passphrase_length, SECRET.length);
-  assert.equal(record.port, PORT);
+  assert.equal(record.port, f.port());
   assert.equal(JSON.parse(badReply).ok, false);
+  assert.equal(JSON.parse(malformed).ok, false);
+  for (const args of desktopCommands(f)) f.ok(...args);
+  for (const args of desktopCommands(f)) f.refused([args[0], CLONE, ...args.slice(2)], /start --desktop/);
+  f.refused(['key', VM, '--keys', SECRET], /Unknown key.*redacted/);
+  f.refused(['click', VM, '--x', '1', '--y', '2', '--button', SECRET], /Unknown button.*redacted/);
+  f.refused(['scroll', VM, '--x', '1', '--y', '2', '--direction', SECRET], /Unknown scroll direction.*redacted/);
   const beforeStop = fileText(f.state);
   const stopped = f.ok('stop', VM, '--graceful', '--timeout', '3');
   assert.equal(stopped.method, 'guest-shutdown');
@@ -396,7 +413,13 @@ test('every command, socket replies, VM records and the supervisor log keep the 
   assert.ok(!fs.existsSync(f.runFile(VM, 'log')), 'delete removes the VM\'s supervisor log');
   assert.equal(log.at(-1).event, 'exit');
   assert.equal(log.at(-1).code, 0);
-  assert.equal(log.at(-1).stderr, 'Tart observed <redacted len=' + SECRET.length + '> and vnc://:<redacted>@127.0.0.1:' + PORT);
+  assert.equal(log.at(-1).stderr, 'Tart observed <redacted len=' + SECRET.length + '> and vnc://:<redacted>@127.0.0.1:' + f.port());
+  const clientMessages = f.rfb().filter(({ kind }) => kind !== 'des-response');
+  assert.ok(clientMessages.some(({ kind }) => kind === 'pointer'));
+  assert.ok(clientMessages.some(({ kind }) => kind === 'key'));
+  assert.ok(clientMessages.every(({ kind }) => kind !== 'cut-text'));
+  const wire = Buffer.concat(clientMessages.map(({ hex }) => Buffer.from(hex, 'hex')));
+  assert.ok(!wire.includes(Buffer.from(SECRET)), 'an RFB message exposed the fixture passphrase');
   for (const text of [...f.outputs, ...beforeStop, ...beforeDelete, ...fileText(f.state), reply, badReply]) {
     assert.ok(!text.includes(SECRET), 'a file, answer, or socket reply exposed the fixture passphrase');
   }
@@ -685,4 +708,281 @@ test('a graceful stop rides out a failed tart get while its timeout runs', (t) =
   assert.equal(stopped.method, 'guest-shutdown');
   assert.equal(stopped.vm.State, 'stopped');
   assert.equal(fs.readFileSync(join(f.dir, 'get-count'), 'utf8') >= '2', true);
+});
+
+function desktopCommands(f) {
+  return [
+    ['screenshot', VM, '--out', join(f.dir, 'screen.png')],
+    ['move', VM, '--x', '0', '--y', '767'],
+    ['click', VM, '--x', '18', '--y', '27', '--button', 'right'],
+    ['double-click', VM, '--x', '30', '--y', '40'],
+    ['drag', VM, '--from-x', '4', '--from-y', '10', '--to-x', '36', '--to-y', '20'],
+    ['scroll', VM, '--x', '10', '--y', '20', '--direction', 'up', '--steps', '2'],
+    ['type', VM, '--text', 'aA1!\n\t -'],
+    ['key', VM, '--keys', 'cmd+n']
+  ];
+}
+
+test('a wrong password fails on the RFB security result and the supervisor reaps its Tart child', (t) => {
+  const f = fixture(t, { rfbPassphrase: 'different-fixture' });
+  f.ok('create', VM);
+  f.refused(['start', VM, '--desktop'], /RFB security result failure \(1\).*start --desktop/);
+  assert.equal(f.vms()[VM].State, 'stopped');
+  assert.ok(!fs.existsSync(f.runFile(VM, 'sock')));
+  assert.ok(!fs.existsSync(f.runFile(VM, 'json')));
+  assert.deepEqual(f.rfb().map(({ kind }) => kind), ['version', 'security-type', 'des-response']);
+  assert.ok(!fileText(f.state).some((text) => text.includes(SECRET)));
+});
+
+function readPng(png) {
+  assert.equal(png.subarray(0, 8).toString('hex'), '89504e470d0a1a0a');
+  const chunks = [];
+  for (let offset = 8; offset < png.length;) {
+    const length = png.readUInt32BE(offset);
+    const contents = png.subarray(offset + 4, offset + 8 + length);
+    const type = contents.toString('ascii', 0, 4);
+    let crc = 0xffffffff;
+    for (const byte of contents) {
+      crc ^= byte;
+      for (let bit = 0; bit < 8; bit += 1) crc = (crc >>> 1) ^ (crc & 1 ? 0xedb88320 : 0);
+    }
+    assert.equal(png.readUInt32BE(offset + 8 + length), (crc ^ 0xffffffff) >>> 0);
+    chunks.push({ type, data: contents.subarray(4) });
+    offset += 12 + length;
+  }
+  assert.deepEqual(chunks.map(({ type }) => type), ['IHDR', 'IDAT', 'IEND']);
+  const [header, image] = chunks.map(({ data }) => data);
+  assert.deepEqual([...header.subarray(8)], [8, 2, 0, 0, 0]);
+  return { width: header.readUInt32BE(0), height: header.readUInt32BE(4), scanlines: inflateSync(image) };
+}
+
+test('screenshot requests a full update and writes a valid PNG at the resolved caller path', (t) => {
+  const f = fixture(t);
+  f.ok('create', VM);
+  f.ok('start', VM, '--desktop');
+  const destination = join(f.dir, 'frame');
+  fs.mkdirSync(destination);
+  const alias = join(f.dir, 'alias');
+  fs.symlinkSync(destination, alias);
+  const result = f.ok('screenshot', VM, '--out', join(alias, 'screen.png'));
+  const path = join(fs.realpathSync(destination), 'screen.png');
+  const png = fs.readFileSync(path);
+  assert.deepEqual(result, { command: 'screenshot', tart_version: '2.42.0', name: VM,
+    path, width: 1024, height: 768, bytes: png.length });
+  const { width, height, scanlines } = readPng(png);
+  assert.deepEqual([width, height], [1024, 768]);
+  assert.equal(scanlines.length, (1 + width * 3) * height);
+  // The first recorded BGRX pixel is 32 2d 2d ff, and the last of the 64x64 tile is white.
+  assert.deepEqual([...scanlines.subarray(0, 4)], [0, 45, 45, 50]);
+  const white = (1 + width * 3) * 63 + 1 + 63 * 3;
+  assert.deepEqual([...scanlines.subarray(white, white + 3)], [255, 255, 255]);
+  assert.deepEqual(f.rfb().filter(({ kind }) => kind === 'update-request').map(({ hex }) => hex),
+    ['03000000000004000300']);
+  assert.equal(f.rfb().filter(({ kind }) => kind === 'version').length, 1);
+  f.ok('stop', VM);
+});
+
+test('screenshot refuses literal, symlinked and unresolvable paths before asking for a frame', (t) => {
+  const f = fixture(t);
+  f.ok('create', VM);
+  f.ok('start', VM, '--desktop');
+  const alias = join(f.dir, 'tool-alias');
+  fs.symlinkSync(TOOL, alias);
+  const roundabout = join(f.dir, 'scripts-alias');
+  fs.symlinkSync(join(TOOL, 'scripts'), roundabout);
+  const paths = [join(TOOL, 'never.png'), join(alias, 'never.png'), roundabout + '/../never.png'];
+  for (const path of paths) f.refused(['screenshot', VM, '--out', path], /Refusing to write inside tart-vm/);
+  const dangling = join(f.dir, 'dangling');
+  fs.symlinkSync(join(f.dir, 'absent'), dangling);
+  f.refused(['screenshot', VM, '--out', dangling], /Cannot resolve screenshot destination/);
+  f.refused(['screenshot', VM, '--out', join(f.dir, 'missing', 'screen.png')], /existing parent directory/);
+  assert.ok(!f.rfb().some(({ kind }) => kind === 'update-request'));
+  f.ok('stop', VM);
+});
+
+test('DesktopSize triggers a new full screenshot request and changes the pointer bounds', (t) => {
+  const f = fixture(t, { resizeOnRequest: true });
+  f.ok('create', VM);
+  f.ok('start', VM, '--desktop');
+  const result = f.ok('screenshot', VM, '--out', join(f.dir, 'resized.png'));
+  assert.deepEqual([result.width, result.height], [80, 72]);
+  assert.deepEqual(f.ok('status', VM).rfb, { connected: true, framebuffer: { width: 80, height: 72 } });
+  assert.deepEqual(f.rfb().filter(({ kind }) => kind === 'update-request').map(({ hex }) => hex),
+    ['03000000000004000300', '03000000000000500048']);
+  f.refused(['move', VM, '--x', '80', '--y', '71'], /outside the 80x72 framebuffer/);
+  f.ok('move', VM, '--x', '79', '--y', '71');
+  f.ok('stop', VM);
+});
+
+test('all pointer and keyboard commands send the exact RFB events on a single session', async (t) => {
+  const f = fixture(t);
+  f.ok('create', VM);
+  f.ok('start', VM, '--desktop');
+  const ptr = (mask, x, y) => '05' + mask.toString(16).padStart(2, '0') +
+    x.toString(16).padStart(4, '0') + y.toString(16).padStart(4, '0');
+  const press = (sym) => ['04010000' + sym, '04000000' + sym];
+  const shift = (sym) => ['040100000000ffe1', ...press(sym), '040000000000ffe1'];
+  const testEvents = async (args, kind, hex) => {
+    const before = f.rfb().length;
+    const result = f.ok(...args);
+    await eventually(() => f.rfb().length >= before + hex.length);
+    assert.deepEqual(f.rfb().slice(before), hex.map((hex) => ({ kind, hex })));
+    return result;
+  };
+  const [, move, click, double, drag, scroll, type, key] = desktopCommands(f);
+  await testEvents(move, 'pointer', [ptr(0, 0, 767)]);
+  await testEvents(click, 'pointer', [0, 4, 0].map((mask) => ptr(mask, 18, 27)));
+  for (const [button, mask] of [['left', 1], ['middle', 2]]) {
+    const args = button === 'left' ? click.slice(0, -2) : [...click.slice(0, -1), button];
+    await testEvents(args, 'pointer', [0, mask, 0].map((m) => ptr(m, 18, 27)));
+  }
+  await testEvents(double, 'pointer', [0, 1, 0, 1, 0].map((mask) => ptr(mask, 30, 40)));
+  await testEvents(drag, 'pointer', [ptr(0, 4, 10), ptr(1, 4, 10), ptr(1, 20, 15), ptr(1, 36, 20), ptr(0, 36, 20)]);
+  await testEvents(scroll, 'pointer', [0, 8, 0, 8, 0].map((mask) => ptr(mask, 10, 20)));
+  for (const [direction, mask] of [['down', 16], ['left', 32], ['right', 64]]) {
+    const args = [...scroll.slice(0, -3), direction];
+    await testEvents(args, 'pointer', [0, mask, 0].map((m) => ptr(m, 10, 20)));
+  }
+  const typed = await testEvents(type, 'key', [
+    ...press('00000061'), ...shift('00000061'), ...press('00000031'), ...shift('00000031'),
+    ...press('0000ff0d'), ...press('0000ff09'), ...press('00000020'), ...press('0000002d')
+  ]);
+  assert.deepEqual(typed, { command: 'type', name: VM, tart_version: '2.42.0', length: 8 });
+  await testEvents(['type', VM, '--text', ''], 'key', []);
+  await testEvents(['type', VM, '--text', '-'], 'key', press('0000002d'));
+  await testEvents(key, 'key', ['040100000000ffe9', ...press('0000006e'), '040000000000ffe9']);
+  await testEvents(['key', VM, '--keys', 'cmd+space'], 'key',
+    ['040100000000ffe9', ...press('00000020'), '040000000000ffe9']);
+  await testEvents(['key', VM, '--keys', 'shift+tab'], 'key', shift('0000ff09'));
+  await testEvents(['key', VM, '--keys', 'return'], 'key', press('0000ff0d'));
+  assert.equal(f.rfb().filter(({ kind }) => kind === 'des-response').length, 1);
+  f.ok('stop', VM);
+});
+
+test('invalid coordinates, keysyms and later unsupported characters are rejected before input is sent', (t) => {
+  const f = fixture(t);
+  f.ok('create', VM);
+  f.ok('start', VM, '--desktop');
+  const before = f.rfb();
+  const [, move, click, , drag, scroll] = desktopCommands(f);
+  f.refused([...move.slice(0, -1), '768'], /outside the 1024x768 framebuffer/);
+  f.refused(['move', VM, '--x', '-1', '--y', '0'], /outside the 1024x768 framebuffer/);
+  f.refused([...drag.slice(0, -1), '999'], /outside the 1024x768 framebuffer/);
+  f.refused([...click.slice(0, -1), 'other'], /Unknown button "other"/);
+  f.refused([...scroll.slice(0, -1), '0'], /--steps must be a whole number/);
+  f.refused(['key', VM, '--keys', 'cmd+f1'], /Unknown key "f1"/);
+  for (const name of ['option', 'control', 'alt', 'alt_l']) {
+    f.refused(['key', VM, '--keys', name + '+n'], new RegExp('Unknown modifier "' + name + '"'));
+  }
+  f.refused(['key', VM, '--keys', 'cmd+cmd+n'], /Repeated modifier "cmd"/);
+  f.refused(['type', VM, '--text', 'abc🙂'], /Unsupported character.*U\+1F642/);
+  assert.deepEqual(f.rfb(), before);
+  f.ok('stop', VM);
+});
+
+test('all desktop commands require a VM record and a desktop start', (t) => {
+  const f = fixture(t);
+  for (const args of desktopCommands(f)) f.refused(args, /has no tart-vm record.*start --desktop/);
+  f.ok('create', VM);
+  f.ok('start', VM);
+  for (const args of desktopCommands(f)) f.refused(args, /no ready desktop session.*start --desktop/);
+  assert.deepEqual(f.rfb(), []);
+  f.ok('stop', VM);
+});
+
+test('a dropped RFB connection fails pending and later desktop work and remains visible in status', (t) => {
+  const f = fixture(t, { dropListenerOnRequest: true });
+  f.ok('create', VM);
+  f.ok('start', VM, '--desktop');
+  const path = join(f.dir, 'dropped.png');
+  f.refused(['screenshot', VM, '--out', path], /RFB connection dropped/);
+  assert.ok(!fs.existsSync(path));
+  f.refused(['move', VM, '--x', '1', '--y', '2'], /RFB connection dropped/);
+  assert.deepEqual(f.ok('status', VM).rfb, { connected: false, framebuffer: { width: 1024, height: 768 } });
+  assert.equal(f.rfb().filter(({ kind }) => kind === 'version').length, 1);
+  f.ok('stop', VM);
+});
+
+test('desktop work waits for a pending screenshot and whole input commands stay together', async (t) => {
+  const f = fixture(t, { updateDelay: 850 });
+  f.ok('create', VM);
+  f.ok('start', VM, '--desktop');
+  const [shot, move] = desktopCommands(f);
+  const screenshot = f.asyncCommand(...shot);
+  await eventually(() => f.rfb().some(({ kind }) => kind === 'update-request'));
+  const chord = querySocket(f.runFile(VM, 'sock'), '{"cmd":"key","keys":"cmd+n"}\n');
+  await sleep(75);
+  const pointer = f.asyncCommand(...move);
+  await sleep(100);
+  assert.ok(!f.rfb().some(({ kind }) => kind === 'key' || kind === 'pointer'));
+  successful(await screenshot);
+  assert.equal(JSON.parse(await chord).ok, true);
+  successful(await pointer);
+  await eventually(() => f.rfb().some(({ kind }) => kind === 'pointer'));
+  assert.deepEqual(f.rfb().slice(-6).map(({ kind }) => kind), ['update-request', 'key', 'key', 'key', 'key', 'pointer']);
+  f.ok('stop', VM);
+});
+
+test('a screenshot waits for rectangles covering the whole frame', (t) => {
+  const f = fixture(t, { partialFirst: true });
+  f.ok('create', VM);
+  f.ok('start', VM, '--desktop');
+  const result = f.ok('screenshot', VM, '--out', join(f.dir, 'partial.png'));
+  assert.deepEqual([result.width, result.height], [1024, 768]);
+  assert.ok(f.rfb().filter(({ kind }) => kind === 'update-request').length >= 2, 'a 1x1 update did not finish the shot');
+  const { scanlines } = readPng(fs.readFileSync(result.path));
+  const white = (1 + 1024 * 3) * 63 + 1 + 63 * 3;
+  assert.deepEqual([...scanlines.subarray(white, white + 3)], [255, 255, 255]);
+  f.ok('stop', VM);
+});
+
+test('a screenshot is the frame its update covered, not one a later DesktopSize in the same bytes made', (t) => {
+  const f = fixture(t, { resizeAfterUpdate: true });
+  f.ok('create', VM);
+  f.ok('start', VM, '--desktop');
+  const result = f.ok('screenshot', VM, '--out', join(f.dir, 'before-resize.png'));
+  assert.deepEqual([result.width, result.height], [1024, 768]);
+  const { scanlines } = readPng(fs.readFileSync(result.path));
+  assert.deepEqual([...scanlines.subarray(1, 4)], [7, 7, 7], 'the pixels are the update\'s, not a cleared buffer');
+  assert.equal(f.ok('status', VM).rfb.framebuffer.width, 80);
+  f.ok('stop', VM);
+});
+
+test('desktop commands are capped, a failed one does not stall the next, and a non-file destination is named', (t) => {
+  const f = fixture(t);
+  f.ok('create', VM);
+  f.ok('start', VM, '--desktop');
+  f.refused(['scroll', VM, '--x', '1', '--y', '1', '--direction', 'down', '--steps', '101'], /from 1 to 100/);
+  f.refused(['type', VM, '--text', 'a'.repeat(1001)], /at most 1000 characters/);
+  f.refused(['click', VM, '--x', '5000', '--y', '1'], /outside the/);
+  assert.equal(f.ok('move', VM, '--x', '10', '--y', '10').x, 10);
+  const folder = join(f.dir, 'a-folder');
+  fs.mkdirSync(folder);
+  f.refused(['screenshot', VM, '--out', folder], /is not a regular file/);
+  f.ok('stop', VM);
+});
+
+test('the text cap holds for a request sent straight to the supervisor socket', async (t) => {
+  const f = fixture(t);
+  f.ok('create', VM);
+  f.ok('start', VM, '--desktop');
+  const reply = JSON.parse(await querySocket(f.runFile(VM, 'sock'), JSON.stringify({ cmd: 'type', text: 'a'.repeat(1001) }) + '\n'));
+  assert.equal(reply.ok, false);
+  assert.match(reply.error, /at most 1000 characters/);
+  assert.ok(!f.rfb().some(({ kind }) => kind === 'key'), 'no key reached the guest');
+  assert.equal(f.ok('move', VM, '--x', '1', '--y', '1').x, 1);
+  f.ok('stop', VM);
+});
+
+test('a command that outlasts a keepalive interval still answers, the keepalive newlines skipped', async (t) => {
+  const f = fixture(t);
+  f.ok('create', VM);
+  f.ok('start', VM, '--desktop');
+  // About 15 s of key events, past one 10 s keepalive; the shared helper's 15 s limit is too short for it.
+  const typed = await new Promise((done) => execFile(process.execPath, [CLI, 'type', VM, '--text', 'A'.repeat(150)],
+    { cwd: TOOL, env: f.env, timeout: 60_000 }, (error, stdout, stderr) => done({ status: error ? error.code : 0, stdout, stderr })));
+  assert.equal(typed.status, 0, typed.stderr);
+  assert.equal(JSON.parse(typed.stdout).length, 150);
+  assert.equal(f.rfb().filter(({ kind }) => kind === 'key').length, 600);
+  f.ok('stop', VM);
 });

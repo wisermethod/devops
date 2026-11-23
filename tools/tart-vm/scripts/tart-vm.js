@@ -5,14 +5,14 @@ import { createHash, randomBytes } from 'node:crypto';
 import * as fs from 'node:fs';
 import { createConnection } from 'node:net';
 import { homedir } from 'node:os';
-import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { performance } from 'node:perf_hooks';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
 import { wiserUserConfigDir } from '../../lib/user-config.js';
 import {
-  DEFAULT_IMAGE, GRACEFUL_TIMEOUT, HELP, POWER_OFF_TIMEOUT, SOCKET_LIMIT, START_TIMEOUT,
-  answer, classifyTartError, diskDecision, diskRefusal, isToolName, launchReady, limitRefusal,
+  DEFAULT_IMAGE, GRACEFUL_TIMEOUT, HELP, NO_DESKTOP_SESSION, POWER_OFF_TIMEOUT, RFB_DROPPED, SOCKET_LIMIT, START_TIMEOUT,
+  answer, classifyTartError, diskDecision, diskRefusal, isDesktopCommand, isToolName, launchReady, limitRefusal,
   macLimitReached, makeVmRecord, parseCommand, parseGet, parseList, parseListener, redact, redactJson,
   runAnswer, tartArgv, validRunRecord, validVmRecord, vmListItem
 } from './tart-vm-core.js';
@@ -23,6 +23,8 @@ const SUPERVISOR = fileURLToPath(new URL('./tart-vm-supervisor.js', import.meta.
 const INSPECTION_MS = 10_000;
 const POLL_MS = 200;
 const LOCK_SLACK = 60;
+const DESKTOP_IDLE_MS = 30_000;
+const MAX_PNG_BYTES = 256 * 1024 * 1024;
 
 export function invokedDirectly(entry) {
   try { return fs.realpathSync(process.argv[1]) === fs.realpathSync(entry); }
@@ -52,6 +54,75 @@ function outsideTool(path) {
   if (fromTool === '' || (!fromTool.startsWith('..' + sep) && fromTool !== '..' && !isAbsolute(fromTool))) {
     throw new Error('Refusing to write inside tart-vm at ' + JSON.stringify(path) +
       '. Use a home outside the tool directory.');
+  }
+}
+
+function sameFileIn(directory, target) {
+  for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+    const path = join(directory, entry.name);
+    if (entry.isDirectory() && sameFileIn(path, target)) return true;
+    if (entry.isFile()) {
+      const stat = fs.lstatSync(path, { bigint: true });
+      if (stat.dev === target.dev && stat.ino === target.ino) return true;
+    }
+  }
+  return false;
+}
+
+function screenScreenshot(path) {
+  let notFile = false;
+  const refused = () => new Error('Refusing to write inside tart-vm through ' + JSON.stringify(path) +
+    '. Give --out a path outside the tool directory.');
+  let destination;
+  try {
+    // Resolve symlinks before collapsing parent components. Use the resolved path for all later I/O.
+    const absolute = isAbsolute(path) ? path : process.cwd() + sep + path;
+    let ancestor = absolute;
+    const missing = [];
+    for (;;) {
+      try {
+        destination = resolve(fs.realpathSync.native(ancestor), ...missing);
+        break;
+      } catch (error) {
+        if (error.code !== 'ENOENT' || fs.lstatSync(ancestor, { throwIfNoEntry: false }) ||
+            ancestor === dirname(ancestor) || basename(ancestor) === '..') throw error;
+        missing.unshift(basename(ancestor));
+        ancestor = dirname(ancestor);
+      }
+    }
+    const tool = fs.realpathSync.native(TOOL_DIR);
+    const fromTool = relative(tool, destination);
+    if (fromTool === '' || (!fromTool.startsWith('..' + sep) && fromTool !== '..' && !isAbsolute(fromTool))) {
+      destination = null;
+    } else {
+      const stat = fs.lstatSync(destination, { bigint: true, throwIfNoEntry: false });
+      if (stat && !stat.isFile()) notFile = true;
+      if (stat?.nlink > 1n && sameFileIn(tool, stat)) destination = null;
+    }
+  } catch {
+    throw new Error('Cannot resolve screenshot destination ' + JSON.stringify(path) +
+      '. Give --out a regular file path with an existing parent directory.');
+  }
+  if (notFile) throw new Error('Screenshot destination ' + JSON.stringify(path) + ' is not a regular file. Give --out a regular file path.');
+  if (destination === null) throw refused();
+  if (!fs.statSync(dirname(destination), { throwIfNoEntry: false })?.isDirectory()) {
+    throw new Error('Screenshot destination has no existing parent directory. Give --out a path in an existing directory.');
+  }
+  return destination;
+}
+
+function writeScreenshot(destination, png) {
+  try {
+    const flags = fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_NOFOLLOW | fs.constants.O_NONBLOCK;
+    const fd = fs.openSync(destination, flags, 0o600);
+    try {
+      if (!fs.fstatSync(fd).isFile()) throw new Error('Destination is not a regular file.');
+      fs.ftruncateSync(fd, 0);
+      fs.writeFileSync(fd, png);
+    } finally { fs.closeSync(fd); }
+  } catch (error) {
+    throw new Error('Cannot write screenshot to ' + JSON.stringify(destination) +
+      (error.code ? ' (' + error.code + ')' : '') + '. Give --out a writable regular file path.');
   }
 }
 
@@ -281,13 +352,18 @@ async function preflight(paths, home) {
   });
 }
 
-function supervisorState(path, timeout = 1000) {
+function checkedSupervisorSocket(path) {
   const stat = fs.lstatSync(path, { throwIfNoEntry: false });
-  if (!stat) return Promise.resolve({ kind: 'absent' });
+  if (!stat) return false;
   checkSocketLength(path);
   if (!stat.isSocket() || stat.uid !== process.getuid() || (stat.mode & 0o077) !== 0) {
     throw new Error('Unsafe supervisor socket ' + JSON.stringify(path) + '. Inspect the tart-vm run directory.');
   }
+  return true;
+}
+
+function supervisorState(path, timeout = 1000) {
+  if (!checkedSupervisorSocket(path)) return Promise.resolve({ kind: 'absent' });
   return new Promise((done, reject) => {
     const socket = createConnection(path);
     let reply = '';
@@ -319,6 +395,91 @@ function supervisorState(path, timeout = 1000) {
       else reject(new Error('Could not reach the supervisor. Check the tart-vm run log and VM status.'));
     });
   });
+}
+
+function desktopRequest(path, request) {
+  if (!checkedSupervisorSocket(path)) throw new Error(NO_DESKTOP_SESSION);
+  return new Promise((done, reject) => {
+    const socket = createConnection(path);
+    let header = Buffer.alloc(0);
+    let result;
+    let total = 0;
+    const chunks = [];
+    const fail = (message) => {
+      reject(new Error(message));
+      socket.destroy();
+    };
+    const invalid = () => fail('Unexpected desktop reply. Check tart-vm status and the run log.');
+    socket.setTimeout(2000, () => fail('The supervisor did not answer. Check tart-vm status.'));
+    socket.on('connect', () => {
+      // Queued requests take their turn; the caps on --text and --steps keep each well inside this deadline.
+      socket.setTimeout(DESKTOP_IDLE_MS, () => fail('The supervisor sent nothing for ' +
+        DESKTOP_IDLE_MS / 1000 + ' seconds. Check tart-vm status and the run log.'));
+      socket.write(JSON.stringify(request) + '\n');
+    });
+    socket.on('data', (data) => {
+      let chunk = data;
+      // The supervisor's keepalive newlines come before the reply's header.
+      if (!result && header.length === 0) {
+        let start = 0;
+        while (start < chunk.length && chunk[start] === 10) start += 1;
+        chunk = chunk.subarray(start);
+        if (chunk.length === 0) return;
+      }
+      let body = chunk;
+      if (!result) {
+        const newline = chunk.indexOf(10);
+        const headerBytes = newline < 0 ? chunk : chunk.subarray(0, newline);
+        if (header.length + headerBytes.length > 4096) return invalid();
+        header = Buffer.concat([header, headerBytes]);
+        if (newline < 0) return;
+        let reply;
+        try { reply = JSON.parse(header.toString('utf8')); } catch { return invalid(); }
+        if (reply?.ok === false && typeof reply.error === 'string') return fail(reply.error);
+        if (reply?.ok !== true || !reply.result || typeof reply.result !== 'object' || Array.isArray(reply.result)) return invalid();
+        result = reply.result;
+        if (request.cmd === 'screenshot' && (!Number.isInteger(result.bytes) || result.bytes <= 0 ||
+            result.bytes > MAX_PNG_BYTES || !Number.isInteger(result.width) || result.width <= 0 ||
+            !Number.isInteger(result.height) || result.height <= 0)) return invalid();
+        body = chunk.subarray(newline + 1);
+      }
+      if (body.length) {
+        total += body.length;
+        if (request.cmd !== 'screenshot' || total > result.bytes) return invalid();
+        chunks.push(body);
+      }
+    });
+    socket.on('end', () => {
+      if (!result || (request.cmd === 'screenshot' && total !== result.bytes)) return invalid();
+      done({ result, png: chunks.length ? Buffer.concat(chunks, total) : null });
+    });
+    socket.on('close', () => reject(new Error('The supervisor closed the desktop connection. Check tart-vm status.')));
+    socket.on('error', (error) => fail(error.code === 'ENOENT' || error.code === 'ECONNREFUSED'
+      ? NO_DESKTOP_SESSION : 'Could not reach the desktop supervisor. Check tart-vm status.'));
+  });
+}
+
+async function desktopVm({ name, command, out, ...input }, paths) {
+  if (!readVmRecord(paths, name)) {
+    throw new Error('VM ' + JSON.stringify(name) + ' has no tart-vm record. Create or clone it, then use tart-vm start --desktop.');
+  }
+  const socket = runPaths(paths.run, name).socket;
+  const state = await supervisorState(socket);
+  if (!state.run?.desktop || !state.rfb || state.run.port === null) {
+    throw new Error(NO_DESKTOP_SESSION);
+  }
+  if (!state.rfb.connected) {
+    throw new Error(RFB_DROPPED);
+  }
+  const path = command === 'screenshot' ? screenScreenshot(out) : undefined;
+  const { result, png } = await desktopRequest(socket, { cmd: command, ...input });
+  if (png) {
+    const checked = screenScreenshot(path);
+    if (checked !== path) throw new Error('The screenshot destination changed. Retry with a stable --out path.');
+    writeScreenshot(checked, png);
+    return { name, path: checked, ...result };
+  }
+  return { name, ...result };
 }
 
 async function readSupervision(paths, name) {
@@ -514,16 +675,27 @@ async function launch(name, desktop, runFiles, running) {
           }
           throw new Error(limitRefusal(name, names));
         }
+        if (typeof event?.rfb_startup_error === 'string') {
+          throw new Error(event.rfb_startup_error + ' Check tart-vm status and retry start --desktop.');
+        }
         if (outcome.kind === 'running') throw new Error('VM ' + JSON.stringify(name) + ' is running. Stop it first.');
         if (outcome.kind === 'missing') throw new Error('VM ' + JSON.stringify(name) + ' disappeared. Check tart-vm list.');
         throw new Error('Could not start the supervisor or tart run for ' + JSON.stringify(name) +
           '. Check tart-vm status and ' + JSON.stringify(runFiles.log) + '.');
       }
       const state = await supervisorState(runFiles.socket, timeout);
+      if (desktop && state.launch_id === launchId && state.run?.port != null && state.rfb?.connected === false) {
+        throw new Error('The RFB connection dropped during startup. Retry start --desktop.');
+      }
       if (!launchReady(state, child.pid, launchId)) return null;
       if (!(await getVm(name, { timeout })).Running || ended) return null;
       const listener = desktop ? await listenerFor(state.run, Math.max(1, Math.min(timeout, timeLeft(deadline)))) : null;
       if (ended || (desktop && !listener)) return null;
+      if (desktop) {
+        const current = await supervisorState(runFiles.socket, Math.max(1, timeLeft(deadline)));
+        if (!launchReady(current, child.pid, launchId)) return null;
+        return { name, ...runAnswer(state.run, listener), rfb: current.rfb };
+      }
       return { name, ...runAnswer(state.run, listener) };
     });
     if (started) return started;
@@ -547,20 +719,32 @@ async function launch(name, desktop, runFiles, running) {
           JSON.stringify(name) + '.');
       }
     }
+    if (desktop) {
+      let failed;
+      try { failed = readExit(runFiles.log, launchId)?.rfb_startup_error; }
+      catch { /* Keep the original error when the supervisor log is unavailable. */ }
+      if (typeof failed === 'string') {
+        throw new Error(failed + ' Check tart-vm status and retry start --desktop.');
+      }
+    }
     throw error;
   }
 }
 
 async function statusVm(name, paths) {
   const vm = await getVm(name);
-  const run = await readSupervision(paths, name);
+  const state = isToolName(name) ? await supervisorState(runPaths(paths.run, name).socket) : null;
+  const run = state?.kind === 'active' ? state.run : null;
   let listener;
   if (run?.desktop && run.port !== null) {
     await checkLsof();
     listener = await listenerFor(run);
-    if (!listener) throw new Error('Tart\'s desktop listener is missing for ' + JSON.stringify(name) + '. Recheck tart-vm status.');
+    if (!listener && state.rfb?.connected !== false) {
+      throw new Error('Tart\'s desktop listener is missing for ' + JSON.stringify(name) + '. Recheck tart-vm status.');
+    }
   }
-  return { name, vm, ...runAnswer(run, listener) };
+  const rfb = state?.rfb ?? (run?.desktop ? { connected: false, framebuffer: null } : null);
+  return { name, vm, ...runAnswer(run, listener), ...(rfb ? { rfb } : {}) };
 }
 
 async function stopVm({ name, graceful, timeout }, paths) {
@@ -639,6 +823,7 @@ export async function main(argv = process.argv.slice(2)) {
   checkState(paths);
   if (['create', 'clone', 'start', 'stop', 'delete'].includes(command)) outsideTool(home);
   const version = await readVersion();
+  if (isDesktopCommand(command)) return answer(command, version, await desktopVm(options, paths));
   let result;
   switch (command) {
     case 'list': {

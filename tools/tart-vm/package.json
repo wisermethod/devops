@@ -1,0 +1,14 @@
+{
+  "name": "tart-vm",
+  "version": "0.1.0",
+  "description": "Create, clone, start, inspect, stop and delete local Tart VMs under a detached supervisor, as one JSON object",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "help": "node scripts/tart-vm.js help",
+    "test": "node --test tests/*.test.js"
+  },
+  "engines": {
+    "node": ">=18.15.0"
+  }
+}

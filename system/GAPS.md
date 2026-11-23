@@ -4,7 +4,7 @@ What this plugin does not do, declared by the primitive that names it.
 
 A gap is a capability this root does not provide that a primitive's own body names as missing (`wiser/standards/primitives.md`). This file collects every declared `gaps` entry, by hand, and is corrected whenever a primitive's gaps change. It carries capability gaps only, and names what is missing, never where it went.
 
-Counted 2026-11-22: 74 gaps across 14 primitives.
+Counted 2026-11-22: 75 gaps across 14 primitives.
 
 Counted 2026-11-20: 66 gaps across 13 primitives.
 
@@ -95,6 +95,7 @@ Counted 2026-11-13: 61 gaps across 13 primitives. Bullet count: `grep -E '^- ' s
 - more than 50 emails on one sign-in list
 - changing a Wiser app's first owner
 - changing a sign-in list whose application links or covered hostnames cannot be established
+- telling an app's Service Auth policy from an Allow policy whose name the connector refuses, where the app carries no Service Auth policy and Cloudflare's listing gives no decision
 
 ### Set Up Twenty Workspace
 

@@ -13,6 +13,7 @@ gaps:
   - more than 50 emails on one sign-in list
   - changing a Wiser app's first owner
   - changing a sign-in list whose application links or covered hostnames cannot be established
+  - telling an app's Service Auth policy from an Allow policy whose name the connector refuses, where the app carries no Service Auth policy and Cloudflare's listing gives no decision
 ---
 
 # App People
@@ -33,6 +34,8 @@ Wrap the ask in `<request>`, the owning root's applicable install record in `<in
 
 ## Steps
 
+In every step, a gateway status that Stops hands off, from any call, goes to Stops before any stop sentence the step names.
+
 ### 1. Identify the app and action
 
 Which job did the member request? Add one email, remove one email, or compare the lists. A request that is none of these is not this skill's job. An add or a removal that names no email: use **Email to add** or **Email to remove** and wait. Use the app address and Cloudflare account id from the request or the applicable install record, such as an install sheet in the owning root. Does the request name an app address? Yes: use it, and use only a record that matches it. No: the root records exactly one app, use that app; it records more than one, or none, use **Which app** and wait. The account id is missing, is not 32 lowercase hexadecimal characters, or the request and the record give different ones: use **Which account** and wait. Use the hostname without scheme, port, path, or trailing dot, lowercased, in the calls below.
@@ -48,9 +51,9 @@ Load the action contracts in `wiser/connectors/cloudflare/CONNECTOR.md`, **Acces
 
 ### 2. Resolve the sign-in list
 
-A gateway status that Stops hands off, from any call in this step or Step 4, goes to Stops before any sentence below. Call `cloudflare.zones.list_access_apps` with the hostname. Which applications may apply? The rows in `result` whose ids are absent from `unresolved` match the hostname. `unresolved` names applications whose reach the hostname filter could not establish. No match, more than one match, or any unresolved row: use **No sign-in setup** and stop. An `access_enabled: false` result is disabled Access with no match. For one match and no unresolved row, call `cloudflare.access.get_app` with the row's `id`. Require `success: true`, matching `id` and `hostname`, and a nonempty array of valid policy ids in `policy_ids`. A result that fails those checks: use **No sign-in setup** and stop.
+Call `cloudflare.zones.list_access_apps` with the hostname. Which applications may apply? The rows in `result` whose ids are absent from `unresolved` match the hostname. `unresolved` names applications whose reach the hostname filter could not establish. No match, more than one match, or any unresolved row: use **No sign-in setup** and stop. An `access_enabled: false` result is disabled Access with no match. For one match and no unresolved row, call `cloudflare.access.get_app` with the row's `id`. Require `success: true`, matching `id` and `hostname`, and a nonempty array of valid policy ids in `policy_ids`. A result that fails those checks: use **No sign-in setup** and stop.
 
-For every distinct `policy_id` in `get_app.policy_ids`, call `cloudflare.access.list_staff`. What did each call establish? `success: true` with the matching `policy_id` and a valid `emails` array establishes a sign-in list. A successful `get_app` has already read every attached policy and refused any that is not an Allow policy of 1 to 50 explicit emails or a Service Auth policy of one service token (`CONNECTOR.md`, `access.get_app`). So a policy `get_app` passed, for which `list_staff` returns `invalid_arguments` on `policy_id` with reason `Staff changes require a reusable Allow policy containing only 1 to 50 explicit email includes.`, is the Service Auth policy: exclude it. Where the matched listing row carries a `decision` for that id that is not `non_identity`, the two reads disagree: use **List unclear** and stop. Any other refusal: use **List unclear** and stop. Exactly one supported policy and every other id accounted for as Service Auth: keep its id and emails. Zero supported policies or more than one: use **List unclear** and stop. The supported policy is a reusable Allow list of 1 to 50 explicit emails, per the connector contract.
+For every distinct `policy_id` in `get_app.policy_ids`, call `cloudflare.access.list_staff`. What did each call establish? `success: true` with the matching `policy_id` and a valid `emails` array establishes a sign-in list. A successful `get_app` has already read every attached policy and refused any that is not an Allow policy of 1 to 50 explicit emails or a Service Auth policy of one service token (`CONNECTOR.md`, `access.get_app`). So a policy `get_app` passed, for which `list_staff` returns `invalid_arguments` on `policy_id` with reason `Staff changes require a reusable Allow policy containing only 1 to 50 explicit email includes.`, is the Service Auth policy, or an Allow policy whose name the connector's name check refuses, which draws the same reason. Which is it? The matched listing row carries a `decision` for that id: `non_identity` is Service Auth, exclude it; any other decision is an Allow policy this skill cannot read, use **List unclear** and stop. The row carries no decision, and exactly one attached policy drew that reason: treat it as the app's one Service Auth policy and exclude it. More than one drew it: use **List unclear** and stop. Any other refusal: use **List unclear** and stop. Exactly one supported policy and every other id accounted for as Service Auth: keep its id and emails. Zero supported policies or more than one: use **List unclear** and stop. The supported policy is a reusable Allow list of 1 to 50 explicit emails, per the connector contract.
 
 Comparison goes to Step 3. A change goes to Step 4.
 
@@ -68,7 +71,7 @@ Comparison goes to Step 3. A change goes to Step 4.
 
 ### 4. Establish the reach and gate the change
 
-For a removal, first know the first owner: from the install record where it names one, otherwise from the app's People list read as Step 3 reads it, connection first and then **Paste People**, taking the row marked as first owner. No first owner can be read: use **List unreadable** and stop. Compare without case. The removal names the first owner: use **First owner protected** and stop. It names the requester's own email, from the request or the install record: use **Own email** and stop. The sign-in list holds only the email being removed: use **Last email** and stop, with no gate and no call, since the connector refuses that removal. A refusal is never a reason to remove the first owner.
+For a removal, first know the first owner, taking only the email address from whatever holds it. Where the app has a connection, read its People list and take the row marked as first owner, since that list is built from the live install. With no connection: the install record names a first owner, use it; it names none, use a People list already pasted for this request, or else **Paste People** and wait. A connection's list or a paste that names no first owner: use **List unreadable** and stop. Compare every email in this paragraph without case. The removal names the first owner: use **First owner protected** and stop. It names the requester's own email, from the request or the install record: use **Own email** and stop. The sign-in list's distinct emails are only the one being removed: use **Last email** and stop, with no gate and no call, since the connector refuses that removal. A refusal is never a reason to remove the first owner.
 
 Call `cloudflare.zones.list_access_apps` with `{ account_id }` and no hostname. In each raw `result` row, read the link ids from `policies`: an entry is a policy id string or an object with `id`. `policy_ids` is the output of `get_app`. Require the selected application to occur once and still carry the selected policy. For every row carrying that policy, take the hostname from `domain`, every `self_hosted_domains` entry and each `destinations[].uri`. Use the connector's host extraction in `CONNECTOR.md`, including the code's stripping of scheme and port. Deduplicate hostnames, sort them and omit the primary hostname from the other-hostname list.
 
@@ -76,11 +79,11 @@ Call `cloudflare.zones.list_access_apps` with `{ account_id }` and no hostname. 
 
 Give `experts/DevOps Expert/`, in a second context, `<change_request>`, `<plan>` and `<live_state>` per its Inputs and Rules. Record the current sign-in email list and every covered hostname in the gate's `<live_state>`. Name the exact action, input and the way back: an add is undone by removing the same email, and a removal by adding it again, each a separately gated and confirmed call. The target is every hostname the policy covers.
 
-**What was the gate's verdict?** Read it as one of the expert's four outcomes, by its whole phrase.
+**What was the gate's verdict?** Read it as one of the expert's four outcomes, by its whole phrase; the expert's "safe to apply as planned" is the first.
 - Safe as planned: continue.
 - Safe with named conditions: use **Gate condition** once for each condition, its slot the condition in one plain clause, and continue only once the member says yes to each and each is met. A condition that changes the plan returns to the gate.
 - Not as proposed, whatever clearing shape it names: use **Gate stopped**, its slot the verdict's reason in one plain clause, and stop.
-- A declared gap, a question instead of a verdict, or no verdict: use **Gate stopped** and stop. A write with a no-op preflight still follows Steps 4 to 6 because the action reads the live policy again.
+- A declared gap, a question instead of a verdict, or no verdict: use **Gate stopped**, its slot the gap or the question in one plain clause, or "the safety check gave no answer" where there is neither, and stop. A write with a no-op preflight still follows Steps 4 to 6 because the action reads the live policy again.
 
 ### 5. Present the gateway stop
 

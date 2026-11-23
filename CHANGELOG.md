@@ -1,5 +1,10 @@
 # What changed in DevOps
 
+## v2026.11.23, November 23, 2026
+
+- App People 0.2.0 is new. Ask Wiser to let one person sign in to a Wiser app, to stop letting one person sign in, or to compare the app's Cloudflare sign-in list with the app's People list. Before each change it names every address the sign-in list covers and asks you to confirm, and it reads the list back before it reports. It never removes the app's first owner or the last email on a list. It needs a Cloudflare connection that can edit Access, and the Cloudflare connector Wiser serves from `v2026.11.23.6`.
+- DevOps Expert 0.7.6 checks each sign-in change App People makes before it is applied.
+
 ## v2026.11.21, November 21, 2026
 
 - Site Author 0.13.1 refreshes the instructions of a site set up before November 14. Check and Refresh router stopped on two paragraphs the move to DevOps had written into those sites' instructions. Both are now recognized, and a paragraph edited further still stops for reconciliation.

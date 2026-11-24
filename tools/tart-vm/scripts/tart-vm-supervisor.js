@@ -12,7 +12,8 @@ import {
   parseSupervisorCommand, parseVncLine, pngFromBgrx, redact, redactJson, tartArgv
 } from './tart-vm-core.js';
 import {
-  checkSocketLength, checkState, invokedDirectly, openPrivateFile, requireRecord, runPaths, statePaths, writeJson
+  checkSocketLength, checkState, invokedDirectly, openPrivateFile, requireRecord, runPaths,
+  screenShares, statePaths, writeJson
 } from './tart-vm.js';
 
 const ENTRY = fileURLToPath(import.meta.url);
@@ -180,12 +181,13 @@ function listen(server, socketPath) {
   });
 }
 
-async function serve({ name, launchId, desktop }) {
+async function serve({ name, launchId, desktop, window, shares: shareValues }) {
   const paths = statePaths();
   const files = runPaths(paths.run, name);
   checkSocketLength(files.socket);
   checkState(paths);
-  requireRecord(paths, name);
+  const { kept } = requireRecord(paths, name);
+  const shares = screenShares(shareValues, paths.root);
   process.umask(0o077);
 
   const startedAt = new Date().toISOString();
@@ -203,7 +205,7 @@ async function serve({ name, launchId, desktop }) {
   let writeFailure = false;
 
   function stopChild() {
-    if (stopRequested) return;
+    if (stopRequested || (kept && child)) return;
     stopRequested = true;
     if (!child?.pid || child.exitCode !== null || child.signalCode !== null) return;
     child.kill('SIGINT');
@@ -217,10 +219,15 @@ async function serve({ name, launchId, desktop }) {
 
   function publish() {
     const record = makeRunRecord({
-      supervisorPid: process.pid, tartPid: child.pid, desktop, startedAt, vnc
+      supervisorPid: process.pid, tartPid: child.pid, desktop, window, shares, startedAt, vnc
     });
     writeJson(files.record, record);
     run = record;
+  }
+
+  function recordFailure() {
+    writeFailure = true;
+    if (!kept) stopChild();
   }
 
   const server = createServer((socket) => {
@@ -256,6 +263,8 @@ async function serve({ name, launchId, desktop }) {
       if (message?.cmd === 'status') {
         reply({ ok: true, launch_id: launchId, run, ...(desktop ? {
           rfb: session?.status() ?? { connected: false, framebuffer: null }
+        } : {}), ...(kept && (writeFailure || startupError) ? {
+          startup_error: writeFailure ? 'Could not write the supervisor run record.' : startupError
         } : {}) });
         return;
       }
@@ -290,13 +299,13 @@ async function serve({ name, launchId, desktop }) {
     // Bind first. A second supervisor cannot start Tart or touch another run's files.
     await listen(server, files.socket);
     ownsSocket = true;
-    server.on('error', stopChild);
+    server.on('error', () => { if (!kept) stopChild(); });
     fs.chmodSync(files.socket, 0o600);
     log = openPrivateFile(files.log, fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_APPEND);
     event('start', { supervisor_pid: process.pid, desktop });
     if (stopRequested) return;
 
-    child = spawn('tart', tartArgv.start(name, desktop), { stdio: ['ignore', 'pipe', 'pipe'] });
+    child = spawn('tart', tartArgv.start(name, desktop, window, shares), { stdio: ['ignore', 'pipe', 'pipe'] });
     let lastStderr = '';
     // A spawn that fails emits error and may never emit close, so either one ends the wait.
     const closed = new Promise((done) => {
@@ -321,23 +330,20 @@ async function serve({ name, launchId, desktop }) {
             publish();
             event('desktop-ready', session.status());
           } catch {
-            writeFailure = true;
-            stopChild();
+            recordFailure();
           }
         }, (reason) => {
           startupError = reason;
-          stopChild();
+          if (!kept) stopChild();
         });
       } catch {
-        writeFailure = true;
-        stopChild();
+        recordFailure();
       }
     });
     if (child.pid) {
       try { publish(); }
       catch {
-        writeFailure = true;
-        stopChild();
+        recordFailure();
       }
     }
     const exit = await closed;

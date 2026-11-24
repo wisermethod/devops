@@ -1,6 +1,6 @@
 {
   "name": "tart-vm",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Manage local Tart VMs, capture their screens and send guest input through a detached supervisor, as one JSON object",
   "private": true,
   "type": "module",

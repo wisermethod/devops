@@ -4,6 +4,8 @@ What this plugin does not do, declared by the primitive that names it.
 
 A gap is a capability this root does not provide that a primitive's own body names as missing (`wiser/standards/primitives.md`). This file collects every declared `gaps` entry, by hand, and is corrected whenever a primitive's gaps change. It carries capability gaps only, and names what is missing, never where it went.
 
+Counted 2026-11-24: 86 gaps across 15 primitives, with Tart VM 0.2.0.
+
 Counted 2026-11-23: 82 gaps across 15 primitives, with Tart VM.
 
 Counted 2026-11-23: 75 gaps across 14 primitives.
@@ -109,7 +111,11 @@ Counted 2026-11-13: 61 gaps across 13 primitives. Bullet count: `grep -E '^- ' s
 - driving the screen of a Linux virtual machine
 - the Option and Control keys and other modifiers, not yet measured
 - characters a US keyboard layout cannot type
-- a virtual machine with a host folder shared into it or on bridged networking
+- a virtual machine on bridged networking
+- a screen larger than the image's own 1024x768
+- installing apps or signing in to accounts inside a virtual machine for the person
+- keeping a kept base's apps and sign-ins up to date by itself
+- a shared folder inside a Linux virtual machine
 
 ### Set Up Twenty Workspace
 

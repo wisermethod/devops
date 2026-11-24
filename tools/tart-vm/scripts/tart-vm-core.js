@@ -9,6 +9,16 @@ export const SOCKET_LIMIT = 103;
 const MAX_TIMEOUT = 2_147_473;
 export const LISTENER_REACH =
   "The port can be reached from every network this Mac joins and Tart's passphrase is its only guard.";
+// Tart 2.42.0 sends none, since every start passes --no-clipboard; a longer one is a broken stream, not text.
+const MAX_CUT_TEXT = 1024 * 1024;
+
+// What lsof read decides the sentence, never the address in Tart's URL: Tart 2.42.0 listens on every interface.
+export function listenerReach(listener) {
+  const host = listener.slice(0, listener.lastIndexOf(':'));
+  if (host === '*' || host === '0.0.0.0' || host === '[::]') return LISTENER_REACH;
+  if (/^127\./.test(host) || host === '[::1]') return "The port can be reached only from this Mac and Tart's passphrase is its only guard.";
+  return 'The port can be reached on the network of ' + host + " and Tart's passphrase is its only guard.";
+}
 export const NO_DESKTOP_SESSION = 'The VM has no ready desktop session. Use tart-vm start --desktop.';
 export const RFB_DROPPED = 'The RFB connection dropped. Stop the VM and start it again with start --desktop.';
 
@@ -319,7 +329,7 @@ export function runAnswer(run, listener) {
     supervised: run !== null,
     desktop: run?.desktop ?? false,
     ...(run ? { pid: run.tart_pid } : {}),
-    ...(listener ? { listener, listener_reach: LISTENER_REACH } : {})
+    ...(listener ? { listener, listener_reach: listenerReach(listener) } : {})
   };
 }
 
@@ -672,7 +682,12 @@ export class RfbClient {
         break;
       case 3:
         this.#read(7, (header) => {
-          this.#read(header.readUInt32BE(3), (_discarded, result) => {
+          const length = header.readUInt32BE(3);
+          if (length > MAX_CUT_TEXT) {
+            throw new Error('RFB server cut text of ' + length + ' bytes is over the ' + MAX_CUT_TEXT +
+              ' bytes the client reads. Stop the VM and start it again with start --desktop.');
+          }
+          this.#read(length, (_discarded, result) => {
             result.events.push({ type: 'server-cut-text-dropped' });
             this.#read(1, this.#message);
           }, true);

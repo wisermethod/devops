@@ -23,7 +23,6 @@ Classifier seam: none.
 - Every command except help checks Tart with `tart --version`.
 - Desktop start and status for a desktop VM check macOS's `lsof` with `lsof -v`.
 - Preflight reads the macOS version with macOS's `sw_vers -productVersion`.
-- `start` reads a start lock's holder with macOS's `/bin/ps`, part of macOS.
 
 ## Quick Start
 
@@ -59,7 +58,7 @@ Run `node scripts/tart-vm.js` followed by a command. Append `--help` to any comm
 | `type <name> --text <text>` | Send printable US-layout characters, Return for a newline and Tab for a tab. The tool holds Shift for each character that requires it. At most 1,000 characters per command. |
 | `key <name> --keys <combo>` | Send one key or chord, such as `cmd+n`, `cmd+space`, `shift+tab` or `return`. |
 | `stop <name> [--graceful] [--timeout <seconds>]` | Power off a recorded VM by default. `--graceful` asks the guest to shut down with `sudo -n /sbin/shutdown -h now` through `tart exec`, whose `PATH` has no `/sbin`. `--timeout` is a positive whole number of seconds. Tart's power-off timeout defaults to 30. The graceful timeout defaults to 120 and bounds both the request to the guest and the wait, leaving the VM running if the guest does not shut down in time. The VM's own state decides the outcome, since a guest that shuts down can drop the agent's connection before `tart exec` answers. |
-| `delete <name> [--gate-approved]` | Delete a stopped or suspended VM, then its record, its supervisor log and any socket a killed supervisor left. A record whose VM Tart no longer has is removed with `vm_missing: true`, as `create` does before reusing the name. A VM without a record requires `--gate-approved` after DevOps Expert's gate and the requester's yes naming the VM. |
+| `delete <name> [--gate-approved]` | Delete a stopped or suspended VM, then its record, its supervisor log and any socket a killed supervisor left. A record whose VM Tart no longer has is removed with `vm_missing: true`; `create` replaces such a record when it reuses the name. A VM without a record requires `--gate-approved` after DevOps Expert's gate and the requester's yes naming the VM. |
 
 New names use `wiser-tart-` followed by 1 to 31 lowercase letters, digits or hyphens. The first character after the prefix must be a letter or digit. Create from a cached image, clone and start need 20 GB free. An uncached image needs its size plus 20 GB. The default image uses a measured floor of 33 GB for that calculation. Start refuses a third running macOS VM.
 
@@ -87,7 +86,7 @@ Help prints usage text. Each successful command other than help prints one JSON 
 | `preflight` | `platform`, `architecture`, `apple_silicon`, `macos_version`, `macos_13_or_later`, `tart_home`, `disk`, `default_image`, `default_image_cached`, `running_macos_vms`, `state_directories` and `errors`. The disk object gives `free_bytes` and `measured_at`. |
 | `list` | `vms` contains Tart's local list entries with `created_by_tool`. Entries held by a supervisor also carry `supervised: true` and `desktop`. |
 | `create`, `clone` | `record` gives `name`, `source`, `created_at` and `tool_version`. `vm` is Tart's `get` object. Create also gives `image_cached` and echoes `image_gb` when supplied. |
-| `start`, `status` | `name`, `supervised`, `desktop` and `pid` when supervised. Status includes `vm`, Tart's `get` object. A desktop supervisor reports `rfb` with `connected` and `framebuffer` (width and height, or null before ServerInit). A verified desktop listener adds `listener` from `lsof` and `listener_reach`. The port can be reached from every network this Mac joins and Tart's passphrase is its only guard. |
+| `start`, `status` | `name`, `supervised`, `desktop` and `pid` when supervised. Status includes `vm`, Tart's `get` object. A desktop supervisor reports `rfb` with `connected` and `framebuffer` (width and height, or null before ServerInit). A verified desktop listener adds `listener` from `lsof` and `listener_reach`, a sentence that follows that address, never the one in Tart's URL: on a wildcard, as Tart 2.42.0 listens, the port can be reached from every network this Mac joins and Tart's passphrase is its only guard. |
 | `screenshot` | `name`, `path` (resolved), `width`, `height` and `bytes`. |
 | `move` | `name`, `x` and `y`. |
 | `click`, `double-click` | `name`, `x`, `y` and `button`. |
@@ -102,7 +101,7 @@ Help prints usage text. Each successful command other than help prints one JSON 
 
 The scripts follow `wiser/standards/script-contract.md`. Screenshots write to the caller’s resolved `--out` path and replace an existing regular file there. The tool directory is refused. The writes table lists the state and Tart files. [Everything a tool writes, and where](../AGENTS.md#everything-a-tool-writes-and-where)
 
-A desktop command waits its turn behind the one before it. While it waits and runs, the supervisor sends a newline every 10 seconds, and the entry script gives up only after 30 seconds of silence. A command whose caller has gone stops at its next event, and a command that fails partway releases any key or button it pressed, where the connection still allows.
+A desktop command waits its turn behind the one before it. While it waits and runs, the supervisor sends a newline every 10 seconds, and the entry script gives up only after 30 seconds of silence. An input command whose caller has gone stops at its next event; a screenshot, which changes nothing in the guest, finishes. A command that fails partway releases any key or button it pressed, where the connection still allows. A write the RFB server has not taken within 10 seconds closes the desktop session, so a server that stops reading fails the command rather than holding the queue.
 
 ## Measurements
 
@@ -113,6 +112,7 @@ Measured 2026-11-23 on an M4 Max with macOS 26.3 and Tart 2.42.0.
 - The experimental VNC server listened on every interface. `lsof` showed an IPv6 wildcard such as `*:49157`. The URL Tart printed named `127.0.0.1`.
 - The guest agent answered `tart exec` about 18 seconds after startup.
 - `stop --graceful` took 8 to 10 seconds from `/sbin/shutdown` to Tart reading the VM stopped; a bare `shutdown` under `tart exec` was not found, and once `tart exec` exited non-zero while the guest shut down.
+- Every start used Tart's default shared NAT, since the tool passes no network option and Tart 2.42.0 sets networking per `tart run`, not in a VM's configuration; the guest's address was 192.168.64.2.
 - The guest reached none of the host's non-loopback TCP listeners included in a partial scan of processes owned by the host user. The same guest reached the host's DNS service and an external HTTPS endpoint in control checks.
 - A desktop start that connects while the guest is still booting reads a 1280x720 framebuffer at ServerInit; the first full update after macOS finishes starting resizes it to 1024x768 (measured 2026-11-23, Milestone 2's live drive). `status` reports the size as of the last ServerInit or DesktopSize, and every pointer write is checked against the size at that moment: take a screenshot before the first action. A screenshot is taken only once rectangles cover the whole frame, from a copy of that frame.
 - Through the shipped commands, 2026-11-23: 10 of 10 clicks landed on the guest's own pointer reading; `Wiser Probe 42: A-Z_ok! ~{}|<>?` typed and read back exact; `cmd+n` took Terminal from 1 to 2 windows; `cmd+space` opened Spotlight; `move` and `drag` ended at the requested pixel.
@@ -126,4 +126,4 @@ Measured 2026-11-23 on an M4 Max with macOS 26.3 and Tart 2.42.0.
 | An image needs `--image-gb`, or there is too little disk space | Supply the uncached image's size or free space on Tart's volume before retrying. |
 | Two macOS VMs are running | Stop a named running macOS VM before starting another one. |
 | The guest did not shut down | Inspect status. Stop without `--graceful` only if a power-off is acceptable. |
-| Unsafe directory, stale socket or socket path too long | Check the state paths in `preflight`. Use directories owned by the current user with group and other write access removed. `start` takes a per-VM start lock naming its process, then clears a socket that refuses connections twice and is the same file both times, which a killed supervisor or a restart left; a second start while one holds the lock is refused. A lock is taken over only when its process is no longer a running `tart-vm.js start` (read with `/bin/ps`), or, naming no process, is older than three minutes; a start releases only its own lock. The socket path limit is 103 bytes. |
+| Unsafe directory, another command working on the name, stale socket or socket path too long | Check the state paths in `preflight`. The Wiser directory must be owned by the current user without group or other write access, and the tool's own `tart-vm`, `vms` and `run` directories must admit no one else (mode 0700). `create`, `clone`, `start` and `delete` each hold the VM name's lock while they run, an exclusive lock macOS keeps on the name's `.lock` file and drops when the command exits, however it exits; a second of those commands on the same name meanwhile is refused, and nothing is ever left to take over. Under it, `start` clears a socket that refuses connections twice and is the same file both times, which a killed supervisor or a restart left. The socket path limit is 103 bytes. |

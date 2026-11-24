@@ -19,6 +19,8 @@ const ENTRY = fileURLToPath(import.meta.url);
 const MAX_REQUEST = 1024 * 1024;
 const FRAME_TIMEOUT = 15_000;
 const KEEPALIVE_MS = 10_000;
+const SEND_TIMEOUT = 10_000;
+const RFB_STALLED = 'The RFB server stopped taking input for 10 seconds, so the desktop session closed; part of the command may have reached the guest. Stop the VM and start it again with start --desktop.';
 const CALLER_GONE = 'The caller stopped waiting, so the command stopped partway; part of it may have reached the guest. Take a screenshot.';
 
 class DesktopSession {
@@ -64,7 +66,17 @@ class DesktopSession {
   send(bytes) {
     if (!this.connected) throw new Error(RFB_DROPPED);
     return new Promise((done, reject) => {
-      this.socket.write(bytes, (error) => error ? reject(new Error(RFB_DROPPED)) : done());
+      // A write the RFB server has not taken in 10 seconds means it stopped reading. The session closes, so the
+      // command fails and the queue behind it moves on, rather than waiting while keepalives hold its caller.
+      const timer = setTimeout(() => {
+        reject(new Error(RFB_STALLED));
+        this.close();
+      }, SEND_TIMEOUT);
+      this.socket.write(bytes, (error) => {
+        clearTimeout(timer);
+        if (error) reject(new Error(RFB_DROPPED));
+        else done();
+      });
     });
   }
 

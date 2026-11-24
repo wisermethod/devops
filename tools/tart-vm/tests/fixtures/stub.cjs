@@ -208,6 +208,11 @@ switch (command) {
   case 'clone': {
     if (args.length !== 3) fail('unexpected clone flags');
     if (data[target]) fail('destination exists');
+    if (config.raceClone === target) {
+      data[target] = { ...config.image, State: 'stopped', Running: false };
+      store(data);
+      fail('destination exists');
+    }
     const { pid, ...source } = vm ?? config.image;
     data[target] = { ...source, State: 'stopped', Running: false };
     store(data);

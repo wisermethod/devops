@@ -86,7 +86,7 @@ test('the complete shifted punctuation set maps to the unshifted physical keys',
 });
 
 function hostInputCalls(source) {
-  return source.match(/CGEvent|osascript|System Events|pbcopy|pbpaste|NSPasteboard|cliclick|CGWarpMouseCursorPosition/gi) ?? [];
+  return source.match(/CGEvent|CGPost|CGWarpMouseCursorPosition|IOHIDPostEvent|hidutil|osascript|System Events|pbcopy|pbpaste|NSPasteboard|cliclick/gi) ?? [];
 }
 
 function checkScripts(directory) {
@@ -105,4 +105,18 @@ test('the host-input matcher refuses a planted call', () => {
   assert.deepEqual(hostInputCalls('native.CGEventPost(tap, event);'), ['CGEvent']);
   assert.deepEqual(hostInputCalls('spawn("osascript", ["-e", "tell application System Events"]);'),
     ['osascript', 'System Events']);
+  assert.deepEqual(hostInputCalls('native.CGPostMouseEvent(point, true, 1, true); CGPostKeyboardEvent(0, 49, true);'),
+    ['CGPost', 'CGPost']);
+  assert.deepEqual(hostInputCalls('IOHIDPostEvent(port, type, location, data); spawn("hidutil", ["property"]);'),
+    ['IOHIDPostEvent', 'hidutil']);
+});
+
+test('server cut text over the cap ends the session instead of stalling it', () => {
+  const client = new RfbClient('password');
+  client.feed(capture);
+  assert.throws(() => client.feed(Uint8Array.of(3, 0, 0, 0, 0xff, 0xff, 0xff, 0xff)), /cut text of 4294967295 bytes/);
+  const small = new RfbClient('password');
+  small.feed(capture);
+  const { events } = small.feed(Uint8Array.of(3, 0, 0, 0, 0, 0, 0, 2, 0x68, 0x69));
+  assert.deepEqual(events, [{ type: 'server-cut-text-dropped' }]);
 });

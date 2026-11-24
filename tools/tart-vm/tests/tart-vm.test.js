@@ -8,7 +8,7 @@ import { setTimeout as sleep } from 'node:timers/promises';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { inflateSync } from 'node:zlib';
-import { classifyTartError, diskDecision, parseGet, parseList, parseVncLine, redact, tartArgv } from '../scripts/tart-vm-core.js';
+import { classifyTartError, diskDecision, parseGet, parseList, parseVncLine, redact, runAnswer, tartArgv } from '../scripts/tart-vm-core.js';
 
 const TOOL = fileURLToPath(new URL('..', import.meta.url));
 const CLI = join(TOOL, 'scripts', 'tart-vm.js');
@@ -491,10 +491,10 @@ test('an unsafe symlink directory is refused and preflight reports it', (t) => {
 test('a group-writable run directory is refused before Tart runs', (t) => {
   const f = fixture(t);
   f.ok('create', VM);
-  fs.mkdirSync(f.run);
+  fs.mkdirSync(f.run, { recursive: true });
   fs.chmodSync(f.run, 0o770);
   const callsBefore = f.calls();
-  f.refused(['start', VM], /Unsafe state directory.*run.*group and other write access/);
+  f.refused(['start', VM], /Unsafe state directory.*run.*no access for group or other/);
   assert.deepEqual(f.calls(), callsBefore);
 });
 
@@ -576,15 +576,43 @@ test('overlapping starts over a stale socket run one Tart process and keep the s
   f.ok('stop', VM);
 });
 
-test('a start lock held by a live start refuses, and one older than any start is taken over', (t) => {
+function holdLock(t, path) {
+  // A second process holding the name's kernel lock, as another tart-vm command would.
+  fs.mkdirSync(path.slice(0, path.lastIndexOf('/')), { recursive: true, mode: 0o700 });
+  const holder = spawn(process.execPath, ['-e',
+    "const fs = require('fs'); fs.openSync(process.argv[1], fs.constants.O_RDWR | fs.constants.O_CREAT | 0x20, 0o600);" +
+    " process.stdout.write('held\\n'); setInterval(() => {}, 1000);", path], { stdio: ['ignore', 'pipe', 'ignore'] });
+  t.after(() => holder.kill('SIGKILL'));
+  return new Promise((done, fail) => {
+    holder.stdout.once('data', () => done(holder));
+    holder.once('exit', (code) => fail(new Error('The lock holder exited with ' + code + ' before it held ' + path + '.')));
+  });
+}
+
+test('a VM name another tart-vm command holds is refused, and free the moment that holder exits', async (t) => {
+  const f = fixture(t);
+  f.ok('create', VM);
+  const lock = f.runFile(VM, 'lock');
+  const holder = await holdLock(t, lock);
+  const before = f.tart().length;
+  for (const args of [['start', VM], ['delete', VM], ['create', VM]]) {
+    f.refused(args, /Another tart-vm command is working on "wiser-tart-test"/);
+  }
+  assert.deepEqual(f.tart().slice(before).filter(([cmd]) => ['run', 'delete', 'clone', 'get'].includes(cmd)), []);
+  const exited = new Promise((done) => holder.once('exit', done));
+  holder.kill('SIGKILL');
+  await exited;
+  assert.equal(f.ok('start', VM).supervised, true);
+  assert.ok(!fs.existsSync(lock), 'the name is released with no file left');
+  f.ok('stop', VM);
+});
+
+test('a lock file a killed command left behind blocks nothing', (t) => {
   const f = fixture(t);
   f.ok('create', VM);
   const lock = f.runFile(VM, 'lock');
   fs.mkdirSync(lock.slice(0, lock.lastIndexOf('/')), { recursive: true, mode: 0o700 });
-  fs.writeFileSync(lock, '{}\n', { mode: 0o600 });
-  f.refused(['start', VM], /in progress/);
-  const old = new Date(Date.now() - 600_000);
-  fs.utimesSync(lock, old, old);
+  fs.writeFileSync(lock, JSON.stringify({ pid: 999999, token: 'b'.repeat(32) }) + '\n', { mode: 0o600 });
   assert.equal(f.ok('start', VM).supervised, true);
   assert.ok(!fs.existsSync(lock));
   f.ok('stop', VM);
@@ -657,31 +685,6 @@ test('a graceful stop whose tart exec loses the guest still succeeds once the VM
   f.refused(['stop', VM, '--graceful'], /is not running/);
 });
 
-test('a start lock is taken from a holder that is not a running start, and kept from one that is, whatever its age', async (t) => {
-  const f = fixture(t);
-  f.ok('create', VM);
-  const lock = f.runFile(VM, 'lock');
-  fs.mkdirSync(lock.slice(0, lock.lastIndexOf('/')), { recursive: true, mode: 0o700 });
-  const holder = (pid) => fs.writeFileSync(lock, JSON.stringify({ pid, token: 'b'.repeat(32) }) + '\n', { mode: 0o600 });
-  // A holder that has exited, fresh: taken at once.
-  holder(spawnSync(process.execPath, ['-e', '0']).pid);
-  assert.equal(f.ok('start', VM).supervised, true);
-  f.ok('stop', VM);
-  // A reused pid: alive, but not a tart-vm start.
-  holder(process.pid);
-  assert.equal(f.ok('start', VM).supervised, true);
-  f.ok('stop', VM);
-  // A running start, its lock ten minutes old as after a clock step: kept.
-  const runner = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 30000)', 'tart-vm.js', 'start', VM], { stdio: 'ignore' });
-  t.after(() => runner.kill('SIGKILL'));
-  await eventually(() => alive(runner.pid));
-  holder(runner.pid);
-  const old = new Date(Date.now() - 600_000);
-  fs.utimesSync(lock, old, old);
-  f.refused(['start', VM], /in progress/);
-  assert.ok(fs.existsSync(lock), 'a running start keeps its lock');
-});
-
 function setConfig(f, changes) {
   const path = join(f.dir, 'config.json');
   fs.writeFileSync(path, JSON.stringify({ ...JSON.parse(fs.readFileSync(path, 'utf8')), ...changes }));
@@ -707,7 +710,7 @@ test('a graceful stop rides out a failed tart get while its timeout runs', (t) =
   const stopped = f.ok('stop', VM, '--graceful', '--timeout', '10');
   assert.equal(stopped.method, 'guest-shutdown');
   assert.equal(stopped.vm.State, 'stopped');
-  assert.equal(fs.readFileSync(join(f.dir, 'get-count'), 'utf8') >= '2', true);
+  assert.ok(Number(fs.readFileSync(join(f.dir, 'get-count'), 'utf8')) >= 2);
 });
 
 function desktopCommands(f) {
@@ -985,4 +988,40 @@ test('a command that outlasts a keepalive interval still answers, the keepalive 
   assert.equal(JSON.parse(typed.stdout).length, 150);
   assert.equal(f.rfb().filter(({ kind }) => kind === 'key').length, 600);
   f.ok('stop', VM);
+});
+
+test('a clone whose recording fails keeps a record, and a name Tart already has is never recorded', (t) => {
+  const f = fixture(t, {}, { [CLONE]: BASE_VM });
+  setConfig(f, { failGet: VM });
+  f.refused(['create', VM], /verification or recording failed/);
+  assert.ok(fs.existsSync(join(f.records, VM + '.json')), 'the clone Tart made has a record');
+  setConfig(f, { failGet: null });
+  assert.equal(f.ok('delete', VM).deleted, true);
+  // A VM made outside the tool under a tool name stays outside it.
+  f.refused(['create', CLONE], /already exists/);
+  assert.ok(!fs.existsSync(join(f.records, CLONE + '.json')));
+  f.refused(['delete', CLONE], /--gate-approved/);
+  // A VM made outside the tool under the name while Tart clones: the failed clone keeps no record for it.
+  setConfig(f, { raceClone: VM });
+  f.refused(['create', VM], /tart clone .* failed/);
+  assert.ok(!fs.existsSync(join(f.records, VM + '.json')), 'a VM another program made is never recorded');
+  f.refused(['delete', VM], /--gate-approved/);
+});
+
+test('a state directory group or other can read or search is refused', (t) => {
+  const f = fixture(t);
+  f.ok('create', VM);
+  fs.mkdirSync(f.run, { recursive: true });
+  fs.chmodSync(f.run, 0o744);
+  const callsBefore = f.calls();
+  f.refused(['start', VM], /Unsafe state directory.*run.*no access for group or other/);
+  assert.deepEqual(f.calls(), callsBefore);
+});
+
+test('the listener reach follows the address lsof read', () => {
+  const run = { desktop: true, tart_pid: 7 };
+  assert.match(runAnswer(run, '*:49157').listener_reach, /every network this Mac joins/);
+  assert.match(runAnswer(run, '127.0.0.1:49157').listener_reach, /only from this Mac/);
+  assert.match(runAnswer(run, '[::1]:49157').listener_reach, /only from this Mac/);
+  assert.match(runAnswer(run, '192.168.1.20:49157').listener_reach, /192\.168\.1\.20/);
 });

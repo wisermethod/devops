@@ -22,7 +22,6 @@ const TOOL_DIR = resolve(dirname(ENTRY), '..');
 const SUPERVISOR = fileURLToPath(new URL('./tart-vm-supervisor.js', import.meta.url));
 const INSPECTION_MS = 10_000;
 const POLL_MS = 200;
-const LOCK_SLACK = 60;
 const DESKTOP_IDLE_MS = 30_000;
 const MAX_PNG_BYTES = 256 * 1024 * 1024;
 
@@ -126,12 +125,14 @@ function writeScreenshot(destination, png) {
   }
 }
 
-function privateDirectory(path) {
+// The Wiser directory is shared with other tools and needs only to be unwritable by others; the tool's own
+// directories, which hold the supervisor sockets and records, admit no one else at all.
+function privateDirectory(path, own = true) {
   const stat = fs.lstatSync(path, { throwIfNoEntry: false });
   if (!stat) return 'absent';
-  if (!stat.isDirectory() || stat.uid !== process.getuid() || (stat.mode & 0o022) !== 0) {
-    throw new Error('Unsafe state directory ' + JSON.stringify(path) +
-      '. Use a real directory owned by this user with group and other write access removed.');
+  if (!stat.isDirectory() || stat.uid !== process.getuid() || (stat.mode & (own ? 0o077 : 0o022)) !== 0) {
+    throw new Error('Unsafe state directory ' + JSON.stringify(path) + '. Use a real directory owned by this user with ' +
+      (own ? 'no access for group or other (mode 0700).' : 'group and other write access removed.'));
   }
   return 'ready';
 }
@@ -145,12 +146,13 @@ export function statePaths() {
 export function checkState(paths, create = []) {
   for (const key of ['config', 'root', 'records', 'run']) {
     const path = paths[key];
-    if (privateDirectory(path) === 'absent' && create.includes(key)) {
+    const own = key !== 'config';
+    if (privateDirectory(path, own) === 'absent' && create.includes(key)) {
       outsideTool(path);
       if (key === 'config') fs.mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
       try { fs.mkdirSync(path, { mode: 0o700 }); }
       catch (error) { if (error.code !== 'EEXIST') throw error; }
-      privateDirectory(path);
+      privateDirectory(path, own);
     }
   }
   // This also screens existing state reached through a link above the Wiser directory.
@@ -164,7 +166,7 @@ function stateFacts(paths) {
       const parent = key === 'config' ? null : key === 'root' ? 'config' : 'root';
       status[key] = { path, state: parent && status[parent].state !== 'ready'
         ? (status[parent].state === 'absent' ? 'absent' : 'unchecked')
-        : privateDirectory(path) };
+        : privateDirectory(path, key !== 'config') };
     } catch (error) {
       status[key] = { path, state: 'unsafe', error: error.message };
     }
@@ -510,22 +512,28 @@ function requireDisk(home, options) {
 
 async function cloneVm(options, paths, home) {
   const { command, name, source, imageGb } = options;
-  if (readVmRecord(paths, name)) {
-    if (await getVm(name, { missing: true })) {
-      throw new Error('VM ' + JSON.stringify(name) + ' already exists. Use a new VM name.');
-    }
-    // Tart no longer has this VM: a delete outside the tool, or one cut short, left its record. It stays until the
-    // new clone's record replaces it, so a clone or a write that fails still leaves this name controllable.
+  // A VM Tart already has is never recorded here, whatever its name: recording it would let start, stop and delete
+  // reach a VM the tool did not make. A record whose VM Tart no longer has is replaced below.
+  if (await getVm(name, { missing: true })) {
+    throw new Error('VM ' + JSON.stringify(name) + ' already exists. Use a new VM name.');
   }
   const cached = command === 'create' && imageCached(await listTart('oci'), source);
   requireDisk(home, { operation: command, image: source, cached, imageGb });
   if (command === 'clone') await getVm(source);
   checkState(paths, ['config', 'root', 'records']);
-  await tart(tartArgv.clone(source, name), { timeout: 0 });
   const record = makeVmRecord(name, source, new Date().toISOString());
+  // The record is written before Tart clones, so a clone whose verification fails, or whose process is killed, is
+  // still a VM this tool made. The caller holds the name's lock, so no other tart-vm command makes or deletes this
+  // name meanwhile: a clone that fails made nothing of this tool's, and any VM Tart has under the name then was made
+  // outside it, so the record goes whatever Tart now lists.
+  writeJson(recordPath(paths, name), record);
+  try { await tart(tartArgv.clone(source, name), { timeout: 0 }); }
+  catch (error) {
+    clearRecord(paths, name);
+    throw error;
+  }
   try {
     const vm = await getVm(name);
-    writeJson(recordPath(paths, name), record);
     return { record, vm, ...(command === 'create' ? { image_cached: cached } : {}),
       ...(imageGb === undefined ? {} : { image_gb: imageGb }) };
   } catch (error) {
@@ -578,75 +586,51 @@ async function startVm({ name, desktop }, paths, home) {
   requireDisk(home, { operation: 'start' });
   if (desktop) await checkLsof();
   checkState(paths, ['config', 'root', 'run']);
-  const release = await acquireStartLock(runFiles.lock, name);
-  try {
-    let socketState = await supervisorState(runFiles.socket);
+  let socketState = await supervisorState(runFiles.socket);
+  if (socketState.kind === 'stale') {
+    // Under the name's lock no other start is binding this path, and a live supervisor listens on it from before
+    // it starts Tart until it exits, so a connection refused twice is a socket a killed supervisor or a restart left.
+    const first = fs.lstatSync(runFiles.socket, { throwIfNoEntry: false });
+    await sleep(POLL_MS);
+    socketState = await supervisorState(runFiles.socket);
+    const second = fs.lstatSync(runFiles.socket, { throwIfNoEntry: false });
     if (socketState.kind === 'stale') {
-      // Under the start lock no other start is binding this path, and a live supervisor listens on it from before
-      // it starts Tart until it exits, so a connection refused twice is a socket a killed supervisor or a restart left.
-      const first = fs.lstatSync(runFiles.socket, { throwIfNoEntry: false });
-      await sleep(POLL_MS);
-      socketState = await supervisorState(runFiles.socket);
-      const second = fs.lstatSync(runFiles.socket, { throwIfNoEntry: false });
-      if (socketState.kind === 'stale') {
-        if (!first || !second || first.ino !== second.ino || first.dev !== second.dev) {
-          throw new Error('The supervisor socket for ' + JSON.stringify(name) + ' changed while it was checked. Retry tart-vm start.');
-        }
-        fs.rmSync(runFiles.socket, { force: true });
-        fs.rmSync(runFiles.record, { force: true });
-        socketState = { kind: 'absent' };
+      if (!first || !second || first.ino !== second.ino || first.dev !== second.dev) {
+        throw new Error('The supervisor socket for ' + JSON.stringify(name) + ' changed while it was checked. Retry tart-vm start.');
       }
+      fs.rmSync(runFiles.socket, { force: true });
+      fs.rmSync(runFiles.record, { force: true });
+      socketState = { kind: 'absent' };
     }
-    if (socketState.kind !== 'absent') {
-      throw new Error('A supervisor already holds ' + JSON.stringify(name) + '. Check tart-vm status.');
-    }
-    return await launch(name, desktop, runFiles, running);
-  } finally {
-    release();
   }
+  if (socketState.kind !== 'absent') {
+    throw new Error('A supervisor already holds ' + JSON.stringify(name) + '. Check tart-vm status.');
+  }
+  return await launch(name, desktop, runFiles, running);
 }
 
-function readLock(path) {
-  try { return JSON.parse(readPrivateFile(path) ?? 'null'); }
-  catch { return null; }
-}
+// macOS <sys/fcntl.h>: open(2) with O_EXLOCK takes an exclusive flock on the file, and the kernel drops it when the
+// holder exits, however it exits. Node passes the flag through and exports no constant for it.
+const O_EXLOCK = 0x20;
 
-// true: a running tart-vm start holds it; false: its holder has exited, or the pid now runs something else;
-// null: the lock names no process, or ps could not say.
-async function lockHolderRuns(holder) {
-  if (!Number.isSafeInteger(holder?.pid) || holder.pid <= 0) return null;
-  try { process.kill(holder.pid, 0); }
-  catch (error) { if (error.code === 'ESRCH') return false; }
-  const result = await call('/bin/ps', ['-o', 'command=', '-p', String(holder.pid)]);
-  if (result.error) return result.error.code === 1 && !result.stdout.trim() ? false : null;
-  return result.stdout.includes('tart-vm.js start');
-}
-
-async function acquireStartLock(path, name) {
-  const token = randomBytes(16).toString('hex');
-  for (let attempt = 0; attempt < 2; attempt += 1) {
-    let fd;
-    try { fd = openPrivateFile(path, fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL); }
-    catch (error) {
-      if (error.code !== 'EEXIST') throw error;
-      if (attempt > 0) break;
-      const holder = readLock(path);
-      const runs = await lockHolderRuns(holder);
-      const stat = fs.lstatSync(path, { throwIfNoEntry: false });
-      // A lock whose start is no longer running was left by one that was killed. A lock naming no process, left by a
-      // start killed between creating and writing it, is taken only once older than any start holds one.
-      const abandoned = runs === false ||
-        (runs === null && !holder?.pid && stat && Date.now() - stat.mtimeMs > (START_TIMEOUT + LOCK_SLACK) * 1000);
-      // Remove it only if it is still the lock just judged, not one another start has since taken.
-      if (!abandoned || readLock(path)?.token !== holder?.token) break;
-      fs.rmSync(path, { force: true });
-      continue;
-    }
-    try { fs.writeFileSync(fd, JSON.stringify({ pid: process.pid, token, at: new Date().toISOString() }) + '\n'); }
+// One lifecycle command at a time per VM name: create, clone, start and delete hold the name's lock for their whole
+// run, so none of them interleaves with another on that name, and no lock is ever left for a later command to judge.
+function holdName(paths, name) {
+  if (process.platform !== 'darwin') throw new Error('tart-vm runs only on macOS. Run it on an Apple silicon Mac.');
+  checkState(paths, ['config', 'root', 'run']);
+  const path = runPaths(paths.run, name).lock;
+  let fd;
+  try { fd = openPrivateFile(path, fs.constants.O_RDWR | fs.constants.O_CREAT | O_EXLOCK); }
+  catch (error) {
+    if (error.code !== 'EAGAIN' && error.code !== 'EWOULDBLOCK') throw error;
+    throw new Error('Another tart-vm command is working on ' + JSON.stringify(name) +
+      '. Wait for it to finish, then check tart-vm status.');
+  }
+  // Removed as the holder's last act, before the lock drops, so a name nothing is using keeps no file.
+  return () => {
+    try { fs.rmSync(path, { force: true }); }
     finally { fs.closeSync(fd); }
-    return () => { if (readLock(path)?.token === token) fs.rmSync(path, { force: true }); };
-  }
-  throw new Error('Another tart-vm start of ' + JSON.stringify(name) + ' is in progress. Wait for it to finish, then check tart-vm status.');
+  };
 }
 
 async function launch(name, desktop, runFiles, running) {
@@ -813,6 +797,12 @@ async function deleteVm({ name, gateApproved }, paths, home) {
   return { name, deleted: true, gate_approved: gateApproved, free_bytes_before: before, free_bytes_after: diskSpace(home).free_bytes };
 }
 
+async function holding(paths, name, work) {
+  const release = holdName(paths, name);
+  try { return await work(); }
+  finally { release(); }
+}
+
 export async function main(argv = process.argv.slice(2)) {
   const options = parseCommand(argv);
   const { command, name } = options;
@@ -834,10 +824,10 @@ export async function main(argv = process.argv.slice(2)) {
     }
     case 'create':
     case 'clone':
-      result = await cloneVm(options, paths, home);
+      result = await holding(paths, name, () => cloneVm(options, paths, home));
       break;
     case 'start':
-      result = await startVm(options, paths, home);
+      result = await holding(paths, name, () => startVm(options, paths, home));
       break;
     case 'status':
       result = await statusVm(name, paths);
@@ -846,7 +836,7 @@ export async function main(argv = process.argv.slice(2)) {
       result = await stopVm(options, paths);
       break;
     case 'delete':
-      result = await deleteVm(options, paths, home);
+      result = await holding(paths, name, () => deleteVm(options, paths, home));
       break;
   }
   return answer(command, version, result);

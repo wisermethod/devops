@@ -28,7 +28,7 @@ Classifier seam: none.
 
 ## Objective
 
-The person's request done inside a virtual machine this skill made, and the Mac's own pointer, keyboard, clipboard and windows left as they were. Every answer about the VM comes from `tools/tart-vm/`'s JSON, and every claim about what happened inside the VM is read back from inside it.
+The person's request done inside a virtual machine this skill made, and the Mac's own pointer, keyboard, clipboard and windows left as they were. Every answer about the VM itself, its state, its screen and its disk, comes from `tools/tart-vm/`'s JSON; every claim about what happened inside it is read back from inside it through `tart exec`.
 
 ## Inputs
 
@@ -91,7 +91,7 @@ Use only these lines for this skill's prose to the person. Angle brackets are fi
 
 **Install Tart**
 
-> To make a virtual Mac I need Tart, a free tool that runs macOS virtual machines on Apple silicon Macs, and it isn't installed here. May I install it, following Tart's own current instructions? Its licence allows any use except offering others a commercial product or service that competes with Tart. Whether your use fits is your call, and I can't give legal advice on it: https://github.com/openai/tart/blob/main/LICENSE
+> To make a virtual Mac I need Tart, a free tool that runs macOS virtual machines on Apple silicon Macs, and it isn't installed here. May I install it, following Tart's own current instructions? Its licence allows any use except making Tart available to others in a commercial product or service that competes with Tart or with another product its makers offer using it. Whether your use fits is your call, and I can't give legal advice on it: https://github.com/openai/tart/blob/main/LICENSE
 
 **Download the image**
 

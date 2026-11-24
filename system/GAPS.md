@@ -4,7 +4,7 @@ What this plugin does not do, declared by the primitive that names it.
 
 A gap is a capability this root does not provide that a primitive's own body names as missing (`wiser/standards/primitives.md`). This file collects every declared `gaps` entry, by hand, and is corrected whenever a primitive's gaps change. It carries capability gaps only, and names what is missing, never where it went.
 
-Counted 2026-11-23, with Tart VM: 82 gaps across 15 primitives.
+Counted 2026-11-23: 82 gaps across 15 primitives, with Tart VM.
 
 Counted 2026-11-23: 75 gaps across 14 primitives.
 

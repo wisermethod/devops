@@ -4,6 +4,8 @@ What this plugin does not do, declared by the primitive that names it.
 
 A gap is a capability this root does not provide that a primitive's own body names as missing (`wiser/standards/primitives.md`). This file collects every declared `gaps` entry, by hand, and is corrected whenever a primitive's gaps change. It carries capability gaps only, and names what is missing, never where it went.
 
+Counted 2026-11-23: 82 gaps across 15 primitives, with Tart VM.
+
 Counted 2026-11-23: 75 gaps across 14 primitives.
 
 Counted 2026-11-22: 75 gaps across 14 primitives.
@@ -98,6 +100,16 @@ Counted 2026-11-13: 61 gaps across 13 primitives. Bullet count: `grep -E '^- ' s
 - changing a Wiser app's first owner
 - changing a sign-in list whose application links or covered hostnames cannot be established
 - a sign-in list on a policy that is not reusable, carries settings the connector does not support, or has a name the connector refuses
+
+### Tart VM
+
+- apps that cannot run commands on the person's Mac
+- a Mac without Apple silicon
+- a third macOS virtual machine running at once
+- driving the screen of a Linux virtual machine
+- the Option and Control keys and other modifiers, not yet measured
+- characters a US keyboard layout cannot type
+- a virtual machine with a host folder shared into it or on bridged networking
 
 ### Set Up Twenty Workspace
 

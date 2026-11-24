@@ -3,7 +3,7 @@ name: VM Inventory
 type: skill
 category: operations
 description: List every machine a person's router maps, or the machines they name, each with its role, whether it is reachable, and the facts the router returned, read through a router the person already runs
-version: 0.1.2
+version: 0.1.3
 gaps:
   - a router this plugin does not ship, which the inventory reads through
 ---
@@ -14,7 +14,7 @@ gaps:
 
 Use when the person wants the machines a router maps, or a named subset of them, each with its role, whether it is reachable, and the facts the router returned.
 
-Not for creating a machine. The person provisions a machine by hand. Not for enrolling a machine or taking one out, which is `skills/Prepare VM/` in this plugin. Not for a hostname, a DNS record, or a zone, including pointing a name at a workload. Hand that part to `experts/IT Expert/` in `wiser`, which sequences `skills/Zone Publisher/`. Not for changing a package, a service, or a configuration. Not for a security review.
+Not for creating a machine. The person provisions a machine by hand. A disposable local VM on the person's own Mac is `skills/Tart VM/`, which lists its own. Not for enrolling a machine or taking one out, which is `skills/Prepare VM/` in this plugin. Not for a hostname, a DNS record, or a zone, including pointing a name at a workload. Hand that part to `experts/IT Expert/` in `wiser`, which sequences `skills/Zone Publisher/`. Not for changing a package, a service, or a configuration. Not for a security review.
 
 This plugin does not ship a router, and no primitive in this root provides one. The inventory reads through a router the person already runs. The calls are `vm.inventory.list_hosts`, `vm.inventory.health`, and `vm.inventory.facts`, and no other action.
 

@@ -1,0 +1,14 @@
+{
+  "name": "tart-vm",
+  "version": "0.1.0",
+  "description": "Manage local Tart VMs, capture their screens and send guest input through a detached supervisor, as one JSON object",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "help": "node scripts/tart-vm.js help",
+    "test": "node --test tests/*.test.js"
+  },
+  "engines": {
+    "node": ">=18.15.0"
+  }
+}

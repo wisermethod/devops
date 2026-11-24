@@ -3,7 +3,7 @@ name: Prepare VM
 type: skill
 category: operations
 description: Enroll an existing machine into a fleet reached over a tailnet through a router the person already runs, merge that tailnet's access policy, register the machine, and report whether it joined, or take the machine back out
-version: 0.1.2
+version: 0.1.3
 gaps:
   - a router this plugin does not ship, which enrollment requires the person to already run
 ---
@@ -14,7 +14,7 @@ gaps:
 
 Use when a machine that already exists should join a fleet reached over a tailnet, through a router the person already runs, or when a machine should be taken back out of that fleet. One run enrolls one machine, or withdraws one machine. The report says whether it is enrolled.
 
-Not for creating a machine. The person provisions a machine by hand, before this skill starts. Not for a hostname, a DNS record, or a zone, including pointing a name at a workload. Hand that part to `experts/IT Expert/` in `wiser`, which sequences `skills/Zone Publisher/`. Not for deploying a workload, changing a package or a service, or a security review.
+Not for creating a machine. The person provisions a machine by hand, before this skill starts. A disposable local VM on the person's own Mac is `skills/Tart VM/`, and it does not join the fleet. Not for a hostname, a DNS record, or a zone, including pointing a name at a workload. Hand that part to `experts/IT Expert/` in `wiser`, which sequences `skills/Zone Publisher/`. Not for deploying a workload, changing a package or a service, or a security review.
 
 This plugin does not ship a router, and no primitive in this root provides one. The person already runs a router that meets the contract below. This skill enrolls into that router. It does not install one, and it does not name a place one comes from.
 

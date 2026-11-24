@@ -1,5 +1,9 @@
 # What changed in DevOps
 
+## v2026.11.24.2, November 24, 2026
+
+- Tart VM 0.2.1 asks once when you share two folders and say how each is shared, such as a whole drive read-only and one folder in it with changes allowed. It tells you what sharing each folder allows, then asks you to confirm both, as you asked.
+
 ## v2026.11.24, November 24, 2026
 
 - Tart VM 0.2.0 keeps a base virtual Mac you set up yourself and copies it for each task. Ask for a base, and it opens the virtual Mac in a window on your screen so you can install apps and sign in by hand, then shuts it down properly so nothing you set up is lost. Each task works in a fresh copy of the base, with your apps and sign-ins, and deletes the copy when it is done, so your base stays as it is. It powers off or deletes your base only after you say yes and name it.

@@ -1,5 +1,11 @@
 # What changed in DevOps
 
+## v2026.11.23.2, November 23, 2026
+
+- Tart VM 0.1.0 is new. Ask for a clean macOS virtual machine on your own Apple silicon Mac to test or automate something in, and it makes one from Tart's macOS image, works in it, and throws it away when you are done. It runs commands inside the virtual Mac, and when a task needs the screen it sees and uses the virtual Mac's screen without touching your own pointer, keyboard, clipboard or windows. It turns the screen connection on only for a task that needs it, and tells you first that the connection can be reached from the networks your Mac is on, with a password Tart makes as its only lock. It needs Tart, which it installs only on your yes, following Tart's own instructions, and it works in apps that can run commands on your Mac, such as Claude Code, Codex and Cursor. Proved on Tart 2.42.0.
+- tart-vm 0.1.0 is the tool behind it. It makes, starts, stops and deletes the virtual machines it creates, deletes one it did not make only after DevOps Expert's check and your yes naming it, refuses a third running virtual Mac, and starts every one without a window on your Mac and without sharing your clipboard, audio or USB devices.
+- DevOps Expert 0.8.0 places a throwaway virtual machine on your own Mac on Tart VM, and checks only the steps that reach past it: deleting a virtual machine Tart VM did not make, sharing a folder from your Mac into one, or bridged networking. A provider's or a fleet's machine is still set up by hand. Prepare VM and VM Inventory 0.1.3 point to Tart VM.
+
 ## v2026.11.23, November 23, 2026
 
 - App People 0.2.0 is new. Ask Wiser to let one person sign in to a Wiser app, to stop letting one person sign in, or to compare the app's Cloudflare sign-in list with the app's People list. Before each change it names every address the sign-in list covers and asks you to confirm, and it reads the list back before it reports. It never removes the app's first owner or the last email on a list. It needs a Cloudflare connection that can edit Access, and the Cloudflare connector Wiser serves from `v2026.11.23.6`.

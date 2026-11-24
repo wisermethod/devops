@@ -1,5 +1,11 @@
 # What changed in DevOps
 
+## v2026.11.24, November 24, 2026
+
+- Tart VM 0.2.0 keeps a base virtual Mac you set up yourself and copies it for each task. Ask for a base, and it opens the virtual Mac in a window on your screen so you can install apps and sign in by hand, then shuts it down properly so nothing you set up is lost. Each task works in a fresh copy of the base, with your apps and sign-ins, and deletes the copy when it is done, so your base stays as it is. It powers off or deletes your base only after you say yes and name it.
+- Tart VM can share a folder from your Mac into the virtual Mac at the same path it has on your Mac, read-only or with changes allowed. It tells you first that anything running in the virtual Mac can read every file in the folder, and can change or delete them unless the share is read-only. It will not share a folder that holds the plugin, its own records or Tart's virtual machines. Proved on Tart 2.42.0.
+- tart-vm 0.2.0 adds `--keep` to `create` and `clone`, `--window` and `--share <folder>[:ro]` to `start`, and `--kept-approved` for powering off or deleting a kept virtual machine. A kept one stops by asking macOS to shut down. A start that fails turns off what it opened, and `stop` no longer waits for a start in progress.
+
 ## v2026.11.23.2, November 23, 2026
 
 - Tart VM 0.1.0 is new. Ask for a clean macOS virtual machine on your own Apple silicon Mac to test or automate something in, and it makes one from Tart's macOS image, works in it, and throws it away when you are done. It runs commands inside the virtual Mac, and when a task needs the screen it sees and uses the virtual Mac's screen without touching your own pointer, keyboard, clipboard or windows. It turns the screen connection on only for a task that needs it, and tells you first that the connection can be reached from the networks your Mac is on, with a password Tart makes as its only lock. It needs Tart, which it installs only on your yes, following Tart's own instructions, and it works in apps that can run commands on your Mac, such as Claude Code, Codex and Cursor. Proved on Tart 2.42.0.

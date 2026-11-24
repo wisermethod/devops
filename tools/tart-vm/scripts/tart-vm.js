@@ -513,7 +513,7 @@ function requireDisk(home, options) {
 async function cloneVm(options, paths, home) {
   const { command, name, source, imageGb } = options;
   // A VM Tart already has is never recorded here, whatever its name: recording it would let start, stop and delete
-  // reach a VM the tool did not make. A record whose VM Tart no longer has is replaced below.
+  // reach a VM the tool did not make.
   if (await getVm(name, { missing: true })) {
     throw new Error('VM ' + JSON.stringify(name) + ' already exists. Use a new VM name.');
   }
@@ -521,25 +521,31 @@ async function cloneVm(options, paths, home) {
   requireDisk(home, { operation: command, image: source, cached, imageGb });
   if (command === 'clone') await getVm(source);
   checkState(paths, ['config', 'root', 'records']);
+  // A record whose VM Tart no longer has authorizes nothing now, but would authorize whatever VM took the name next.
+  clearRecord(paths, name);
+  // The caller holds the name's lock and Tart listed no VM under the name, so a clone that exits 0 made this VM, and
+  // only then is it recorded. A record written earlier, left by a kill before Tart made anything, would authorize a VM
+  // another program made later. A clone that fails, or a kill between the clone and its record, leaves an unrecorded
+  // VM if Tart made one: deleting it then takes DevOps Expert's gate, the safe direction.
+  await tart(tartArgv.clone(source, name), { timeout: 0 });
   const record = makeVmRecord(name, source, new Date().toISOString());
-  // The record is written before Tart clones, so a clone whose verification fails, or whose process is killed, is
-  // still a VM this tool made. The caller holds the name's lock, so no other tart-vm command makes or deletes this
-  // name meanwhile: a clone that fails made nothing of this tool's, and any VM Tart has under the name then was made
-  // outside it, so the record goes whatever Tart now lists.
-  writeJson(recordPath(paths, name), record);
-  try { await tart(tartArgv.clone(source, name), { timeout: 0 }); }
+  try { writeJson(recordPath(paths, name), record); }
   catch (error) {
+    throw new Error('Tart cloned ' + JSON.stringify(name) + ', but its record could not be written, so the tool ' +
+      'cannot start, stop or delete it; deleting it takes delete --gate-approved after DevOps Expert\'s gate. ' + error.message);
+  }
+  let vm;
+  try { vm = await getVm(name, { missing: true }); }
+  catch (error) {
+    throw new Error('Tart reported cloning ' + JSON.stringify(name) + ' and its record is written, but tart get failed. ' +
+      'Check tart-vm status before retrying. ' + error.message);
+  }
+  if (!vm) {
     clearRecord(paths, name);
-    throw error;
+    throw new Error('Tart reported cloning ' + JSON.stringify(name) + ' but lists no such VM, so no record was kept. Check tart list.');
   }
-  try {
-    const vm = await getVm(name);
-    return { record, vm, ...(command === 'create' ? { image_cached: cached } : {}),
-      ...(imageGb === undefined ? {} : { image_gb: imageGb }) };
-  } catch (error) {
-    throw new Error('Tart reported cloning ' + JSON.stringify(name) + ', but verification or recording failed. ' +
-      'Inspect the VM and its record before retrying. ' + error.message);
-  }
+  return { record, vm, ...(command === 'create' ? { image_cached: cached } : {}),
+    ...(imageGb === undefined ? {} : { image_gb: imageGb }) };
 }
 
 function readExit(log, launchId) {

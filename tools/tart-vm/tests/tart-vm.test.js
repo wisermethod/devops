@@ -690,14 +690,14 @@ function setConfig(f, changes) {
   fs.writeFileSync(path, JSON.stringify({ ...JSON.parse(fs.readFileSync(path, 'utf8')), ...changes }));
 }
 
-test('a record whose VM was gone stays until the new clone is recorded', (t) => {
+test('a record whose VM was gone is replaced by the new clone, which keeps its record when tart get fails', (t) => {
   const f = fixture(t);
   f.ok('create', VM);
   const data = f.vms(); delete data[VM];
   fs.writeFileSync(join(f.dir, 'vms.json'), JSON.stringify(data));
   setConfig(f, { failGet: VM });
-  f.refused(['create', VM], /verification or recording failed/);
-  assert.ok(fs.existsSync(join(f.records, VM + '.json')), 'the old record still covers the clone Tart made');
+  f.refused(['create', VM], /its record is written, but tart get failed/);
+  assert.ok(fs.existsSync(join(f.records, VM + '.json')), 'the clone Tart made has its record');
   setConfig(f, { failGet: null });
   assert.equal(f.ok('delete', VM).deleted, true);
 });
@@ -993,7 +993,7 @@ test('a command that outlasts a keepalive interval still answers, the keepalive 
 test('a clone whose recording fails keeps a record, and a name Tart already has is never recorded', (t) => {
   const f = fixture(t, {}, { [CLONE]: BASE_VM });
   setConfig(f, { failGet: VM });
-  f.refused(['create', VM], /verification or recording failed/);
+  f.refused(['create', VM], /its record is written, but tart get failed/);
   assert.ok(fs.existsSync(join(f.records, VM + '.json')), 'the clone Tart made has a record');
   setConfig(f, { failGet: null });
   assert.equal(f.ok('delete', VM).deleted, true);
@@ -1024,4 +1024,26 @@ test('the listener reach follows the address lsof read', () => {
   assert.match(runAnswer(run, '127.0.0.1:49157').listener_reach, /only from this Mac/);
   assert.match(runAnswer(run, '[::1]:49157').listener_reach, /only from this Mac/);
   assert.match(runAnswer(run, '192.168.1.20:49157').listener_reach, /192\.168\.1\.20/);
+});
+
+test('a VM is recorded only after Tart clones it, so a clone that fails or is cut short leaves no record', (t) => {
+  const f = fixture(t);
+  const record = join(f.records, VM + '.json');
+  // A stale record from a VM deleted outside the tool goes before the clone.
+  f.ok('create', VM);
+  const data = f.vms(); delete data[VM];
+  fs.writeFileSync(join(f.dir, 'vms.json'), JSON.stringify(data));
+  setConfig(f, { watchRecord: record, failClone: VM });
+  f.refused(['create', VM], /tart clone .* failed/);
+  assert.equal(fs.readFileSync(join(f.dir, 'record-at-clone'), 'utf8'), 'false', 'no record exists while Tart clones');
+  assert.ok(!fs.existsSync(record));
+  // A VM another program then makes under the name is not this tool's.
+  fs.writeFileSync(join(f.dir, 'vms.json'), JSON.stringify({ ...f.vms(), [VM]: BASE_VM }));
+  f.refused(['start', VM], /no tart-vm record/);
+  f.refused(['delete', VM], /--gate-approved/);
+  // A clone Tart reports done but does not list keeps no record either.
+  fs.writeFileSync(join(f.dir, 'vms.json'), JSON.stringify({}));
+  setConfig(f, { failClone: null, cloneWithoutVm: VM });
+  f.refused(['create', VM], /lists no such VM, so no record was kept/);
+  assert.ok(!fs.existsSync(record));
 });

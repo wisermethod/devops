@@ -208,6 +208,10 @@ switch (command) {
   case 'clone': {
     if (args.length !== 3) fail('unexpected clone flags');
     if (data[target]) fail('destination exists');
+    // Whether a tool record for the target already exists while Tart clones it.
+    if (config.watchRecord) fs.writeFileSync(join(dir, 'record-at-clone'), String(fs.existsSync(config.watchRecord)));
+    if (config.failClone === target) fail('fixture clone failed');
+    if (config.cloneWithoutVm === target) break;
     if (config.raceClone === target) {
       data[target] = { ...config.image, State: 'stopped', Running: false };
       store(data);

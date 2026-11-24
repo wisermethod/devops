@@ -1,4 +1,4 @@
-export const TOOL_VERSION = '0.1.0';
+export const TOOL_VERSION = '0.2.0';
 export const PROVED_TART_VERSION = '2.42.0';
 export const DEFAULT_IMAGE = 'ghcr.io/cirruslabs/macos-tahoe-base:latest';
 export const GB = 1_000_000_000;
@@ -6,6 +6,7 @@ export const START_TIMEOUT = 120;
 export const GRACEFUL_TIMEOUT = 120;
 export const POWER_OFF_TIMEOUT = 30;
 export const SOCKET_LIMIT = 103;
+export const MAX_SHARES = 8;
 const MAX_TIMEOUT = 2_147_473;
 export const LISTENER_REACH =
   "The port can be reached from every network this Mac joins and Tart's passphrase is its only guard.";
@@ -23,7 +24,8 @@ export const NO_DESKTOP_SESSION = 'The VM has no ready desktop session. Use tart
 export const RFB_DROPPED = 'The RFB connection dropped. Stop the VM and start it again with start --desktop.';
 
 const NEW_NAME = /^wiser-tart-[a-z0-9][a-z0-9-]{0,30}$/;
-const START_FLAGS = ['--no-graphics', '--no-clipboard', '--no-audio', '--no-usb-accessories'];
+const ISOLATION_FLAGS = ['--no-clipboard', '--no-audio', '--no-usb-accessories'];
+const START_OPTIONS = { '--desktop': true, '--window': true, '--share': 'path[:ro]' };
 const POINT_FLAGS = { '--x': 'n', '--y': 'n' };
 const DESKTOP_COMMANDS = {
   screenshot: { operands: ['name'], flags: { '--out': 'path' }, required: ['--out'] },
@@ -46,44 +48,52 @@ const COMMANDS = {
   help: { operands: [] },
   preflight: { operands: [] },
   list: { operands: [] },
-  create: { operands: ['name'], flags: { '--image': 'ref', '--image-gb': 'n' } },
-  clone: { operands: ['source', 'name'] },
-  start: { operands: ['name'], flags: { '--desktop': true } },
+  create: { operands: ['name'], flags: { '--image': 'ref', '--image-gb': 'n', '--keep': true } },
+  clone: { operands: ['source', 'name'], flags: { '--keep': true } },
+  start: { operands: ['name'], flags: START_OPTIONS },
   status: { operands: ['name'] },
   ...DESKTOP_COMMANDS,
-  stop: { operands: ['name'], flags: { '--graceful': true, '--timeout': 'seconds' } },
-  delete: { operands: ['name'], flags: { '--gate-approved': true } }
+  stop: { operands: ['name'], flags: { '--graceful': true, '--power-off': true, '--kept-approved': true, '--timeout': 'seconds' } },
+  delete: { operands: ['name'], flags: { '--gate-approved': true, '--kept-approved': true } }
 };
 
 function usage(command, { operands, flags = {}, required = [] }) {
   return [command, ...operands.map((name) => '<' + name + '>'),
     ...Object.entries(flags).map(([flag, value]) => {
       const part = value === true ? flag : flag + ' <' + value + '>';
-      return required.includes(flag) ? part : '[' + part + ']';
+      return required.includes(flag) ? part : '[' + part + ']' + (flag === '--share' ? '...' : '');
     })].join(' ');
 }
 
-const SUPERVISOR_COMMANDS = { serve: { operands: ['name', 'launch-id'], flags: { '--desktop': true } } };
+const SUPERVISOR_COMMANDS = { serve: { operands: ['name', 'launch-id'], flags: START_OPTIONS } };
 export const HELP = [
   'Usage: node scripts/tart-vm.js <command>',
   ...Object.entries(COMMANDS).map(([name, spec]) => '  ' + usage(name, spec)),
   '  --help  Show this usage for any command.',
   '  --image defaults to ' + DEFAULT_IMAGE + '.',
   '  --image-gb supplies the size in decimal GB for an uncached image.',
+  '  --keep marks the new VM as kept.',
   '  --desktop enables Tart\'s experimental VNC listener on every interface.',
+  '  --window opens Tart\'s window on the Mac, takes focus and runs no network listener.',
+  '  Use at most one of --desktop and --window.',
+  '  --share mounts an absolute host folder at the same resolved path in the guest. Repeat up to eight times.',
+  '  Append :ro for read-only access.',
   '  Screen capture and input require start --desktop. Coordinates are framebuffer pixels.',
   '  --button defaults to left. --steps is a positive whole number and defaults to 1.',
   '  --keys takes one combination such as cmd+n, cmd+space, shift+tab or return.',
   '  Modifiers: cmd, shift. Keys: letters, digits, space, return, tab, escape, backspace, delete,',
   '  up, down, left, right, home, end, pageup, pagedown.',
-  '  stop powers the VM off by default. --graceful asks the guest to shut down.',
+  '  stop defaults to graceful shutdown for kept VMs and power-off for other recorded VMs.',
+  '  Choose either --graceful to ask the guest to shut down or --power-off to force it off.',
   '  --timeout defaults to 30 seconds for power-off and 120 seconds for graceful shutdown.',
+  '  --kept-approved allows delete or --power-off of a kept VM after the person says yes and names it.',
   '  --gate-approved is for an unrecorded VM after DevOps Expert\'s gate and the requester\'s yes naming the VM.'
 ].join('\n') + '\n';
 
 export const SUPERVISOR_HELP = [
   'Internal to tart-vm start.',
   'Usage: node scripts/tart-vm-supervisor.js ' + usage('serve', SUPERVISOR_COMMANDS.serve),
+  '  Use at most one of --desktop and --window.',
   '  help, --help  Show this usage.'
 ].join('\n') + '\n';
 
@@ -109,7 +119,7 @@ function parse(argv, commands, script) {
       continue;
     }
     if (!Object.hasOwn(supported, token)) usageError('Unknown option ' + JSON.stringify(token) + '.', script);
-    if (Object.hasOwn(flags, token)) usageError(token + ' was given more than once.', script);
+    if (token !== '--share' && Object.hasOwn(flags, token)) usageError(token + ' was given more than once.', script);
     if (supported[token] === true) {
       flags[token] = true;
       continue;
@@ -123,7 +133,8 @@ function parse(argv, commands, script) {
       }
       usageError(token + ' needs a value.', script);
     }
-    flags[token] = value;
+    if (token === '--share') (flags[token] ??= []).push(value);
+    else flags[token] = value;
     index += 1;
   }
   if (operands.length > spec.operands.length) {
@@ -178,6 +189,10 @@ export function parseCommand(argv) {
   else if (name !== undefined) validateLocalName(name);
   if (command === 'clone') validateLocalName(first);
   if (isDesktopCommand(command)) return { command, name, ...desktopOptions(command, flags) };
+  if (flags['--graceful'] && flags['--power-off']) {
+    usageError('Choose either --graceful or --power-off.', 'tart-vm');
+  }
+  if (command === 'start') return { command, name, ...parseStartOptions(flags, 'tart-vm') };
   const image = flags['--image'] ?? DEFAULT_IMAGE;
   if (flags['--image'] && (/\s|[\\\x00-\x1f\x7f]/.test(image) || image.startsWith('/') ||
       image.split('/').some((part) => part === '.' || part === '..' || part === ''))) {
@@ -186,11 +201,24 @@ export function parseCommand(argv) {
   return {
     command, name, source: command === 'create' ? image : first,
     imageGb: positiveNumber(flags['--image-gb'], '--image-gb'),
-    desktop: flags['--desktop'] === true,
+    keep: flags['--keep'] === true,
     graceful: flags['--graceful'] === true,
+    powerOff: flags['--power-off'] === true,
     timeout: positiveNumber(flags['--timeout'], '--timeout', true),
-    gateApproved: flags['--gate-approved'] === true
+    gateApproved: flags['--gate-approved'] === true,
+    keptApproved: flags['--kept-approved'] === true
   };
+}
+
+function parseStartOptions(flags, script) {
+  const desktop = flags['--desktop'] === true;
+  const window = flags['--window'] === true;
+  const shares = flags['--share'] ?? [];
+  if (desktop && window) usageError('Choose either --window or --desktop.', script);
+  if (shares.length > MAX_SHARES) {
+    usageError('Extra --share ' + JSON.stringify(shares[MAX_SHARES]) + '. Give at most ' + MAX_SHARES + ' shares.', script);
+  }
+  return { desktop, window, shares };
 }
 
 export function parseSupervisorCommand(argv) {
@@ -201,7 +229,20 @@ export function parseSupervisorCommand(argv) {
   if (!/^[a-f0-9]{32}$/.test(launchId)) {
     usageError('Invalid launch ID. Start the supervisor through tart-vm start.', 'tart-vm-supervisor');
   }
-  return { command: parsed.command, name, launchId, desktop: parsed.flags['--desktop'] === true };
+  return { command: parsed.command, name, launchId, ...parseStartOptions(parsed.flags, 'tart-vm-supervisor') };
+}
+
+function shareTag(index) {
+  return 'wiser-share-' + index;
+}
+
+export function parseShare(value, index) {
+  const separator = value.lastIndexOf(':');
+  const readOnly = value.endsWith(':ro');
+  if (separator !== -1 && !readOnly) {
+    throw new Error('Refusing --share ' + JSON.stringify(value) + '. Use only the :ro option and a path without a colon.');
+  }
+  return { path: readOnly ? value.slice(0, separator) : value, access: readOnly ? 'ro' : 'rw', tag: shareTag(index) };
 }
 
 export const tartArgv = {
@@ -209,9 +250,15 @@ export const tartArgv = {
   list: (source) => ['list', '--source', source, '--format', 'json'],
   get: (name) => ['get', name, '--format', 'json'],
   clone: (source, name) => ['clone', source, name],
-  start: (name, desktop) => ['run', name, ...START_FLAGS, ...(desktop ? ['--vnc-experimental'] : [])],
+  start: (name, desktop, window = false, shares = []) => ['run', name,
+    ...(window ? [] : ['--no-graphics']), ...ISOLATION_FLAGS, ...(desktop ? ['--vnc-experimental'] : []),
+    ...shares.map(({ path, access, tag }) => '--dir=' + path + ':' + (access === 'ro' ? 'ro,' : '') + 'tag=' + tag)],
   stop: (name, timeout) => ['stop', name, ...(timeout === undefined ? [] : ['--timeout', String(timeout)])],
   shutdown: (name) => ['exec', name, 'sudo', '-n', '/sbin/shutdown', '-h', 'now'],
+  agentReady: (name) => ['exec', name, 'true'],
+  shareMkdir: (name, path) => ['exec', name, 'sudo', '-n', 'mkdir', '-p', path],
+  shareMount: (name, { tag, path }) => ['exec', name, 'sudo', '-n', '/sbin/mount_virtiofs', tag, path],
+  mounts: (name) => ['exec', name, '/sbin/mount'],
   delete: (name) => ['delete', name]
 };
 
@@ -284,22 +331,25 @@ export function diskRefusal(freeBytes, decision, image) {
     decision.minimumBytes + ' bytes (' + decision.minimumBytes / GB + ' GB). Free space on that volume and retry.';
 }
 
-export function makeVmRecord(name, source, createdAt) {
-  return { name, source, created_at: createdAt, tool_version: TOOL_VERSION };
+export function makeVmRecord(name, source, createdAt, kept = false) {
+  return { name, source, created_at: createdAt, tool_version: TOOL_VERSION, kept };
 }
 
 export function validVmRecord(record, name) {
   return isObject(record) && record.name === name && typeof record.source === 'string' &&
     record.source.length > 0 && typeof record.created_at === 'string' &&
     Number.isFinite(Date.parse(record.created_at)) && typeof record.tool_version === 'string' &&
-    /^\d+\.\d+\.\d+$/.test(record.tool_version);
+    /^\d+\.\d+\.\d+$/.test(record.tool_version) &&
+    (typeof record.kept === 'boolean' || (record.tool_version === '0.1.0' && record.kept === undefined));
 }
 
-export function makeRunRecord({ supervisorPid, tartPid, desktop, startedAt, vnc }) {
+export function makeRunRecord({ supervisorPid, tartPid, desktop, window = false, shares = [], startedAt, vnc }) {
   return {
     supervisor_pid: supervisorPid,
     tart_pid: tartPid,
     desktop,
+    window,
+    shares,
     port: vnc?.port ?? null,
     started_at: startedAt,
     passphrase_length: vnc?.passphrase.length ?? null
@@ -310,6 +360,14 @@ export function validRunRecord(record) {
   if (!isObject(record) || !Number.isSafeInteger(record.supervisor_pid) || record.supervisor_pid <= 0 ||
       !Number.isSafeInteger(record.tart_pid) || record.tart_pid <= 0 ||
       typeof record.desktop !== 'boolean' || !Number.isFinite(Date.parse(record.started_at))) return false;
+  if ((record.window !== undefined && typeof record.window !== 'boolean') || (record.desktop && record.window)) return false;
+  if (record.shares !== undefined) {
+    if (!Array.isArray(record.shares) || record.shares.length > MAX_SHARES ||
+        !record.shares.every((share, index) => isObject(share) && typeof share.path === 'string' &&
+          share.path.startsWith('/') && share.path !== '/' && !share.path.includes(':') &&
+          (share.access === 'ro' || share.access === 'rw') && share.tag === shareTag(index)) ||
+        new Set(record.shares.map(({ path }) => path)).size !== record.shares.length) return false;
+  }
   if (record.port === null) return record.passphrase_length === null;
   return record.desktop && validPort(record.port) &&
     Number.isSafeInteger(record.passphrase_length) && record.passphrase_length > 0;
@@ -321,16 +379,26 @@ export function launchReady(state, supervisorPid, launchId) {
 }
 
 export function vmListItem(vm, record, run) {
-  return { ...vm, created_by_tool: record !== null, ...(run ? { supervised: true, desktop: run.desktop } : {}) };
+  return { ...vm, created_by_tool: record !== null,
+    ...(record ? { kept: record.kept ?? false } : {}),
+    ...(run ? { supervised: true, desktop: run.desktop, window: run.window ?? false } : {}) };
 }
 
 export function runAnswer(run, listener) {
   return {
     supervised: run !== null,
     desktop: run?.desktop ?? false,
+    window: run?.window ?? false,
     ...(run ? { pid: run.tart_pid } : {}),
     ...(listener ? { listener, listener_reach: listenerReach(listener) } : {})
   };
+}
+
+export function shareAnswers(shares, mountTable) {
+  const lines = mountTable?.split('\n');
+  return shares.map(({ path, access }) => ({
+    path, access, exported: true, mounted: lines ? lines.some((line) => line.startsWith('virtio-fs on ' + path + ' (')) : null
+  }));
 }
 
 export function answer(command, tartVersion, fields) {

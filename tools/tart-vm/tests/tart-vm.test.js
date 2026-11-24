@@ -3,12 +3,16 @@ import { execFile, spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import * as fs from 'node:fs';
 import { createConnection } from 'node:net';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { inflateSync } from 'node:zlib';
-import { classifyTartError, diskDecision, parseGet, parseList, parseVncLine, redact, runAnswer, tartArgv } from '../scripts/tart-vm-core.js';
+import {
+  classifyTartError, diskDecision, parseCommand, parseGet, parseList, parseSupervisorCommand, parseVncLine,
+  redact, runAnswer, shareAnswers, tartArgv, validRunRecord
+} from '../scripts/tart-vm-core.js';
 
 const TOOL = fileURLToPath(new URL('..', import.meta.url));
 const CLI = join(TOOL, 'scripts', 'tart-vm.js');
@@ -26,6 +30,7 @@ const BASE_VM = {
   Display: '1024x768', MACAddress: '00:11:22:33:44:55', Running: false, State: 'stopped'
 };
 const FLAGS = ['--no-graphics', '--no-clipboard', '--no-audio', '--no-usb-accessories'];
+const WINDOW_FLAGS = ['--no-clipboard', '--no-audio', '--no-usb-accessories'];
 const GIGABYTE = 1_000_000_000;
 
 function alive(pid) {
@@ -42,6 +47,7 @@ async function eventually(predicate) {
 }
 
 function fixture(t, config = {}, initial = {}, homeName = 'h') {
+  // The existing socket fixtures need a short home to fit macOS's Unix socket path limit.
   const dir = fs.mkdtempSync('/tmp/tv-');
   const home = join(dir, homeName);
   const bin = join(dir, 'bin');
@@ -129,11 +135,25 @@ function querySocket(path, request = '{"cmd":"status"}\n') {
   });
 }
 
-function fileText(dir) {
-  return fs.readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+function* filesIn(dir) {
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
     const path = join(dir, entry.name);
-    if (entry.isDirectory()) return fileText(path);
-    return entry.isFile() ? [fs.readFileSync(path, 'utf8')] : [];
+    if (entry.isDirectory()) yield* filesIn(path);
+    if (entry.isFile()) yield path;
+  }
+}
+
+function fileText(dir) {
+  return Array.from(filesIn(dir), (path) => fs.readFileSync(path, 'utf8'));
+}
+
+function shareFolders(t, names) {
+  const root = fs.realpathSync.native(fs.mkdtempSync(join(tmpdir(), 'tart-shares-')));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  return names.map((name) => {
+    const path = join(root, name);
+    fs.mkdirSync(path);
+    return path;
   });
 }
 
@@ -150,6 +170,7 @@ test('help is available without Tart, and every command refuses unknown flags be
     assert.equal(result.stderr, '');
     for (const word of ['help', 'preflight', 'list', 'create', 'clone', 'start', 'status', 'stop',
       'delete', '--help', '--image', '--image-gb', '--desktop', '--graceful', '--timeout', '--gate-approved',
+      '--keep', '--kept-approved', '--power-off', '--window', '--share',
       'screenshot', '--out', 'move', 'click', 'double-click', 'drag', 'scroll', 'type', 'key', '--x', '--y', '--button',
       '--from-x', '--from-y', '--to-x', '--to-y', '--direction', '--steps', '--text', '--keys']) {
       assert.ok(result.stdout.includes(word));
@@ -161,16 +182,17 @@ test('help is available without Tart, and every command refuses unknown flags be
   }
   const supervisorHelp = f.sync(process.execPath, [SUPERVISOR, '--help'], noTart);
   assert.equal(supervisorHelp.status, 0);
-  assert.match(supervisorHelp.stdout, /serve <name> <launch-id> \[--desktop\]/);
+  assert.match(supervisorHelp.stdout, /serve <name> <launch-id> \[--desktop\] \[--window\] \[--share <path\[:ro\]>\]\.\.\./);
   refusal(f.sync(process.execPath, [SUPERVISOR, 'serve', VM, '0'.repeat(32), '--bad']),
     /Unknown option "--bad".*help/);
   assert.deepEqual(f.calls(), []);
   assert.ok(!fs.existsSync(f.configDir));
 });
 
-test('builds the fixed Tart run argv and opts into VNC only for desktop', () => {
+test('builds the fixed Tart run argv for headless, desktop and window', () => {
   assert.deepEqual(tartArgv.start(VM, false), ['run', VM, ...FLAGS]);
   assert.deepEqual(tartArgv.start(VM, true), ['run', VM, ...FLAGS, '--vnc-experimental']);
+  assert.deepEqual(tartArgv.start(VM, false, true), ['run', VM, ...WINDOW_FLAGS]);
 });
 
 test('preflight reports independent facts and answers even when Tart is missing', (t) => {
@@ -207,7 +229,7 @@ test('create and clone preserve the source settings and report local VMs and the
   assert.deepEqual(made.vm, BASE_VM);
   assert.equal(made.image_cached, true);
   const { created_at: timestamp, ...recordFields } = made.record;
-  assert.deepEqual(recordFields, { name: VM, source: IMAGE, tool_version: '0.1.0' });
+  assert.deepEqual(recordFields, { name: VM, source: IMAGE, tool_version: '0.2.0', kept: false });
   assert.ok(Date.parse(timestamp) >= beforeCreate && Date.parse(timestamp) <= Date.now());
   const record = join(f.records, VM + '.json');
   assert.deepEqual(JSON.parse(fs.readFileSync(record)), made.record);
@@ -383,7 +405,9 @@ test('every command, socket replies, VM records and the supervisor log keep the 
   f.ok('preflight');
   f.ok('create', VM);
   f.ok('clone', VM, CLONE);
-  f.ok('start', VM, '--desktop');
+  const [share] = shareFolders(t, ['desktop share']);
+  assert.deepEqual(f.ok('start', VM, '--desktop', '--share', share).shares,
+    [{ path: share, access: 'rw', exported: true, mounted: true }]);
   f.ok('status', VM);
   f.ok('list');
   f.refused(['start', VM, '--desktop'], /is running/);
@@ -395,6 +419,7 @@ test('every command, socket replies, VM records and the supervisor log keep the 
   const record = JSON.parse(fs.readFileSync(f.runFile(VM, 'json')));
   assert.equal(record.passphrase_length, SECRET.length);
   assert.equal(record.port, f.port());
+  assert.deepEqual(record.shares, [{ path: share, access: 'rw', tag: 'wiser-share-0' }]);
   assert.equal(JSON.parse(badReply).ok, false);
   assert.equal(JSON.parse(malformed).ok, false);
   for (const args of desktopCommands(f)) f.ok(...args);
@@ -405,7 +430,8 @@ test('every command, socket replies, VM records and the supervisor log keep the 
   const beforeStop = fileText(f.state);
   const stopped = f.ok('stop', VM, '--graceful', '--timeout', '3');
   assert.equal(stopped.method, 'guest-shutdown');
-  assert.deepEqual(f.tart().find(([cmd]) => cmd === 'exec'), ['exec', VM, 'sudo', '-n', '/sbin/shutdown', '-h', 'now']);
+  assert.deepEqual(f.tart().filter(([cmd, , , , path]) => cmd === 'exec' && path === '/sbin/shutdown'),
+    [['exec', VM, 'sudo', '-n', '/sbin/shutdown', '-h', 'now']]);
   assert.ok(!f.tart().some(([cmd]) => cmd === 'stop'));
   const log = fs.readFileSync(f.runFile(VM, 'log'), 'utf8').trim().split('\n').map(JSON.parse);
   const beforeDelete = fileText(f.state);
@@ -589,16 +615,19 @@ function holdLock(t, path) {
   });
 }
 
-test('a VM name another tart-vm command holds is refused, and free the moment that holder exits', async (t) => {
+test('stop works under a held name lock, while create, clone, start and delete are refused', async (t) => {
   const f = fixture(t);
   f.ok('create', VM);
+  f.ok('start', VM);
   const lock = f.runFile(VM, 'lock');
   const holder = await holdLock(t, lock);
   const before = f.tart().length;
-  for (const args of [['start', VM], ['delete', VM], ['create', VM]]) {
+  for (const args of [['start', VM], ['delete', VM], ['create', VM], ['clone', 'source', VM]]) {
     f.refused(args, /Another tart-vm command is working on "wiser-tart-test"/);
   }
   assert.deepEqual(f.tart().slice(before).filter(([cmd]) => ['run', 'delete', 'clone', 'get'].includes(cmd)), []);
+  assert.equal(f.ok('stop', VM).vm.State, 'stopped');
+  assert.ok(fs.existsSync(lock), 'stop leaves the other command\'s lock in place');
   const exited = new Promise((done) => holder.once('exit', done));
   holder.kill('SIGKILL');
   await exited;
@@ -1046,4 +1075,321 @@ test('a VM is recorded only after Tart clones it, so a clone that fails or is cu
   setConfig(f, { failClone: null, cloneWithoutVm: VM });
   f.refused(['create', VM], /lists no such VM, so no record was kept/);
   assert.ok(!fs.existsSync(record));
+});
+
+test('a window start uses only the three isolation flags and reports the window from its run record', (t) => {
+  const f = fixture(t);
+  f.refused(['start', VM, '--window', '--desktop'], /--window.*--desktop/);
+  assert.deepEqual(f.calls(), []);
+  f.ok('create', VM);
+  const started = f.ok('start', VM, '--window');
+  assert.deepEqual(f.tart().filter(([cmd]) => cmd === 'run'), [['run', VM, ...WINDOW_FLAGS]]);
+  assert.equal(started.window, true);
+  assert.equal(started.desktop, false);
+  assert.deepEqual(started.shares, []);
+  assert.ok(!('listener' in started));
+  assert.ok(!f.calls().some(({ program }) => program === 'lsof'));
+  assert.equal(JSON.parse(fs.readFileSync(f.runFile(VM, 'json'))).window, true);
+  assert.equal(f.ok('status', VM).window, true);
+  assert.equal(f.ok('list').vms[0].window, true);
+  f.ok('stop', VM);
+});
+
+test('only --share can repeat in the entry or supervisor parser', () => {
+  const shareValues = ['/first', '/second:ro'];
+  const shareFlags = ['--share', shareValues[0], '--share', shareValues[1]];
+  const serve = ['serve', VM, 'a'.repeat(32)];
+  assert.deepEqual(parseCommand(['start', VM, ...shareFlags]).shares, shareValues);
+  assert.deepEqual(parseSupervisorCommand([...serve, ...shareFlags]).shares, shareValues);
+  const cases = [
+    [['create', VM], [['--image', IMAGE], ['--image-gb', '2'], ['--keep']]],
+    [['clone', 'source', VM], [['--keep']]],
+    [['start', VM], [['--desktop'], ['--window'], ['--help']]],
+    [['stop', VM], [['--graceful'], ['--power-off'], ['--timeout', '3'], ['--kept-approved']]],
+    [['delete', VM], [['--gate-approved'], ['--kept-approved']]],
+    [['screenshot', VM], [['--out', '/screen.png']]],
+    [['click', VM], [['--x', '1'], ['--y', '2'], ['--button', 'left']]],
+    [['drag', VM], [['--from-x', '1'], ['--from-y', '1'], ['--to-x', '1'], ['--to-y', '1']]],
+    [['scroll', VM], [['--direction', 'up'], ['--steps', '1']]],
+    [['type', VM], [['--text', 'hi']]],
+    [['key', VM], [['--keys', 'return']]]
+  ];
+  for (const [base, flags] of cases) {
+    for (const flag of flags) {
+      assert.throws(() => parseCommand([...base, ...flag, ...flag]), new RegExp(flag[0] + ' was given more than once'));
+    }
+  }
+  for (const flag of ['--window', '--desktop', '--help']) {
+    assert.throws(() => parseSupervisorCommand([...serve, flag, flag]), new RegExp(flag + ' was given more than once'));
+  }
+});
+
+test('share validation refuses caller paths and overlapping protected directories before any Tart call', (t) => {
+  const f = fixture(t);
+  const folders = shareFolders(t, Array.from({ length: 9 }, (_, i) => 'host folder ' + i));
+  const [folder] = folders;
+  const colon = join(f.dir, 'folder:part');
+  fs.mkdirSync(colon);
+  const alias = join(f.dir, 'alias');
+  fs.symlinkSync(folder, alias);
+  const colonAlias = join(f.dir, 'colon-alias');
+  fs.symlinkSync(colon, colonAlias);
+  fs.mkdirSync(f.records, { recursive: true, mode: 0o700 });
+  fs.mkdirSync(f.env.TART_HOME);
+  const cases = [
+    ['relative', /absolute host directory/], [join(f.dir, 'missing'), /existing host directory/],
+    [join(f.dir, 'config.json'), /directory, not a file/], ['/', /below the filesystem root/],
+    [colon + ':ro', /without a colon/], [colonAlias, /resolved path has no colon/],
+    [f.state, /tool state root/], [f.records + ':ro', /tool state root/], [f.configDir, /tool state root/],
+    [f.env.TART_HOME, /Tart's home/], [TOOL, /tool's directory/],
+    [alias, /resolved directory only once/, [folder]], [folders[8], /at most 8 shares/, folders.slice(0, 8)],
+    [folder + ':rw', /only the :ro option/]
+  ];
+  for (const [path, reason, preceding = []] of cases) {
+    const result = f.command('start', VM, ...preceding.flatMap((path) => ['--share', path]), '--share', path);
+    refusal(result, reason);
+    assert.ok(result.stderr.includes(JSON.stringify(path)), result.stderr);
+    assert.deepEqual(f.calls(), []);
+  }
+  const missingHome = join(folder, 'uncreated-home');
+  refusal(f.sync(process.execPath, [CLI, 'start', VM, '--share', folder], { ...f.env, TART_HOME: missingHome }),
+    /overlap Tart's home/);
+  assert.deepEqual(f.calls(), []);
+});
+
+test('shares preserve order and access, and status inspects the guest once per read', (t) => {
+  const f = fixture(t, { agentFailures: 2 });
+  const [first, second] = shareFolders(t, ['read write', 'read only']);
+  const alias = join(f.dir, 'share-alias');
+  fs.symlinkSync(first, alias);
+  f.ok('create', VM);
+  const started = f.ok('start', VM, '--window', '--share', alias, '--share', second + ':ro');
+  const expected = [
+    { path: first, access: 'rw', exported: true, mounted: true },
+    { path: second, access: 'ro', exported: true, mounted: true }
+  ];
+  assert.deepEqual(started.shares, expected);
+  assert.deepEqual(f.tart().filter(([cmd]) => cmd === 'run' || cmd === 'exec'), [
+    ['run', VM, ...WINDOW_FLAGS, '--dir=' + first + ':tag=wiser-share-0', '--dir=' + second + ':ro,tag=wiser-share-1'],
+    ['exec', VM, 'true'], ['exec', VM, 'true'], ['exec', VM, 'true'],
+    ['exec', VM, 'sudo', '-n', 'mkdir', '-p', first],
+    ['exec', VM, 'sudo', '-n', '/sbin/mount_virtiofs', 'wiser-share-0', first],
+    ['exec', VM, 'sudo', '-n', 'mkdir', '-p', second],
+    ['exec', VM, 'sudo', '-n', '/sbin/mount_virtiofs', 'wiser-share-1', second]
+  ]);
+  assert.deepEqual(JSON.parse(fs.readFileSync(f.runFile(VM, 'json'))).shares, [
+    { path: first, access: 'rw', tag: 'wiser-share-0' }, { path: second, access: 'ro', tag: 'wiser-share-1' }
+  ]);
+  assert.deepEqual(f.ok('status', VM).shares, expected);
+  setConfig(f, { mountTableFails: true });
+  const unavailable = f.ok('status', VM);
+  assert.deepEqual(unavailable.shares, expected.map((share) => ({ ...share, mounted: null })));
+  assert.equal(unavailable.guest_agent_answered, false);
+  const checks = f.tart().filter((args) => args[2] === '/sbin/mount');
+  assert.deepEqual(checks, Array(2).fill(['exec', VM, '/sbin/mount']));
+  f.ok('stop', VM);
+});
+
+test('status still reports the export after the guest reboots inside the same Tart run', (t) => {
+  const f = fixture(t);
+  const [share] = shareFolders(t, ['reboot share']);
+  f.ok('create', VM);
+  const started = f.ok('start', VM, '--share', share);
+  setConfig(f, { rebooted: true });
+  const status = f.ok('status', VM);
+  assert.equal(status.vm.Running, true);
+  assert.equal(status.pid, started.pid);
+  assert.deepEqual(status.shares, [{ path: share, access: 'rw', exported: true, mounted: false }]);
+  f.ok('stop', VM);
+});
+
+test('mount state matches the start of the exact virtio-fs line and legacy run records are readable', () => {
+  const run = { supervisor_pid: 1, tart_pid: 2, desktop: false, port: null, passphrase_length: null,
+    started_at: ACCESS_TIME };
+  assert.ok(validRunRecord(run));
+  assert.equal(runAnswer(run).window, false);
+  assert.equal(validRunRecord({ ...run, window: 'true' }), false);
+  const shares = [{ path: '/path with spaces', access: 'ro', tag: 'wiser-share-0' }];
+  assert.ok(validRunRecord({ ...run, window: true, shares }));
+  assert.equal(validRunRecord({ ...run, shares: [{ ...shares[0], tag: 'bad tag' }] }), false);
+  const path = shares[0].path;
+  assert.deepEqual(shareAnswers(shares, 'prefix virtio-fs on ' + path + ' (options)\nvirtio-fs on ' + path + '2 (options)'),
+    [{ path, access: 'ro', exported: true, mounted: false }]);
+  assert.deepEqual(shareAnswers(shares, 'virtio-fs on ' + path + ' (AppleVirtIOFS, nodev, nosuid)\n'),
+    [{ path, access: 'ro', exported: true, mounted: true }]);
+});
+
+test('a failed second mount reports the guest error and shuts the kept VM down', (t) => {
+  const [first, second] = shareFolders(t, ['first', 'second']);
+  const f = fixture(t, { failMount: second, execDropsConnection: true });
+  f.ok('create', VM, '--keep');
+  const result = f.command('start', VM, '--share', first, '--share', second);
+  refusal(result, /mount_virtiofs: Operation not permitted\nThe kept VM was shut down\./);
+  assert.ok(result.stderr.includes('Could not mount --share ' + JSON.stringify(second)));
+  assert.equal(f.vms()[VM].State, 'stopped');
+  assert.deepEqual(f.tart().filter((args) => args[0] === 'stop' || args.includes('/sbin/shutdown')),
+    [['exec', VM, 'sudo', '-n', '/sbin/shutdown', '-h', 'now']]);
+  assert.deepEqual(f.ok('status', VM).shares, []);
+  assert.ok(!fs.existsSync(f.runFile(VM, 'sock')));
+});
+
+test('a failed desktop mount point creation powers off the disposable VM without trying to mount', (t) => {
+  const [share] = shareFolders(t, ['denied']);
+  const f = fixture(t, { failMkdir: share });
+  f.ok('create', VM);
+  f.refused(['start', VM, '--desktop', '--share', share], /mkdir: Permission denied\nThe VM was powered off\./);
+  assert.equal(f.vms()[VM].State, 'stopped');
+  assert.ok(!f.tart().some((argv) => argv.includes('/sbin/mount_virtiofs')));
+  const inspection = f.calls().find(({ program, args }) => program === 'lsof' && args.includes('-p'));
+  assert.ok(!alive(Number(inspection.args[inspection.args.indexOf('-p') + 1])), 'Tart and its listener are gone');
+  const exit = fs.readFileSync(f.runFile(VM, 'log'), 'utf8').trim().split('\n').map(JSON.parse).at(-1);
+  assert.equal(exit.event, 'exit');
+  assert.ok(!fs.existsSync(f.runFile(VM, 'sock')));
+});
+
+function fastStartClock(f) {
+  const clock = join(f.dir, 'share-clock.cjs');
+  fs.writeFileSync(clock, [
+    "if (process.argv[2] === 'start') {",
+    "const { performance } = require('node:perf_hooks');",
+    "const now = performance.now.bind(performance);",
+    "Object.defineProperty(performance, 'now', { value: () => now() * 60 });",
+    "}"
+  ].join('\n'));
+  return clock;
+}
+
+test('a kept desktop start that never reaches running reaps Tart and its supervisor', async (t) => {
+  const f = fixture(t, { holdRunStopped: true });
+  const [share] = shareFolders(t, ['waiting']);
+  f.ok('create', VM, '--keep');
+  f.env.NODE_OPTIONS = '--require=' + fastStartClock(f);
+  const socket = f.runFile(VM, 'sock');
+  const starting = f.asyncCommand('start', VM, '--desktop', '--share', share);
+  await eventually(() => f.vms()[VM].pid && fs.existsSync(socket));
+  const { pid, Running, State } = f.vms()[VM];
+  assert.ok(alive(pid));
+  assert.equal(Running, false);
+  assert.equal(State, 'stopped');
+
+  const result = await starting;
+  refusal(result, /The VM never reached running and was stopped\./);
+  assert.doesNotMatch(result.stderr, /--power-off/);
+  assert.ok(!alive(pid), 'tart run exited');
+  assert.ok(!fs.existsSync(socket), 'the supervisor removed its socket');
+  assert.ok(!f.tart().some(([cmd]) => cmd === 'stop'));
+});
+
+test('a kept desktop VM that ignores guest shutdown stays running and the error names the approval flag', (t) => {
+  const [share] = shareFolders(t, ['denied']);
+  const f = fixture(t, { failMkdir: share, ignoreShutdown: true });
+  f.ok('create', VM, '--keep');
+  const result = f.sync(process.execPath, ['--require', fastStartClock(f), CLI, 'start', VM, '--desktop', '--share', share]);
+  refusal(result, /mkdir: Permission denied\nThe kept VM is still running\./);
+  assert.match(result.stderr, /stop wiser-tart-test --power-off --kept-approved.*person says yes and names this VM/);
+  assert.equal(f.vms()[VM].Running, true);
+  assert.deepEqual(f.tart().filter((args) => args[0] === 'stop' || args.includes('/sbin/shutdown')),
+    [['exec', VM, 'sudo', '-n', '/sbin/shutdown', '-h', 'now']]);
+  f.ok('stop', VM, '--power-off', '--kept-approved');
+});
+
+test('an unreachable guest agent leaves a kept desktop VM running and the failed start reports the remaining reach', (t) => {
+  const f = fixture(t, { agentFailures: 1000 });
+  const [share] = shareFolders(t, ['waiting']);
+  f.ok('create', VM, '--keep');
+  const result = f.sync(process.execPath, ['--require', fastStartClock(f), CLI, 'start', VM, '--desktop', '--share', share]);
+  refusal(result, /guest agent did not answer within the 120-second start deadline.*Transport became inactive/);
+  assert.ok(result.stderr.includes(JSON.stringify(share)));
+  assert.match(result.stderr, /The kept VM is still running\./);
+  assert.match(result.stderr, /Every --share folder is still exported to it until it stops\./);
+  assert.match(result.stderr, /screen listener is still open on every network this Mac joins/);
+  assert.match(result.stderr, /stop wiser-tart-test --power-off --kept-approved.*person says yes and names this VM/);
+  assert.equal(f.vms()[VM].Running, true);
+  assert.ok(!f.tart().some((argv) => argv.includes('mkdir') || argv.includes('/sbin/shutdown') || argv[0] === 'stop'));
+  f.ok('stop', VM, '--power-off', '--kept-approved');
+});
+
+test('a share start interrupted by stop reports the VM already stopped', async (t) => {
+  const f = fixture(t, { agentFailures: 1000 });
+  const [share] = shareFolders(t, ['interrupted']);
+  f.ok('create', VM, '--keep');
+  f.env.NODE_OPTIONS = '--require=' + fastStartClock(f);
+  const starting = f.asyncCommand('start', VM, '--share', share);
+  await eventually(() => f.tart().some(([cmd, , guest]) => cmd === 'exec' && guest === 'true'));
+  const stopped = await f.asyncCommand('stop', VM, '--power-off', '--kept-approved');
+  const result = await starting;
+  assert.equal(successful(stopped).vm.State, 'stopped');
+  refusal(result, /Could not mount --share .*\nThe VM was already stopped\./);
+  assert.deepEqual(f.tart().filter((args) => args[0] === 'stop' || args.includes('/sbin/shutdown')), [['stop', VM]]);
+});
+
+test('kept records protect delete, default to graceful shutdown and require approval for power-off', (t) => {
+  const f = fixture(t);
+  for (const [command, name] of [[['create', VM], VM], [['clone', VM, CLONE], CLONE]]) {
+    assert.equal(f.ok(...command, '--keep').record.kept, true);
+    assert.equal(JSON.parse(fs.readFileSync(join(f.records, name + '.json'))).kept, true);
+    assert.equal(f.ok('status', name).kept, true);
+  }
+  assert.deepEqual(f.ok('list').vms.map(({ kept }) => kept), [true, true]);
+  const beforeDelete = f.calls();
+  for (const args of [[], ['--gate-approved']]) {
+    f.refused(['delete', CLONE, ...args], /"wiser-tart-clone" is kept.*--kept-approved.*person says yes and names this VM/);
+  }
+  assert.deepEqual(f.calls(), beforeDelete);
+  assert.equal(f.ok('delete', CLONE, '--kept-approved').deleted, true);
+
+  f.ok('start', VM);
+  assert.equal(f.ok('stop', VM).method, 'guest-shutdown');
+  assert.deepEqual(f.tart().filter(([cmd]) => cmd === 'exec' || cmd === 'stop'),
+    [['exec', VM, 'sudo', '-n', '/sbin/shutdown', '-h', 'now']]);
+  f.ok('start', VM);
+  const beforeStop = f.calls();
+  f.refused(['stop', VM, '--graceful', '--power-off'], /--graceful.*--power-off/);
+  f.refused(['stop', VM, '--power-off'], /"wiser-tart-test" is kept.*--kept-approved.*person says yes and names this VM/);
+  assert.deepEqual(f.calls(), beforeStop);
+  assert.equal(f.ok('stop', VM, '--power-off', '--kept-approved').method, 'power-off');
+  assert.deepEqual(f.tart().filter(([cmd]) => cmd === 'stop'), [['stop', VM]]);
+});
+
+test('an older record reads as not kept and explicit power-off works without approval', (t) => {
+  const f = fixture(t);
+  const { record } = f.ok('create', VM);
+  const path = join(f.records, VM + '.json');
+  fs.writeFileSync(path, JSON.stringify({
+    name: VM, source: IMAGE, created_at: ACCESS_TIME, tool_version: '0.1.0'
+  }));
+  assert.equal(f.ok('status', VM).kept, false);
+  assert.equal(f.ok('list').vms[0].kept, false);
+  f.ok('start', VM);
+  assert.equal(f.ok('stop', VM, '--power-off').method, 'power-off');
+  assert.deepEqual(f.tart().filter(([cmd]) => cmd === 'stop'), [['stop', VM]]);
+  delete record.kept;
+  fs.writeFileSync(path, JSON.stringify(record));
+  f.refused(['delete', VM, '--gate-approved'], /Incomplete VM record/);
+});
+
+test('a kept record whose VM went away still requires approved removal before name reuse', (t) => {
+  const f = fixture(t);
+  f.ok('create', VM, '--keep');
+  fs.writeFileSync(join(f.dir, 'vms.json'), '{}');
+  f.refused(['create', VM], /"wiser-tart-test" is kept.*delete --kept-approved/);
+  assert.equal(f.ok('delete', VM, '--kept-approved').vm_missing, true);
+  assert.equal(f.ok('create', VM).record.kept, false);
+});
+
+test('a kept desktop VM shuts down after the guest agent answers if the supervisor cannot establish RFB', (t) => {
+  const f = fixture(t, { rfbPassphrase: 'different-fixture', agentFailures: 2 });
+  f.ok('create', VM, '--keep');
+  f.refused(['start', VM, '--desktop'], /RFB security result failure.*\nThe kept VM was shut down\./);
+  assert.equal(f.ok('status', VM).vm.State, 'stopped');
+  assert.deepEqual(f.tart().filter(([cmd]) => cmd === 'exec' || cmd === 'stop'), [
+    ['exec', VM, 'true'], ['exec', VM, 'true'], ['exec', VM, 'true'],
+    ['exec', VM, 'sudo', '-n', '/sbin/shutdown', '-h', 'now']
+  ]);
+  assert.ok(!fs.existsSync(f.runFile(VM, 'sock')));
+});
+
+test('every file in the tool is free of the host volume prefix', () => {
+  const pattern = '/' + 'Volumes';
+  for (const path of filesIn(TOOL)) assert.ok(!fs.readFileSync(path).includes(pattern), path);
 });

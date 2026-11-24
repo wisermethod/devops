@@ -13,8 +13,8 @@ import { wiserUserConfigDir } from '../../lib/user-config.js';
 import {
   DEFAULT_IMAGE, GRACEFUL_TIMEOUT, HELP, NO_DESKTOP_SESSION, POWER_OFF_TIMEOUT, RFB_DROPPED, SOCKET_LIMIT, START_TIMEOUT,
   answer, classifyTartError, diskDecision, diskRefusal, isDesktopCommand, isToolName, launchReady, limitRefusal,
-  macLimitReached, makeVmRecord, parseCommand, parseGet, parseList, parseListener, redact, redactJson,
-  runAnswer, tartArgv, validRunRecord, validVmRecord, vmListItem
+  macLimitReached, makeVmRecord, parseCommand, parseGet, parseList, parseListener, parseShare, redact, redactJson,
+  runAnswer, shareAnswers, tartArgv, validRunRecord, validVmRecord, vmListItem
 } from './tart-vm-core.js';
 
 const ENTRY = fileURLToPath(import.meta.url);
@@ -24,6 +24,7 @@ const INSPECTION_MS = 10_000;
 const POLL_MS = 200;
 const DESKTOP_IDLE_MS = 30_000;
 const MAX_PNG_BYTES = 256 * 1024 * 1024;
+const MAX_SUPERVISOR_STATUS = 256 * 1024;
 
 export function invokedDirectly(entry) {
   try { return fs.realpathSync(process.argv[1]) === fs.realpathSync(entry); }
@@ -54,6 +55,55 @@ function outsideTool(path) {
     throw new Error('Refusing to write inside tart-vm at ' + JSON.stringify(path) +
       '. Use a home outside the tool directory.');
   }
+}
+
+function directoryId(path) {
+  const { dev, ino } = fs.statSync(path, { bigint: true });
+  return dev + ':' + ino;
+}
+
+function ancestorIds(path) {
+  const ids = new Set();
+  for (;;) {
+    ids.add(directoryId(path));
+    const parent = dirname(path);
+    if (parent === path) return ids;
+    path = parent;
+  }
+}
+
+export function screenShares(values, stateRoot, home = tartHome()) {
+  if (values.length === 0) return [];
+  const protectedPaths = [
+    ['the tool state root', stateRoot], ["Tart's home", home], ["the tool's directory", TOOL_DIR]
+  ].map(([label, path]) => {
+    const { ancestor, tail } = nearestExisting(path);
+    return { label, ids: ancestorIds(ancestor), id: tail ? null : directoryId(ancestor) };
+  });
+  const seen = new Set();
+  return values.map((value, index) => {
+    const share = parseShare(value, index);
+    const refuse = (fix) => { throw new Error('Refusing --share ' + JSON.stringify(value) + '. ' + fix); };
+    if (!isAbsolute(share.path)) refuse('Give an absolute host directory path.');
+    if (share.path.includes(':')) refuse('Give a directory path without a colon.');
+    let path;
+    try { path = fs.realpathSync.native(share.path); }
+    catch { refuse('Give the path to an existing host directory.'); }
+    if (path === '/') refuse('Choose a host directory below the filesystem root.');
+    if (path.includes(':')) refuse('Choose a host directory whose resolved path has no colon.');
+    if (!fs.statSync(path, { throwIfNoEntry: false })?.isDirectory()) refuse('Give an existing host directory, not a file.');
+    const id = directoryId(path);
+    const ids = ancestorIds(path);
+    for (const protectedPath of protectedPaths) {
+      // File identities also catch alternate spellings on case-insensitive volumes.
+      if (protectedPath.ids.has(id) || ids.has(protectedPath.id)) {
+        refuse('Choose a directory that does not overlap ' + protectedPath.label + '.');
+      }
+    }
+    if (seen.has(id)) refuse('Give each resolved directory only once.');
+    seen.add(id);
+    return { ...share, path };
+  });
 }
 
 function sameFileIn(directory, target) {
@@ -252,14 +302,21 @@ export function readVmRecord(paths, name) {
     throw new Error('Incomplete VM record for ' + JSON.stringify(name) + '. Inspect ' +
       JSON.stringify(recordPath(paths, name)) + ' before retrying.');
   }
-  return record;
+  return { ...record, kept: record.kept ?? false };
 }
 
 export function requireRecord(paths, name) {
-  if (!readVmRecord(paths, name)) {
+  const record = readVmRecord(paths, name);
+  if (!record) {
     throw new Error('VM ' + JSON.stringify(name) +
       ' has no tart-vm record. Use a VM made with tart-vm create or clone.');
   }
+  return record;
+}
+
+function keptRefusal(name, action) {
+  return new Error('VM ' + JSON.stringify(name) + ' is kept. Use ' + action +
+    ' --kept-approved only after the person says yes and names this VM.');
 }
 
 function tartHome() {
@@ -374,10 +431,11 @@ function supervisorState(path, timeout = 1000) {
     socket.on('connect', () => socket.write('{"cmd":"status"}\n'));
     socket.on('data', (chunk) => {
       reply += chunk;
-      if (reply.length > 4096 || reply.includes('\n')) {
+      if (reply.length > MAX_SUPERVISOR_STATUS || reply.includes('\n')) {
         socket.destroy();
         let state;
-        try { state = JSON.parse(reply); } catch { /* Refuse below without echoing the reply. */ }
+        try { if (reply.length <= MAX_SUPERVISOR_STATUS) state = JSON.parse(reply); }
+        catch { /* Refuse below without echoing the reply. */ }
         if (state?.ok === true && /^[a-f0-9]{32}$/.test(state.launch_id) &&
             (state.run === null || validRunRecord(state.run))) {
           done({ kind: state.run === null ? 'starting' : 'active', ...state });
@@ -511,12 +569,13 @@ function requireDisk(home, options) {
 }
 
 async function cloneVm(options, paths, home) {
-  const { command, name, source, imageGb } = options;
+  const { command, name, source, imageGb, keep } = options;
   // A VM Tart already has is never recorded here, whatever its name: recording it would let start, stop and delete
   // reach a VM the tool did not make.
   if (await getVm(name, { missing: true })) {
     throw new Error('VM ' + JSON.stringify(name) + ' already exists. Use a new VM name.');
   }
+  if (readVmRecord(paths, name)?.kept) throw keptRefusal(name, 'delete');
   const cached = command === 'create' && imageCached(await listTart('oci'), source);
   requireDisk(home, { operation: command, image: source, cached, imageGb });
   if (command === 'clone') await getVm(source);
@@ -528,7 +587,7 @@ async function cloneVm(options, paths, home) {
   // another program made later. A clone that fails, or a kill between the clone and its record, leaves an unrecorded
   // VM if Tart made one: deleting it then takes DevOps Expert's gate, the safe direction.
   await tart(tartArgv.clone(source, name), { timeout: 0 });
-  const record = makeVmRecord(name, source, new Date().toISOString());
+  const record = makeVmRecord(name, source, new Date().toISOString(), keep);
   try { writeJson(recordPath(paths, name), record); }
   catch (error) {
     throw new Error('Tart cloned ' + JSON.stringify(name) + ', but its record could not be written, so the tool ' +
@@ -581,8 +640,8 @@ async function pollUntil(deadline, read, { retryErrors = false } = {}) {
   return null;
 }
 
-async function startVm({ name, desktop }, paths, home) {
-  requireRecord(paths, name);
+async function startVm({ name, desktop, window, shares }, paths, home) {
+  const { kept } = requireRecord(paths, name);
   const runFiles = runPaths(paths.run, name);
   checkSocketLength(runFiles.socket);
   const vm = await getVm(name);
@@ -612,15 +671,48 @@ async function startVm({ name, desktop }, paths, home) {
   if (socketState.kind !== 'absent') {
     throw new Error('A supervisor already holds ' + JSON.stringify(name) + '. Check tart-vm status.');
   }
-  return await launch(name, desktop, runFiles, running);
+  const deadline = deadlineAfter(START_TIMEOUT);
+  return launch({ name, desktop, window, shares, kept }, runFiles, running, deadline);
+}
+
+function guestError({ error, stderr, stdout }) {
+  const line = (stderr.trim() || stdout.trim()).split(/\r?\n/, 1)[0];
+  return line || (error.killed ? 'tart exec timed out' : 'tart exec failed (' + error.code + ')');
+}
+
+async function mountShares(name, shares, deadline) {
+  if (shares.length === 0) return [];
+  const failed = (path, reason) => {
+    throw new Error('Could not mount --share ' + JSON.stringify(path) + ' in ' + JSON.stringify(name) + '. ' + reason);
+  };
+  let lastError;
+  const ready = await pollUntil(deadline, async (timeout) => {
+    const result = await call('tart', tartArgv.agentReady(name), timeout);
+    if (!result.error) return true;
+    lastError = guestError(result);
+    if (classifyTartError(lastError).kind === 'not-running') failed(shares[0].path, lastError);
+    return false;
+  });
+  if (!ready) {
+    failed(shares[0].path, 'The guest agent did not answer within the ' + START_TIMEOUT + '-second start deadline.' +
+      (lastError ? ' ' + lastError : ''));
+  }
+  for (const share of shares) {
+    for (const args of [tartArgv.shareMkdir(name, share.path), tartArgv.shareMount(name, share)]) {
+      const remaining = timeLeft(deadline);
+      if (!remaining) failed(share.path, 'The ' + START_TIMEOUT + '-second start deadline expired before the mount completed.');
+      const result = await call('tart', args, remaining);
+      if (result.error) failed(share.path, guestError(result));
+    }
+  }
+  return shares.map(({ path, access }) => ({ path, access, exported: true, mounted: true }));
 }
 
 // macOS <sys/fcntl.h>: open(2) with O_EXLOCK takes an exclusive flock on the file, and the kernel drops it when the
 // holder exits, however it exits. Node passes the flag through and exports no constant for it.
 const O_EXLOCK = 0x20;
 
-// One lifecycle command at a time per VM name: create, clone, start and delete hold the name's lock for their whole
-// run, so none of them interleaves with another on that name, and no lock is ever left for a later command to judge.
+// Serialize changes to a name and its records. Stop does not change either.
 function holdName(paths, name) {
   if (process.platform !== 'darwin') throw new Error('tart-vm runs only on macOS. Run it on an Apple silicon Mac.');
   checkState(paths, ['config', 'root', 'run']);
@@ -639,10 +731,61 @@ function holdName(paths, name) {
   };
 }
 
-async function launch(name, desktop, runFiles, running) {
+function waitForSupervisorExit(exited) {
+  // Keep the caller alive until the supervisor has reaped the Tart process it started.
+  return new Promise((done) => {
+    const timer = setTimeout(() => done(false), 5000);
+    void exited.then(() => { clearTimeout(timer); done(true); });
+  });
+}
+
+async function recoverKeptStart(name, { child, exited, hasExited, reachedRunning, socket, launchId }) {
+  const agentDeadline = deadlineAfter(GRACEFUL_TIMEOUT);
+  let cancelRequested = false;
+  const state = await pollUntil(agentDeadline, async (timeout) => {
+    if (!reachedRunning && hasExited()) return cancelRequested ? 'cancelled' : 'exited';
+    let vm = await getVm(name, { timeout });
+    if (!reachedRunning && !vm.Running) {
+      const status = await supervisorState(socket, timeout);
+      const run = status.launch_id === launchId ? status.run : null;
+      if (!run || run.supervisor_pid !== child.pid) {
+        if (!cancelRequested && (status.kind === 'absent' || (status.launch_id === launchId && status.kind === 'starting'))) {
+          // The supervisor honors this for a kept VM only before it has spawned Tart.
+          child.kill('SIGTERM');
+          cancelRequested = true;
+        }
+        return null;
+      }
+      const remaining = Math.min(INSPECTION_MS, timeLeft(agentDeadline));
+      if (!remaining) return null;
+      // A Tart child can enter running while the supervisor's status is being read.
+      vm = await getVm(name, { timeout: remaining });
+      if (!vm.Running) {
+        if (!hasExited()) {
+          try { process.kill(run.tart_pid, 'SIGINT'); }
+          catch (error) { if (error.code !== 'ESRCH') throw error; }
+        }
+        return 'cancelled';
+      }
+    }
+    if (!vm.Running) return vm.State === 'stopped' ? 'already-stopped' : null;
+    reachedRunning = true;
+    const remaining = Math.min(INSPECTION_MS, timeLeft(agentDeadline));
+    if (!remaining) return null;
+    const ready = await call('tart', tartArgv.agentReady(name), remaining);
+    return ready.error ? null : 'ready';
+  }, { retryErrors: true });
+  if (state === 'exited' || state === 'already-stopped') return state;
+  if (!reachedRunning) return await waitForSupervisorExit(exited) ? 'not-started' : 'cleanup-incomplete';
+  if (state !== 'ready') return 'still-running';
+  const { stopped } = await shutDownGuest(name, deadlineAfter(GRACEFUL_TIMEOUT));
+  return stopped ? 'shut-down' : 'still-running';
+}
+
+async function launch({ name, desktop, window, shares, kept }, runFiles, running, deadline) {
   const launchId = randomBytes(16).toString('hex');
-  const deadline = deadlineAfter(START_TIMEOUT);
-  const args = [SUPERVISOR, 'serve', name, launchId, ...(desktop ? ['--desktop'] : [])];
+  const args = [SUPERVISOR, 'serve', name, launchId, ...(desktop ? ['--desktop'] : []), ...(window ? ['--window'] : []),
+    ...shares.flatMap(({ path, access }) => ['--share', path + (access === 'ro' ? ':ro' : '')])];
   const child = spawn(process.execPath, args, { detached: true, stdio: 'ignore' });
   const exited = new Promise((done) => {
     child.once('exit', () => done(true));
@@ -652,6 +795,7 @@ async function launch(name, desktop, runFiles, running) {
   void exited.then(() => { ended = true; });
   child.unref();
 
+  let reachedRunning = false;
   try {
     const started = await pollUntil(deadline, async (timeout) => {
       if (ended) {
@@ -674,11 +818,16 @@ async function launch(name, desktop, runFiles, running) {
           '. Check tart-vm status and ' + JSON.stringify(runFiles.log) + '.');
       }
       const state = await supervisorState(runFiles.socket, timeout);
+      if (state.launch_id === launchId && typeof state.startup_error === 'string') {
+        throw new Error(state.startup_error + ' Check tart-vm status.');
+      }
       if (desktop && state.launch_id === launchId && state.run?.port != null && state.rfb?.connected === false) {
         throw new Error('The RFB connection dropped during startup. Retry start --desktop.');
       }
       if (!launchReady(state, child.pid, launchId)) return null;
-      if (!(await getVm(name, { timeout })).Running || ended) return null;
+      const vm = await getVm(name, { timeout });
+      reachedRunning ||= vm.Running;
+      if (!vm.Running || ended) return null;
       const listener = desktop ? await listenerFor(state.run, Math.max(1, Math.min(timeout, timeLeft(deadline)))) : null;
       if (ended || (desktop && !listener)) return null;
       if (desktop) {
@@ -688,17 +837,33 @@ async function launch(name, desktop, runFiles, running) {
       }
       return { name, ...runAnswer(state.run, listener) };
     });
-    if (started) return started;
+    if (started) return { ...started, shares: await mountShares(name, shares, deadline) };
     throw new Error('VM ' + JSON.stringify(name) + ' did not become ready within ' + START_TIMEOUT +
       ' seconds. Check ' + JSON.stringify(runFiles.log) + ' and retry.');
   } catch (error) {
+    if (kept) {
+      const outcome = await recoverKeptStart(name, {
+        child, exited, hasExited: () => ended, reachedRunning, socket: runFiles.socket, launchId
+      });
+      if (outcome === 'exited') throw error;
+      if (outcome === 'not-started') throw new Error(error.message + '\nThe VM never reached running and was stopped.');
+      if (outcome === 'still-running') {
+        throw new Error(error.message + '\nThe kept VM is still running.' +
+          (shares.length ? ' Every --share folder is still exported to it until it stops.' : '') +
+          (desktop ? ' Its screen listener is still open on every network this Mac joins.' : '') +
+          ' Use stop ' + name + ' --power-off --kept-approved only after the person says yes and names this VM.');
+      }
+      const finished = ended || (outcome !== 'cleanup-incomplete' && await waitForSupervisorExit(exited));
+      const message = outcome === 'shut-down' ? 'The kept VM was shut down.'
+        : outcome === 'already-stopped' ? 'The VM was already stopped.' : 'Could not confirm the kept VM stopped.';
+      throw new Error(error.message + '\n' + message +
+        (finished ? '' : ' The supervisor has not exited. Check tart-vm status and the run log.'));
+    }
+    const vm = ended ? null : await getVm(name, { missing: true }).catch(() => null);
+    const alreadyStopped = reachedRunning && (ended || vm?.State === 'stopped');
     if (!ended) {
       child.kill('SIGTERM');
-      // Keep the caller alive until the supervisor has reaped the Tart process it started.
-      const cleanedUp = await new Promise((done) => {
-        const timer = setTimeout(() => done(false), 5000);
-        void exited.then(() => { clearTimeout(timer); done(true); });
-      });
+      const cleanedUp = await waitForSupervisorExit(exited);
       if (!cleanedUp) {
         // The detached supervisor leads a private group that includes its Tart child.
         if (!ended && child.pid) {
@@ -709,20 +874,24 @@ async function launch(name, desktop, runFiles, running) {
           JSON.stringify(name) + '.');
       }
     }
-    if (desktop) {
-      let failed;
-      try { failed = readExit(runFiles.log, launchId)?.rfb_startup_error; }
-      catch { /* Keep the original error when the supervisor log is unavailable. */ }
-      if (typeof failed === 'string') {
-        throw new Error(failed + ' Check tart-vm status and retry start --desktop.');
-      }
+    let exit;
+    try { exit = readExit(runFiles.log, launchId); }
+    catch { /* Keep the original error when the supervisor log is unavailable. */ }
+    const failedRfb = typeof exit?.rfb_startup_error === 'string';
+    let reason = error.message;
+    if (failedRfb) reason = exit.rfb_startup_error + ' Check tart-vm status and retry start --desktop.';
+    if (exit?.state_write_failed) reason = 'Could not write the supervisor run record. Check tart-vm status.';
+    if (alreadyStopped) throw new Error(reason + '\nThe VM was already stopped.');
+    if (reachedRunning || failedRfb || (vm?.Running && exit?.tart_error?.kind !== 'running')) {
+      throw new Error(reason + '\nThe VM was powered off.');
     }
-    throw error;
+    throw new Error(reason);
   }
 }
 
 async function statusVm(name, paths) {
   const vm = await getVm(name);
+  const record = readVmRecord(paths, name);
   const state = isToolName(name) ? await supervisorState(runPaths(paths.run, name).socket) : null;
   const run = state?.kind === 'active' ? state.run : null;
   let listener;
@@ -734,30 +903,38 @@ async function statusVm(name, paths) {
     }
   }
   const rfb = state?.rfb ?? (run?.desktop ? { connected: false, framebuffer: null } : null);
-  return { name, vm, ...runAnswer(run, listener), ...(rfb ? { rfb } : {}) };
+  const shares = run?.shares ?? [];
+  const mounts = shares.length ? await call('tart', tartArgv.mounts(name)) : null;
+  return { name, vm, ...(record ? { kept: record.kept } : {}), ...runAnswer(run, listener),
+    shares: shareAnswers(shares, mounts?.error ? undefined : mounts?.stdout),
+    ...(mounts?.error ? { guest_agent_answered: false } : {}), ...(rfb ? { rfb } : {}) };
+}
+
+async function readStoppedVm(name, timeout) {
+  const vm = await getVm(name, { timeout });
+  return vm.State === 'stopped' ? vm : null;
+}
+
+async function shutDownGuest(name, deadline) {
+  const remaining = timeLeft(deadline);
+  if (!remaining) return { stopped: null, execFailure: null };
+  // A guest that shuts down can drop the agent's connection before tart exec answers (measured 2026-11-23).
+  const asked = tart(tartArgv.shutdown(name), { timeout: remaining }).then(() => null, (error) => error);
+  const stopped = await pollUntil(deadline, (timeout) => readStoppedVm(name, timeout), { retryErrors: true });
+  return { stopped, execFailure: await asked };
 }
 
 async function stopVm({ name, graceful, timeout }, paths) {
-  requireRecord(paths, name);
   const runFiles = runPaths(paths.run, name);
   const seconds = timeout ?? (graceful ? GRACEFUL_TIMEOUT : POWER_OFF_TIMEOUT);
-  const readStopped = async (remaining) => {
-    const vm = await getVm(name, { timeout: remaining });
-    return vm.State === 'stopped' ? vm : null;
-  };
   let stopped;
   let execFailure = null;
   if (graceful) {
     if (!(await getVm(name)).Running) throw new Error('VM ' + JSON.stringify(name) + ' is not running. Check tart-vm status.');
-    // One deadline bounds the request and the wait. A guest that shuts down can drop the agent's connection before
-    // tart exec answers (measured 2026-11-23), so the VM's own state decides; a failed exec is named only if it never stops.
-    const deadline = deadlineAfter(seconds);
-    const asked = tart(tartArgv.shutdown(name), { timeout: seconds * 1000 }).then(() => null, (error) => error);
-    stopped = await pollUntil(deadline, readStopped, { retryErrors: true });
-    execFailure = await asked;
+    ({ stopped, execFailure } = await shutDownGuest(name, deadlineAfter(seconds)));
   } else {
     await tart(tartArgv.stop(name, timeout), { timeout: seconds * 1000 + INSPECTION_MS });
-    stopped = await pollUntil(deadlineAfter(INSPECTION_MS / 1000), readStopped, { retryErrors: true });
+    stopped = await pollUntil(deadlineAfter(INSPECTION_MS / 1000), (remaining) => readStoppedVm(name, remaining), { retryErrors: true });
   }
   if (!stopped) {
     const cause = graceful ? 'The guest did not shut down within ' + seconds + (seconds === 1 ? ' second.' : ' seconds.') +
@@ -773,8 +950,7 @@ async function stopVm({ name, graceful, timeout }, paths) {
   return { name, vm: stopped, method: graceful ? 'guest-shutdown' : 'power-off', timeout_seconds: seconds };
 }
 
-async function deleteVm({ name, gateApproved }, paths, home) {
-  const record = readVmRecord(paths, name);
+async function deleteVm({ name, gateApproved }, paths, home, record) {
   const vm = await getVm(name, { missing: record !== null });
   if (vm === null) {
     // Tart no longer has this VM: a delete outside the tool, or one cut short, left its record.
@@ -818,6 +994,23 @@ export async function main(argv = process.argv.slice(2)) {
   if (command === 'preflight') return preflight(paths, home);
   checkState(paths);
   if (['create', 'clone', 'start', 'stop', 'delete'].includes(command)) outsideTool(home);
+  if (command === 'start') options.shares = screenShares(options.shares, paths.root, home);
+  if (command === 'stop') {
+    const record = requireRecord(paths, name);
+    if (process.platform !== 'darwin') throw new Error('tart-vm runs only on macOS. Run it on an Apple silicon Mac.');
+    if (record.kept && options.powerOff && !options.keptApproved) throw keptRefusal(name, 'stop --power-off');
+    const version = await readVersion();
+    const graceful = options.graceful || (record.kept && !options.powerOff);
+    return answer(command, version, await stopVm({ ...options, graceful }, paths));
+  }
+  if (command === 'delete') {
+    return await holding(paths, name, async () => {
+      const record = readVmRecord(paths, name);
+      if (record?.kept && !options.keptApproved) throw keptRefusal(name, 'delete');
+      const version = await readVersion();
+      return answer(command, version, await deleteVm(options, paths, home, record));
+    });
+  }
   const version = await readVersion();
   if (isDesktopCommand(command)) return answer(command, version, await desktopVm(options, paths));
   let result;
@@ -837,12 +1030,6 @@ export async function main(argv = process.argv.slice(2)) {
       break;
     case 'status':
       result = await statusVm(name, paths);
-      break;
-    case 'stop':
-      result = await stopVm(options, paths);
-      break;
-    case 'delete':
-      result = await holding(paths, name, () => deleteVm(options, paths, home));
       break;
   }
   return answer(command, version, result);

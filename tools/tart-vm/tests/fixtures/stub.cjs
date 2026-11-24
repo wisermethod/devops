@@ -176,6 +176,42 @@ const [command, name, target] = args;
 const data = vms();
 const vm = data[name];
 const missing = (name) => fail('the specified VM "' + name + '" does not exist');
+const agentError = 'Error: unavailable (14): Transport became inactive';
+
+function runGuest(guest) {
+  if (guest.length === 1 && guest[0] === 'true') {
+    vm.agentAttempts = (vm.agentAttempts ?? 0) + 1;
+    store(data);
+    if (vm.agentAttempts <= (config.agentFailures ?? 0)) fail(agentError);
+    return;
+  }
+  if (guest.length === 1 && guest[0] === '/sbin/mount') {
+    if (config.mountTableFails) fail(agentError);
+    console.log('/dev/disk3s1s1 on / (apfs, sealed, local, read-only)');
+    for (const path of config.rebooted ? [] : (vm.mounted ?? [])) {
+      console.log('virtio-fs on ' + path + ' (AppleVirtIOFS, nodev, nosuid)');
+    }
+    console.log('devfs on /dev (devfs, local, nobrowse)');
+    return;
+  }
+  const [sudo, nonInteractive, operation, option, target] = guest;
+  if (guest.length !== 5 || sudo !== 'sudo' || nonInteractive !== '-n') fail('unexpected guest argv');
+  if (!vm.agentAttempts || vm.agentAttempts <= (config.agentFailures ?? 0)) fail(agentError);
+  if (operation === 'mkdir' && option === '-p') {
+    if (target === config.failMkdir) fail('mkdir: Permission denied');
+    (vm.mountPoints ??= []).push(target);
+  } else if (operation === '/sbin/mount_virtiofs') {
+    if (!vm.mountPoints?.includes(target)) fail('mount_virtiofs: mount point does not exist');
+    const share = '--dir=' + target + ':';
+    if (!vm.runArgs.includes(share + 'tag=' + option) && !vm.runArgs.includes(share + 'ro,tag=' + option)) {
+      fail('mount_virtiofs: share tag not found');
+    }
+    if (target === config.failMount) fail('mount_virtiofs: Operation not permitted');
+    (vm.mounted ??= []).push(target);
+  } else fail('unexpected guest argv');
+  store(data);
+}
+
 switch (command) {
   case '--version':
     console.log(config.version);
@@ -201,7 +237,7 @@ switch (command) {
       if (count === config.failGetNumber) fail('fixture get failed once');
     }
     if (args.slice(2).join(' ') !== '--format json') fail('unexpected get flags');
-    const { pid, ...details } = vm;
+    const { pid, runArgs, agentAttempts, mountPoints, mounted, ...details } = vm;
     console.log(JSON.stringify(details));
     break;
   }
@@ -217,7 +253,7 @@ switch (command) {
       store(data);
       fail('destination exists');
     }
-    const { pid, ...source } = vm ?? config.image;
+    const { pid, runArgs, agentAttempts, mountPoints, mounted, ...source } = vm ?? config.image;
     data[target] = { ...source, State: 'stopped', Running: false };
     store(data);
     break;
@@ -235,7 +271,8 @@ switch (command) {
     process.on('SIGINT', finish);
     process.on('SIGTERM', finish);
     if (config.exitBeforeUrl && args.includes('--vnc-experimental')) fail('Tart observed ' + config.passphrase + ' before any URL');
-    data[name] = { ...vm, pid: process.pid, Running: true, State: 'running' };
+    const running = !config.holdRunStopped;
+    data[name] = { ...vm, pid: process.pid, Running: running, State: running ? 'running' : 'stopped', runArgs: args };
     store(data);
     if (args.includes('--vnc-experimental') && !config.omitDesktopUrl) {
       startRfb((port) => {
@@ -255,7 +292,10 @@ switch (command) {
   case 'stop':
     if (!vm) missing(name);
     if (!vm.Running) fail('VM "' + name + '" is not running');
-    if (command === 'exec' && args.slice(2).join(' ') !== 'sudo -n /sbin/shutdown -h now') fail('unexpected shutdown argv');
+    if (command === 'exec' && args.slice(2).join(' ') !== 'sudo -n /sbin/shutdown -h now') {
+      runGuest(args.slice(2));
+      break;
+    }
     if (command === 'exec' && config.execHangs) { setInterval(() => {}, 1000); break; }
     if (command !== 'exec' || !config.ignoreShutdown) process.kill(vm.pid, 'SIGINT');
     // A guest shutting down can drop the agent's connection: Tart then exits non-zero though the VM stops.

@@ -3,17 +3,19 @@ name: tart-vm
 type: tool
 category: operations
 description: Manage local Tart VMs, capture their screens and send guest input through a detached supervisor, as one JSON object
-version: 0.1.0
+version: 0.2.0
 runs: local
 ---
 
 # tart-vm
 
-Manage disposable Tart virtual machines on an Apple silicon Mac. A detached supervisor holds each VM started by the tool after the calling shell exits.
+Manage Tart virtual machines on an Apple silicon Mac. A detached supervisor holds each VM started by the tool after the calling shell exits.
 
 ## Context
 
-Use this tool for local VM lifecycle work and guest desktop control. It leaves host settings and each image's CPU, memory and display settings alone. It opens no host window and disables clipboard, audio and USB accessory sharing. It uses the existing Tart installation. The tool starts, stops and deletes VMs it recorded at creation. To delete a VM without a record, the skill sets `--gate-approved` only after DevOps Expert's gate and the requester's yes naming the VM. The desktop option reports Tart's experimental listener. The supervisor keeps one authenticated RFB connection to the VM over loopback. Screen capture and input use the guest's framebuffer and virtual devices. Tart itself may remove cached images to make room when it clones (its automatic pruning, which `TART_NO_AUTO_PRUNE` turns off); the tool neither sets nor reports that.
+Use this tool for local VM lifecycle work and guest desktop control. It leaves host settings and each image's CPU, memory and display settings alone. It disables clipboard, audio and USB accessory sharing. It uses the existing Tart installation. The tool starts, stops and deletes VMs it recorded at creation. To delete a VM without a record, the skill sets `--gate-approved` only after DevOps Expert's gate and the requester's yes naming the VM. The desktop option reports Tart's experimental listener. The supervisor keeps one authenticated RFB connection to the VM over loopback. Screen capture and input use the guest's framebuffer and virtual devices. Tart itself may remove cached images to make room when it clones (its automatic pruning, which `TART_NO_AUTO_PRUNE` turns off).
+
+A share lets anything in the VM read every file in that folder and, unless you append `:ro`, change or delete those files. A share stays exported to the VM until the VM stops, whether or not it is mounted. The tool refuses to share its state root, Tart's home, its own directory, or any directory that overlaps them. A window start opens Tart's own window on the Mac, takes focus and runs no network listener.
 
 Classifier seam: none.
 
@@ -45,10 +47,10 @@ Run `node scripts/tart-vm.js` followed by a command. Append `--help` to any comm
 | `help`, `--help` | Print usage without configuration or dependency checks. |
 | `preflight` | Report the host platform and architecture, macOS version, Tart version, free disk space on Tart's volume, default image cache status, running macOS VMs and state directories. Report failed probes as facts. |
 | `list` | List local VMs and mark those the tool created or supervises. |
-| `create <name> [--image <ref>] [--image-gb <n>]` | Clone an OCI image, preserving its VM settings. The default is `ghcr.io/cirruslabs/macos-tahoe-base:latest`. Supply `--image-gb` in decimal GB for an uncached custom image. |
-| `clone <source> <name>` | Clone a local VM available to the current account. |
-| `start <name> [--desktop]` | Start a recorded VM under the supervisor and wait up to 120 seconds for readiness. `--desktop` alone enables Tart's experimental VNC listener. Every start passes `--no-graphics`, `--no-clipboard`, `--no-audio` and `--no-usb-accessories` to Tart. Desktop readiness requires RFB authentication and ServerInit. |
-| `status <name>` | Read Tart's local VM details and current supervisor status. Recheck a desktop listener with `lsof` and report the RFB connection and framebuffer size. |
+| `create <name> [--image <ref>] [--image-gb <n>] [--keep]` | Clone an OCI image, preserving its VM settings. The default is `ghcr.io/cirruslabs/macos-tahoe-base:latest`. Supply `--image-gb` in decimal GB for an uncached custom image. Use `--keep` to mark the new VM as kept. |
+| `clone <source> <name> [--keep]` | Clone a local VM available to the current account. Use `--keep` to mark the new VM as kept. |
+| `start <name> [--desktop \| --window] [--share <path>[:ro]]...` | Start a recorded VM under the supervisor and wait up to 120 seconds for readiness, including any share mounts. `--desktop` enables Tart's experimental VNC listener and requires RFB authentication and ServerInit. `--window` opens Tart's window. Headless and desktop starts pass `--no-graphics`. Every start passes `--no-clipboard`, `--no-audio` and `--no-usb-accessories`. Repeat `--share` up to eight times with absolute host directory paths. After the guest agent answers, each share mounts at its resolved host path. Append `:ro` for read-only access. |
+| `status <name>` | Read Tart's local VM details and current supervisor status. Recheck a desktop listener with `lsof` and report the RFB connection and framebuffer size. Inspect the guest mount table once for a supervised VM with shares. |
 | `screenshot <name> --out <path>` | Request a full non-incremental framebuffer update and write a PNG to the resolved caller path. The parent directory must exist. |
 | `move <name> --x <n> --y <n>` | Move the guest pointer. |
 | `click <name> --x <n> --y <n> [--button <left\|right\|middle>]` | Click once. The button defaults to `left`. |
@@ -57,12 +59,12 @@ Run `node scripts/tart-vm.js` followed by a command. Append `--help` to any comm
 | `scroll <name> --x <n> --y <n> --direction <up\|down\|left\|right> [--steps <n>]` | Send a press and release for each wheel step. Supply a whole number of steps from 1 to 100. The default is 1. |
 | `type <name> --text <text>` | Send printable US-layout characters, Return for a newline and Tab for a tab. The tool holds Shift for each character that requires it. At most 1,000 characters per command. |
 | `key <name> --keys <combo>` | Send one key or chord, such as `cmd+n`, `cmd+space`, `shift+tab` or `return`. |
-| `stop <name> [--graceful] [--timeout <seconds>]` | Power off a recorded VM by default. `--graceful` asks the guest to shut down with `sudo -n /sbin/shutdown -h now` through `tart exec`, whose `PATH` has no `/sbin`. `--timeout` is a positive whole number of seconds. Tart's power-off timeout defaults to 30. The graceful timeout defaults to 120 and bounds both the request to the guest and the wait, leaving the VM running if the guest does not shut down in time. The VM's own state decides the outcome, since a guest that shuts down can drop the agent's connection before `tart exec` answers. |
-| `delete <name> [--gate-approved]` | Delete a stopped or suspended VM, then its record, its supervisor log and any socket a killed supervisor left. A record whose VM Tart no longer has is removed with `vm_missing: true`; `create` removes such a record before it reuses the name. A VM without a record requires `--gate-approved` after DevOps Expert's gate and the requester's yes naming the VM. |
+| `stop <name> [--graceful \| --power-off] [--kept-approved] [--timeout <seconds>]` | Kept VMs default to graceful shutdown. Other recorded VMs default to power-off. `--graceful` asks the guest to shut down with `sudo -n /sbin/shutdown -h now` through `tart exec`. For a kept VM, use `--power-off --kept-approved` only after the person says yes and names the VM. Give `--timeout` as a positive whole number of seconds. The default is 30 for power-off and 120 for graceful shutdown. The graceful timeout bounds the request and the wait. On timeout the tool leaves the VM running. The VM's state decides the outcome because shutdown can drop the agent's connection before `tart exec` answers. |
+| `delete <name> [--gate-approved] [--kept-approved]` | Delete a stopped or suspended VM, then its record, its supervisor log and any socket a killed supervisor left. Use `--kept-approved` for a kept VM only after the person says yes and names it. Delete removes a stale record with `vm_missing: true`. Create can replace a stale record for a VM that was never kept. A VM without a record requires `--gate-approved` after DevOps Expert's gate and the requester's yes naming the VM. |
 
 New names use `wiser-tart-` followed by 1 to 31 lowercase letters, digits or hyphens. The first character after the prefix must be a letter or digit. Create from a cached image, clone and start need 20 GB free. An uncached image needs its size plus 20 GB. The default image uses a measured floor of 33 GB for that calculation. Start refuses a third running macOS VM.
 
-Only `start` launches the internal `scripts/tart-vm-supervisor.js` script. Its `help` and `--help` show its internal `serve <name> <launch-id> [--desktop]` invocation. The supervisor keeps the desktop URL in memory, serves status and queued desktop requests on its private Unix socket and records only the passphrase length. If a desktop run ends before its URL is read, its log keeps only the class of Tart's error, since the passphrase could not yet be redacted.
+Only `start` launches the internal `scripts/tart-vm-supervisor.js` script. Its `help` and `--help` show its internal `serve <name> <launch-id> [--desktop | --window] [--share <path>[:ro]]...` invocation. The supervisor keeps the desktop URL in memory, serves status and queued desktop requests on its private Unix socket and records only the passphrase length. If a desktop run ends before its URL is read, its log keeps only the class of Tart's error, since the passphrase could not yet be redacted.
 
 Desktop commands require a recorded VM held by `start --desktop`. Coordinates are zero-based framebuffer pixels, with the origin at the top left. Both drag endpoints must be in bounds. If the RFB connection drops, `status` reports it. Stop the VM and start it again with `--desktop` to restore desktop commands.
 
@@ -84,9 +86,9 @@ Help prints usage text. Each successful command other than help prints one JSON 
 | Command | Other fields |
 |---------|--------------|
 | `preflight` | `platform`, `architecture`, `apple_silicon`, `macos_version`, `macos_13_or_later`, `tart_home`, `disk`, `default_image`, `default_image_cached`, `running_macos_vms`, `state_directories` and `errors`. The disk object gives `free_bytes` and `measured_at`. |
-| `list` | `vms` contains Tart's local list entries with `created_by_tool`. Entries held by a supervisor also carry `supervised: true` and `desktop`. |
-| `create`, `clone` | `record` gives `name`, `source`, `created_at` and `tool_version`. `vm` is Tart's `get` object. Create also gives `image_cached` and echoes `image_gb` when supplied. |
-| `start`, `status` | `name`, `supervised`, `desktop` and `pid` when supervised. Status includes `vm`, Tart's `get` object. A desktop supervisor reports `rfb` with `connected` and `framebuffer` (width and height, or null before ServerInit). A verified desktop listener adds `listener` from `lsof` and `listener_reach`, a sentence that follows that address, never the one in Tart's URL: on a wildcard, as Tart 2.42.0 listens, the port can be reached from every network this Mac joins and Tart's passphrase is its only guard. |
+| `list` | `vms` contains Tart's local list entries with `created_by_tool`. Recorded VMs carry `kept`. Entries held by a supervisor carry `supervised: true`, `desktop` and `window`. |
+| `create`, `clone` | `record` gives `name`, `source`, `created_at`, `tool_version` and `kept`. `vm` is Tart's `get` object. Create also gives `image_cached` and echoes `image_gb` when supplied. |
+| `start`, `status` | `name`, `supervised`, `desktop`, `window` and `pid` when supervised. Status includes `vm`, Tart's `get` object, and `kept` for a recorded VM. Records from 0.1.0 read as `kept: false`. Both commands return `shares` with each resolved `path`, `access` (`rw` or `ro`), `exported: true` and `mounted`. A successful start reports `mounted: true` for every share. Status reads mounts live and reports `mounted: null` and `guest_agent_answered: false` if the guest agent does not answer. A desktop supervisor reports `rfb` with `connected` and `framebuffer` (width and height, or null before ServerInit). A verified desktop listener adds `listener` from `lsof` and `listener_reach`. On a wildcard, as Tart 2.42.0 listens, the port can be reached from every network this Mac joins and Tart's passphrase is its only guard. |
 | `screenshot` | `name`, `path` (resolved), `width`, `height` and `bytes`. |
 | `move` | `name`, `x` and `y`. |
 | `click`, `double-click` | `name`, `x`, `y` and `button`. |
@@ -117,6 +119,12 @@ Measured 2026-11-23 on an M4 Max with macOS 26.3 and Tart 2.42.0.
 - A desktop start that connects while the guest is still booting reads a 1280x720 framebuffer at ServerInit; the first full update after macOS finishes starting resizes it to 1024x768 (measured 2026-11-23, Milestone 2's live drive). `status` reports the size as of the last ServerInit or DesktopSize, and every pointer write is checked against the size at that moment: take a screenshot before the first action. A screenshot is taken only once rectangles cover the whole frame, from a copy of that frame.
 - Through the shipped commands, 2026-11-23: 10 of 10 clicks landed on the guest's own pointer reading; `Wiser Probe 42: A-Z_ok! ~{}|<>?` typed and read back exact; `cmd+n` took Terminal from 1 to 2 windows; `cmd+space` opened Spotlight; `move` and `drag` ended at the requested pixel.
 
+Measured 2026-11-24 on the same Mac and Tart version.
+
+- The guest agent answered 18 to 19 seconds after a headless start and 31 seconds after a window start.
+- A guest reboot removed the mount and its mount point. The host enforced read-only access while the guest's mount flags showed the same options for both access modes.
+- The `tart run` process owned the window, which came to the front and took focus. The process had no network listener.
+
 ## Troubleshooting
 
 | What you see | What to do |
@@ -126,5 +134,9 @@ Measured 2026-11-23 on an M4 Max with macOS 26.3 and Tart 2.42.0.
 | An image needs `--image-gb`, or there is too little disk space | Supply the uncached image's size or free space on Tart's volume before retrying. |
 | Create or clone failed after Tart cloned | A VM is recorded only once Tart's clone exits 0, so a record never names a VM this tool did not make. Without a record, which the error says, the tool cannot start, stop or delete that VM: delete it with `--gate-approved` only after DevOps Expert's gate. |
 | Two macOS VMs are running | Stop a named running macOS VM before starting another one. |
-| The guest did not shut down | Inspect status. Stop without `--graceful` only if a power-off is acceptable. |
-| Unsafe directory, another command working on the name, stale socket or socket path too long | Check the state paths in `preflight`. The Wiser directory must be owned by the current user without group or other write access, and the tool's own `tart-vm`, `vms` and `run` directories must admit no one else (mode 0700). `create`, `clone`, `start` and `delete` each hold the VM name's lock while they run, an exclusive lock macOS keeps on the name's `.lock` file and drops when the command exits, however it exits; a second of those commands on the same name meanwhile is refused, and nothing is ever left to take over. Under it, `start` clears a socket that refuses connections twice and is the same file both times, which a killed supervisor or a restart left. The socket path limit is 103 bytes. |
+| The guest did not shut down | Inspect status. Use `--power-off` only if a power-off is acceptable. |
+| A share was refused | Follow the path check in the error. Use an existing absolute directory with no colon, give each resolved directory once, and append only `:ro` for read-only access. |
+| Start failed after the VM began running | The error reports the VM's state after cleanup. If a kept VM is still running, check `status` and follow the error before retrying. Share mounting requires a responsive guest agent and passwordless `sudo`. |
+| A share reports `mounted: false` after a reboot | The tool checks mounts live. Stop the VM and start it again with its share flags to restore them. |
+| Deleting or powering off a kept VM was refused | For shutdown, use `stop <name>` to ask the guest to shut down. For deletion or power-off, use `--kept-approved` only after the person says yes and names that VM. |
+| Unsafe directory, another command working on the name, stale socket or socket path too long | Check the state paths in `preflight`. The Wiser directory must be owned by the current user without group or other write access, and the tool's own `tart-vm`, `vms` and `run` directories must admit no one else (mode 0700). `create`, `clone`, `start` and `delete` hold the VM name's lock while they run. macOS drops the lock on exit. If another command holds it, wait for that command to finish. While holding the lock, `start` clears a stale socket if the same file refuses connections twice. The socket path limit is 103 bytes. |

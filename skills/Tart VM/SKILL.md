@@ -3,7 +3,7 @@ name: Tart VM
 type: skill
 category: operations
 description: Make a clean, disposable macOS virtual machine on the person's own Apple silicon Mac through Tart, or keep a base one they set up by hand and copy it for each run, share a folder from the Mac into it at the same path, work in it by commands or by seeing and driving its screen without touching the Mac's own pointer, keyboard, clipboard or windows, and stop, throw away or remake it
-version: 0.2.0
+version: 0.2.1
 gaps:
   - apps that cannot run commands on the person's Mac
   - a Mac without Apple silicon
@@ -65,7 +65,7 @@ Which kind of start does the task need?
 - **You see and drive the screen.** Is this the first start with the screen in this conversation? Yes: ask **Screen connection**; on a no, start without the screen and say what cannot be done without it. No: say **Screen connection again**. Then `start <name> --desktop`, and read `listener` from its answer: that is the address the screen connection listens on. Never describe it as reachable from this Mac alone, whatever address Tart prints.
 - **The person works in it by hand** (setting up or refreshing a base). Say **Window start**, then `start <name> --window`. Tart's window opens on the Mac and comes to the front; no network listener opens and the clipboard stays off, so the person types into the window rather than pasting. Wait for them to say they are done, then Step 5. Never combine it with `--desktop`; the tool refuses that.
 
-**A folder from the Mac.** Does the task need a folder from this Mac inside the virtual machine? Share only the folder the person named, by its absolute path. Is this the first start sharing that folder in this conversation? Yes: take the plan to DevOps Expert's gate (Job 2), since a shared folder widens the machine's reach onto the Mac; on a verdict of safe, ask **Share a folder**. With changes allowed: add `--share <folder>`. Read-only: add `--share <folder>:ro`. Not at all: start without it, and say what cannot be done without it. No: say **Share again** and add the same `--share` as before. The flag goes on any of the three starts above and may be given once per folder.
+**A folder from the Mac.** Does the task need a folder from this Mac inside the virtual machine? Share only the folder the person named, by its absolute path. Is this the first start sharing that folder in this conversation? Yes: take the plan to DevOps Expert's gate (Job 2), since a shared folder widens the machine's reach onto the Mac; on a verdict of safe, ask **Share a folder**. With changes allowed: add `--share <folder>`. Read-only: add `--share <folder>:ro`. Not at all: start without it, and say what cannot be done without it. No: say **Share again** and add the same `--share` as before. Did the person name two folders at once, with the access of each, one read-only and one with changes allowed, neither shared yet in this conversation? Take both to the gate in one plan, then ask once for both: the paragraph of **Share a folder** for each folder, without its last question, then **Share two folders as asked**. A yes adds `--share <folder>:ro` for the one and `--share <folder>` for the other; any other answer, ask **Share a folder** for each folder on its own. The flag goes on any of the three starts above and may be given once per folder.
 
 The folder is mounted inside the virtual machine at the same absolute path it has on the Mac, once the guest's agent answers, so a path that works on the Mac opens the same file inside. Read `shares` in the start's answer: each folder `mounted: true`. The tool refuses a folder that is missing, `/`, holds a `:`, or holds or sits inside the tool itself, its records or Tart's own virtual machines, since a virtual machine that could change those could change what runs on the Mac: say why in plain words and ask for another folder. A folder that holds this plugin's own copy is refused for that reason; the plugin installed where the app keeps its plugins is outside any folder the person works in. A start that fails once the virtual machine is running, a failed mount among them, stops the machine itself: it powers off a disposable one and shuts a kept base down. Say what failed, the folder included. A kept base the tool could not shut down is left running, with every folder of that start still shared with it and, after a start with the screen, its screen connection still open: ask **Power off the kept base**, and only on a yes naming it run `stop <name> --power-off --kept-approved`. After the guest restarts, a folder is no longer mounted inside it (`status` shows `mounted: false`) but stays shared with the machine until it stops (`exported: true`), and anything inside can mount it again: stop and start again with the same `--share` to have it mounted, and never treat that machine as one without the folder.
 
@@ -135,6 +135,10 @@ Use only these lines for this skill's prose to the person. Angle brackets are fi
 
 > To use <folder> inside the virtual Mac, I'll share it in at the same path it has here. While it's shared, anything running in the virtual Mac, including the apps you're testing, can read every file in that folder, saved passwords and keys included, and can change or delete any of them. If the folder syncs to other devices, those changes go there too. I can share it read-only instead, so nothing in the virtual Mac can change it. Share <folder> with changes allowed, read-only, or not at all?
 
+**Share two folders as asked**
+
+> Share <folder> read-only and <folder> with changes allowed, as you asked?
+
 **Share again**
 
 > Sharing <folder> again, <with changes allowed | read-only>, until this virtual Mac stops.
@@ -185,6 +189,6 @@ Use only these lines for this skill's prose to the person. Angle brackets are fi
 - What the report says happened in the guest was read back from inside the guest.
 - Nothing the person did not ask to keep is left running, and every deletion of a machine this skill did not make passed DevOps Expert's gate and the person's yes naming it.
 - A kept base was set up by the person by hand in its window, worked on only through copies, and deleted or powered off only on their yes naming it.
-- A folder was shared only when the person named it, after DevOps Expert's gate and their answer to **Share a folder** the first time in the conversation, read-only when they chose it.
+- A folder was shared only when the person named it, after DevOps Expert's gate and their answer to **Share a folder**, or to **Share two folders as asked** when they named both folders' access, the first time in the conversation, read-only when they chose it.
 - Tart was installed only on the person's yes, from Tart's own instructions.
 - No password, passphrase or default sign-in was written to a file or the conversation.

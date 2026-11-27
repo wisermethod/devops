@@ -1,5 +1,9 @@
 # What changed in DevOps
 
+## v2026.11.27, November 27, 2026
+
+- Cloudflare Pages 0.9.2 publishes a site at kit 0.6.0, the release that added `LeadForm`. Its signed release pair has been served since November 20, but the skill still listed only 0.5.0 and 0.1.0 and stopped those publications.
+
 ## v2026.11.24.2, November 24, 2026
 
 - Tart VM 0.2.1 asks once when you share two folders and say how each is shared, such as a whole drive read-only and one folder in it with changes allowed. It tells you what sharing each folder allows, then asks you to confirm both, as you asked.
